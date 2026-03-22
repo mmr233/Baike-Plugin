@@ -1,0 +1,131 @@
+body {
+  margin: 0;
+  color: var(--color-text);
+  background:
+    radial-gradient(circle at top left, rgba(79, 146, 136, 0.28), transparent 32%),
+    radial-gradient(circle at top right, rgba(242, 187, 97, 0.18), transparent 24%),
+    linear-gradient(180deg, #06131b 0%, #0b1922 48%, #09141b 100%);
+}
+
+.page {
+  padding: 28px;
+}
+
+.hero {
+  padding: 30px 32px;
+  border-radius: 28px;
+  background: var(--hero-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow-main);
+}
+
+.hero-sub {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.36em;
+  color: var(--color-accent);
+  text-transform: uppercase;
+}
+
+.hero-title {
+  margin-top: 12px;
+  font-size: 46px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.hero-desc {
+  margin-top: 14px;
+  max-width: 760px;
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--color-text-muted);
+}
+
+.panel {
+  margin-top: 18px;
+  padding: 22px 22px 20px;
+  border-radius: 24px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow-main);
+  backdrop-filter: blur(10px);
+}
+
+.panel-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-accent-strong);
+}
+
+.panel-desc {
+  margin-top: 10px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text-muted);
+}
+
+.help-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  grid-template-columns: repeat(var(--help-col-count, 3), minmax(0, 1fr));
+}
+
+.help-card {
+  display: flex;
+  gap: 14px;
+  min-height: 124px;
+  padding: 16px;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+    var(--card-bg);
+  border: 1px solid var(--card-border);
+}
+
+.help-icon {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-accent-strong), var(--color-accent));
+  color: #08202a;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.help-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.help-title {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.help-desc {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-text-muted);
+}
+
+.help-command {
+  margin-top: 10px;
+  display: inline-flex;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--command-bg);
+  border: 1px solid rgba(157, 214, 204, 0.18);
+  color: var(--color-accent);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}

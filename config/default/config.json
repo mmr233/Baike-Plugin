@@ -1,0 +1,73 @@
+{
+  "api": {
+    "primaryBaseUrl": "https://your-api.example.com/v1",
+    "primaryApiKey": "your-primary-api-key",
+    "search": {
+      "baseUrl": "",
+      "apiKey": "",
+      "model": "perplexity-search"
+    },
+    "summary": {
+      "baseUrl": "",
+      "apiKey": "",
+      "model": "gemini-flash-latest"
+    },
+    "video": {
+      "baseUrl": "",
+      "apiKey": "",
+      "model": "qwen3-vl-plus"
+    },
+    "audio": {
+      "baseUrl": "",
+      "apiKey": "",
+      "model": "grok-4.1-fast"
+    }
+  },
+  "cache": {
+    "enabled": true,
+    "ttl": 10,
+    "maxSize": 100
+  },
+  "debug": {
+    "enabled": false
+  },
+  "prompt": {
+    "search": "你是一个信息整理助手。请将搜索结果整理成JSON格式，要求：\n1. 只包含两个字段：详细信息、总结\n2. 详细信息：对象格式，按类别分组整理，必须尽可能全面，保留原文至少70%以上的关键信息\n3. 总结：一段简洁的总结性文字\n4. 只输出JSON，不要使用markdown代码块",
+    "summaryDefault": "你是一个智能助手。请对用户提供的内容进行全面分析和总结。\n\n重要要求：\n1. 直接输出纯文本，不要使用任何markdown格式\n2. 使用简洁清晰的中文表达\n3. 可以使用\"•\"符号作为列表项\n4. 段落之间用空行分隔",
+    "summaryImageAppend": "\n\n注意：用户已经上传了{count}张图片，请直接分析这些图片内容。",
+    "video": "你是一个视频分析助手。请仔细观看用户上传的视频，分析视频内容并进行总结。\n\n重要要求：\n1. 直接输出纯文本，不要使用任何markdown格式\n2. 描述视频中的主要内容、场景、人物、动作等\n3. 如果有对话或文字，请提取关键信息\n4. 使用简洁清晰的中文表达",
+    "groupChat": "请分析以下群聊记录，严格按以下格式输出（不要使用markdown格式）：\n\n===话题总结===\n（总结群内讨论的主要话题、热点内容和整体氛围，用纯文本描述）\n\n===消息精选===\n【时间】消息的原始时间\n【发送者】发送者昵称\n【内容】消息原文摘要\n【吐槽】用幽默毒舌的语气吐槽为什么选中这条\n---\n（精选3-5条最有趣/最有价值/最离谱的消息，每条之间用---分隔）\n\n发言统计（前10名）：{statsText}{extraContext}\n\n聊天记录：\n{messageTexts}",
+    "groupMember": "请分析以下群聊中指定成员的聊天记录，严格按以下格式输出（不要使用markdown格式）：\n\n===话题总结===\n（总结他们讨论的主要话题、观点和互动情况，用纯文本描述）\n\n===消息精选===\n【时间】消息的原始时间\n【发送者】发送者昵称\n【内容】消息原文摘要\n【吐槽】用幽默毒舌的语气吐槽为什么选中这条\n---\n（精选3-5条最有趣/最有价值/最离谱的消息，每条之间用---分隔）\n\n发言统计：{statsText}{extraContext}\n\n聊天记录：\n{messageTexts}"
+  },
+  "fileRequest": {
+    "imageMaxPerRequest": 20,
+    "videoMaxPerRequest": 3,
+    "audioMaxPerRequest": 5,
+    "otherMaxPerRequest": 5,
+    "maxRequestLoops": 2
+  },
+  "chatSummary": {
+    "defaultMessageCount": 800,
+    "atMemberMessageCount": 200,
+    "maxMessageCount": 500,
+    "docMaxChars": 2000
+  },
+  "send": {
+    "primaryMode": "html",
+    "autoFallback": true,
+    "search": "forward",
+    "contentSummary": "",
+    "groupChatSummary": "",
+    "memberSummary": "",
+    "searchScreenshotCount": -1,
+    "searchScreenshotMode": "viewport"
+  },
+  "scheduledSummary": {
+    "enabled": true,
+    "cron": "0 0 22 * * *",
+    "groups": [
+      575872693
+    ],
+    "messageCount": 300
+  }
+}

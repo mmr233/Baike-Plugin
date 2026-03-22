@@ -1,0 +1,26 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: var(--page-width, 1040px);
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+.container {
+  width: var(--page-width, 1040px);
+}
+
+.copyright {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(235, 247, 242, 0.56);
+}
+
+.copyright .version {
+  color: var(--color-accent-strong, #f3d18f);
+  padding: 0 4px;
+}

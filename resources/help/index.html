@@ -1,0 +1,42 @@
+{{extend defaultLayout}}
+
+{{block 'css'}}
+<link rel="stylesheet" type="text/css" href="{{_res_path}}help/index.css"/>
+<% style = style.replace(/{{_res_path}}/g, _res_path) %>
+{{@style}}
+{{/block}}
+
+{{block 'main'}}
+<div class="page">
+  <div class="hero">
+    <div class="hero-sub">{{helpCfg.subTitle}}</div>
+    <div class="hero-title">{{helpCfg.title}}</div>
+    <div class="hero-desc">{{helpCfg.description}}</div>
+  </div>
+
+  {{each helpGroup group}}
+  <section class="panel">
+    <div class="panel-title">{{group.group}}</div>
+    {{if group.desc}}
+    <div class="panel-desc">{{group.desc}}</div>
+    {{/if}}
+    {{if group.list && group.list.length}}
+    <div class="help-grid">
+      {{each group.list help}}
+      <article class="help-card">
+        <div class="help-icon">{{help.iconLabel}}</div>
+        <div class="help-main">
+          <div class="help-title">{{help.title}}</div>
+          <div class="help-desc">{{help.desc}}</div>
+          {{if help.command}}
+          <div class="help-command">{{help.command}}</div>
+          {{/if}}
+        </div>
+      </article>
+      {{/each}}
+    </div>
+    {{/if}}
+  </section>
+  {{/each}}
+</div>
+{{/block}}
