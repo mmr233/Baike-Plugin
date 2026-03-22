@@ -1,48 +1,119 @@
-# Baike-Plugin
+<div align="center">
 
-百科查询、内容总结、群聊总结插件。
+# [mmr233](https://github.com/mmr233)
 
-## 功能
+</div>
 
-- `搜索 xxx` 或 `xxx是谁 / xxx是什么` 进行百科查询
-- `总结 + 引用消息` 总结文本、图片、视频、语音、合并转发
-- 群内直接发送 `总结` 获取群聊总结
-- 群内发送 `总结 @成员` 获取指定成员总结
-- 支持锅巴面板配置
+## 注意事项
+
+> 请先看完下面内容再使用本插件
+> 需要你已经具备正常使用 Yunzai 和修改插件配置的基础能力
+> 搜索、总结、语音识别和视频分析都依赖你自己填写的接口地址与 API Key
+> 默认模板配置里不再附带可直接使用的密钥
+
+如果你连 `config/config/config.json` 和锅巴面板都不想看，那这个插件大概率不适合你。
+
+---
+
+## 功能说明
+
+- 全面适配 [TRSS Yunzai v3.1.3](https://github.com/TimeRainStarSky/Yunzai)
+- 兼容 [Miao-Yunzai v3.1.3](https://github.com/yoimiya-kokomi/Miao-Yunzai)
+- 支持百科搜索、引用消息总结、图片/视频/语音总结、群聊总结、@成员总结
+- 支持锅巴面板配置管理
 - 支持帮助 HTML 渲染
 - 支持定时群总结
 
-## 目录
+---
+
+## 主要能力
+
+- `搜索 xxx` 或 `xxx是谁 / xxx是什么 / xxx是啥` 可直接查询资料
+- `总结 + 引用消息` 可统一总结文本、图片、视频、语音、合并转发
+- 群里直接发送 `总结` 可分析最近群聊
+- 群里发送 `总结 @成员` 可只分析指定成员发言
+- 搜索结果支持来源整理和可选截图
+- 总结结果支持 `HTML 图片 / 合并转发 / 文本` 三种发送方式并可自动降级
+
+---
+
+## 锅巴配置说明
+
+- 搜索模型、总结模型、视频模型、音频模型都能在锅巴里单独配置
+- 缓存时长、缓存容量、发送方式和来源截图数量都能直接调
+- 定时群总结支持配置 `cron`、目标群和消息条数
+- 修改 `cron` 后建议重载插件或重启 Yunzai 一次
+- 运行中的真实配置文件在 `config/config/config.json`
+- 仓库中的 `config/default/config.json` 只是模板，不包含可直接使用的密钥
+
+---
+
+## 安装指南
+
+#### Yunzai 根目录执行命令安装
+
+- GitHub 源
+```bash
+git clone --depth=1 https://github.com/mmr233/Baike-Plugin.git ./plugins/Baike-Plugin/
+```
+
+- 安装依赖
+```bash
+pnpm install --filter=baike-plugin
+```
+
+- 填写你自己的接口配置
+```text
+plugins/Baike-Plugin/config/config/config.json
+```
+
+---
+
+## 使用说明
+
+> 使用 `#百科帮助` 或 `#百科查询帮助` 获取完整帮助
+
+| 分类 | 示例 |
+|------|------|
+| 搜索 | `搜索 胡桃` `胡桃是谁` `往生堂是什么` |
+| 引用总结 | `总结 + 引用消息` |
+| 媒体总结 | `总结 + 图片/视频/语音` |
+| 群聊总结 | `总结` |
+| 成员总结 | `总结 @某人` |
+| 插件帮助 | `#百科帮助` `#百科查询帮助` |
+| 更新 | `#百科更新` `#百科强制更新` `#百科更新日志` |
+
+---
+
+## 目录结构
 
 ```text
 Baike-Plugin/
-├─ apps/
-├─ model/
-├─ utils/
-├─ resources/
-├─ config/
-├─ lib/
+├─ apps/                  # 命令入口
+├─ model/                 # 配置、服务、锅巴适配
+├─ utils/                 # 文本与 HTML 工具
+├─ resources/             # 帮助页模板和公共样式
+├─ config/                # 默认配置与运行配置
+├─ lib/                   # 动态加载器
 ├─ index.js
 ├─ guoba.support.js
 └─ package.json
 ```
 
-## 安装
+---
 
-将插件目录放到 `Yunzai/plugins/Baike-Plugin` 后执行：
+## 免责声明
 
-```bash
-pnpm install --filter=baike-plugin
-```
+> 1. 本插件仅供学习交流使用，严禁用于违法或滥用场景
+> 2. 搜索与总结结果来自你自行配置的模型接口，结果仅供参考，请自行判断准确性
+> 3. 请勿把你自己的 API Key、私有接口地址和运行配置直接公开到公共仓库
 
-## 帮助命令
+---
 
-- `#百科帮助`
-- `#百科查询帮助`
+## 致谢
 
-## 说明
-
-- 主要配置文件位于 `config/config/config.json`
-- 默认配置模板位于 `config/default/config.json`
-- 首次使用前请先在 `config/config/config.json` 或锅巴面板里填写你自己的接口地址和 API Key
-- `cron` 修改后需要重载插件或重启 Yunzai
+| Nickname | Contribution |
+| -------- | ------------ |
+| [TRSS Yunzai](https://github.com/TimeRainStarSky/Yunzai) | TRSS Yunzai 主框架 |
+| [Miao-Yunzai](https://github.com/yoimiya-kokomi/Miao-Yunzai) | Miao-Yunzai 兼容参考 |
+| [Guoba-Plugin](https://github.com/guoba-yunzai/guoba-plugin) | 锅巴面板支持 |
