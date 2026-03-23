@@ -1,26 +1,26 @@
 import plugin from '../../../lib/plugins/plugin.js'
 import { pluginName, pluginTitle } from '#model'
 
-let UpdateHandler = null
+let Update = null
 try {
-  UpdateHandler = (await import('../../other/update.js').catch(() => null))?.update
-  UpdateHandler ||= (await import('../../system/apps/update.ts').catch(() => null))?.update
+  Update = (await import('../../other/update.js').catch(() => null))?.update
+  Update ||= (await import('../../system/apps/update.ts').catch(() => null))?.update
 } catch {
-  logger.error(`[${pluginName}] 未获取到 Yunzai 通用更新模块，更新功能不可用`)
+  logger.error(`[${pluginName}]未获取到更新js ${logger.yellow('更新功能')} 将无法使用`)
 }
 
 function createUpdater(e) {
-  if (!UpdateHandler) {
-    e?.reply?.('未获取到 Yunzai 通用更新模块，无法执行更新')
+  if (!Update) {
+    e?.reply?.('未获取到 Yunzai 通用更新模块，更新功能不可用')
     return null
   }
 
-  const updater = new UpdateHandler(e)
+  const updater = new Update(e)
   updater.e = e
   return updater
 }
 
-export default class BaikeUpdate extends plugin {
+export class BaikeUpdate extends plugin {
   constructor() {
     super({
       name: `${pluginTitle}:更新`,
@@ -28,40 +28,32 @@ export default class BaikeUpdate extends plugin {
       priority: Number.MIN_SAFE_INTEGER,
       rule: [
         {
-          reg: '^#?(百科查询|百科|baike)(强制)?更新$|^#?(强制)?(百科查询|百科|baike)更新$',
+          reg: `^#*(百科查询|百科|baike|${pluginName})(插件)?(强制)?更新$|^#*(强制)?(百科查询|百科|baike|${pluginName})更新(插件)?$`,
           fnc: 'update'
         },
         {
-          reg: '^#?(百科查询|百科|baike)更新日志$',
-          fnc: 'updateLog'
+          reg: `^#?(百科查询|百科|baike|${pluginName})(插件)?更新日志$`,
+          fnc: 'update_log'
         }
       ]
     })
   }
 
   async update(e = this.e) {
-    if (!e.isMaster) {
-      return false
-    }
+    if (!e.isMaster) return false
 
     const updater = createUpdater(e)
-    if (!updater) {
-      return true
-    }
+    if (!updater) return true
 
     e.msg = `#${e.msg.includes('强制') ? '强制' : ''}更新${pluginName}`
     return updater.update()
   }
 
-  async updateLog(e = this.e) {
-    if (!e.isMaster) {
-      return false
-    }
+  async update_log(e = this.e) {
+    if (!e.isMaster) return false
 
     const updater = createUpdater(e)
-    if (!updater) {
-      return true
-    }
+    if (!updater) return true
 
     const currentPlugin = await updater.getPlugin(pluginName)
     if (currentPlugin === false) {
@@ -72,3 +64,5 @@ export default class BaikeUpdate extends plugin {
     return e.reply(await updater.getLog(pluginName))
   }
 }
+
+export default BaikeUpdate
