@@ -41,7 +41,7 @@ export const runtimeSchema = [
   {
     field: 'debug.enabled',
     label: '调试日志',
-    bottomHelpMessage: '开启后会输出更多接口与消息解析日志',
+    bottomHelpMessage: '开启后会输出接口请求、上下文注入和文件解析等调试日志',
     component: 'Switch',
     defaultValue: false
   },
@@ -123,6 +123,18 @@ export const runtimeSchema = [
         { label: '视口截图', value: 'viewport' },
         { label: '整页截图', value: 'full' }
       ]
+    }
+  },
+  {
+    field: 'send.searchScreenshotTimeoutMs',
+    label: '来源截图超时（毫秒）',
+    bottomHelpMessage: '超时后会跳过该来源截图，避免拖慢整体搜索返回',
+    component: 'InputNumber',
+    defaultValue: 10000,
+    componentProps: {
+      min: 1000,
+      max: 60000,
+      step: 1000
     }
   }
 ]

@@ -5,22 +5,26 @@
     "search": {
       "baseUrl": "",
       "apiKey": "",
-      "model": "perplexity-search"
+      "model": "perplexity-search",
+      "timeoutMs": 100000
     },
     "summary": {
       "baseUrl": "",
       "apiKey": "",
-      "model": "gemini-flash-latest"
+      "model": "gemini-flash-latest",
+      "timeoutMs": 120000
     },
     "video": {
       "baseUrl": "",
       "apiKey": "",
-      "model": "qwen3-vl-plus"
+      "model": "qwen3-vl-plus",
+      "timeoutMs": 180000
     },
     "audio": {
       "baseUrl": "",
       "apiKey": "",
-      "model": "grok-4.1-fast"
+      "model": "grok-4.1-fast",
+      "timeoutMs": 60000
     }
   },
   "cache": {
@@ -37,7 +41,7 @@
     "summaryImageAppend": "\n\n注意：用户已经上传了{count}张图片，请直接分析这些图片内容。",
     "video": "你是一个视频分析助手。请仔细观看用户上传的视频，分析视频内容并进行总结。\n\n重要要求：\n1. 直接输出纯文本，不要使用任何markdown格式\n2. 描述视频中的主要内容、场景、人物、动作等\n3. 如果有对话或文字，请提取关键信息\n4. 使用简洁清晰的中文表达",
     "groupChat": "请分析以下群聊记录，严格按以下格式输出（不要使用markdown格式）：\n\n===话题总结===\n（总结群内讨论的主要话题、热点内容和整体氛围，用纯文本描述）\n\n===消息精选===\n【时间】消息的原始时间\n【发送者】发送者昵称\n【内容】消息原文摘要\n【吐槽】用幽默毒舌的语气吐槽为什么选中这条\n---\n（精选3-5条最有趣/最有价值/最离谱的消息，每条之间用---分隔）\n\n发言统计（前10名）：{statsText}{extraContext}\n\n聊天记录：\n{messageTexts}",
-    "groupMember": "请分析以下群聊中指定成员的聊天记录，严格按以下格式输出（不要使用markdown格式）：\n\n===话题总结===\n（总结他们讨论的主要话题、观点和互动情况，用纯文本描述）\n\n===消息精选===\n【时间】消息的原始时间\n【发送者】发送者昵称\n【内容】消息原文摘要\n【吐槽】用幽默毒舌的语气吐槽为什么选中这条\n---\n（精选3-5条最有趣/最有价值/最离谱的消息，每条之间用---分隔）\n\n发言统计：{statsText}{extraContext}\n\n聊天记录：\n{messageTexts}"
+    "groupMember": "请分析以下群聊中指定成员的聊天记录，严格按以下格式输出（不要使用markdown格式）：\n\n===话题总结===\n（总结他们讨论的主要话题、观点和互动情况，用纯文本描述）\n\n===消息精选===\n【时间】消息的原始时间\n【发送者】发送者昵称\n【内容】消息原文摘要\n【吐槽】用幽默毒舌的语气吐槽为什么选中这条\n---\n（精选3-5条最有趣/最有价值/最离谱的消息，每条之间用---分隔）\n\n发言统计：{statsText}{extraContext}\n\n目标成员主页资料：\n{memberProfiles}\n\n聊天记录：\n{messageTexts}"
   },
   "fileRequest": {
     "imageMaxPerRequest": 20,
@@ -50,7 +54,11 @@
     "defaultMessageCount": 800,
     "atMemberMessageCount": 200,
     "maxMessageCount": 500,
-    "docMaxChars": 2000
+    "docMaxChars": 2000,
+    "historyHoursLimit": 24
+  },
+  "searchContext": {
+    "historyMessageCount": 5
   },
   "send": {
     "primaryMode": "html",
@@ -60,7 +68,8 @@
     "groupChatSummary": "",
     "memberSummary": "",
     "searchScreenshotCount": -1,
-    "searchScreenshotMode": "viewport"
+    "searchScreenshotMode": "viewport",
+    "searchScreenshotTimeoutMs": 10000
   },
   "scheduledSummary": {
     "enabled": true,

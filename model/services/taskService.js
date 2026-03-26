@@ -29,8 +29,14 @@ export function registerScheduledSummary() {
   job = schedule.scheduleJob(cron, async () => {
     const latestConfig = Config.get('scheduledSummary', {})
     const latestGroups = Array.isArray(latestConfig.groups) ? latestConfig.groups : []
+    const currentBot = globalThis.Bot || global.Bot
 
     logger.mark(`[${pluginName}] 自动群总结任务触发`)
+
+    if (!currentBot?.pickGroup) {
+      logger.warn(`[${pluginName}] 自动群总结跳过：Bot 未就绪`)
+      return
+    }
 
     for (const groupId of latestGroups) {
       try {
@@ -39,12 +45,12 @@ export function registerScheduledSummary() {
           continue
         }
 
-        const group = Bot.pickGroup?.(numericGroupId) || null
+        const group = currentBot.pickGroup?.(numericGroupId) || null
         const mockEvent = {
           group_id: numericGroupId,
-          user_id: Bot.uin || 0,
+          user_id: currentBot.uin || 0,
           sender: { nickname: '定时任务助手' },
-          bot: Bot,
+          bot: currentBot,
           group,
           message: [],
           msg: '总结',
@@ -53,15 +59,15 @@ export function registerScheduledSummary() {
               return group.sendMsg(message)
             }
 
-            if (Bot.sendApi) {
+            if (currentBot.sendApi) {
               if (message?.type === 'forward' || message?.data?.type === 'forward') {
-                return Bot.sendApi('send_group_forward_msg', {
+                return currentBot.sendApi('send_group_forward_msg', {
                   group_id: numericGroupId,
                   messages: message?.data?.content || message?.content || message
                 })
               }
 
-              return Bot.sendApi('send_group_msg', {
+              return currentBot.sendApi('send_group_msg', {
                 group_id: numericGroupId,
                 message: typeof message === 'string' ? [{ type: 'text', data: { text: message } }] : [message]
               })

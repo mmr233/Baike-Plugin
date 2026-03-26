@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { exec as execCallback } from 'node:child_process'
 import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer'
 import { pluginName } from '../constant.js'
 
@@ -43,7 +44,63 @@ class MediaService {
     return String(url).toLowerCase().includes('.gif') || String(url).toLowerCase().includes('gif')
   }
 
-  async downloadFile(url, filename) {
+  isHttpUrl(url = '') {
+    return /^https?:\/\//i.test(String(url || '').trim())
+  }
+
+  isDataUrl(url = '') {
+    return /^data:/i.test(String(url || '').trim())
+  }
+
+  escapeShellArg(value = '') {
+    return String(value).replace(/"/g, '\\"')
+  }
+
+  normalizeLocalPath(source = '') {
+    const value = String(source || '').trim()
+    if (!value) {
+      return ''
+    }
+
+    if (/^file:\/\//i.test(value)) {
+      try {
+        return fileURLToPath(value)
+      } catch {
+        return value.replace(/^file:\/+/, '')
+      }
+    }
+
+    return value
+  }
+
+  looksLikeGif(buffer) {
+    return Buffer.isBuffer(buffer)
+      && buffer.length > 3
+      && buffer[0] === 0x47
+      && buffer[1] === 0x49
+      && buffer[2] === 0x46
+  }
+
+  async convertGifToStaticImage(gifPath) {
+    const targetPath = `${gifPath.replace(/\.[^.]+$/, '')}_static.png`
+
+    try {
+      await exec(`ffmpeg -i "${this.escapeShellArg(gifPath)}" -frames:v 1 -update 1 -y "${this.escapeShellArg(targetPath)}"`, {
+        timeout: 60000
+      })
+
+      if (fs.existsSync(targetPath) && fs.statSync(targetPath).size > 0) {
+        return targetPath
+      }
+    } catch (error) {
+      logger.warn(`[${pluginName}] GIF 静态化失败：${error.message}`)
+    }
+
+    this.cleanupFile(targetPath)
+    return null
+  }
+
+  async downloadFile(url, filename, options = {}) {
     if (!url) {
       return null
     }
@@ -51,9 +108,26 @@ class MediaService {
     this.ensureTempDir()
     const filePath = path.join(this.tempDir, filename)
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 60000)
+    const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 60000)
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
     try {
+      if (this.isDataUrl(url)) {
+        const base64 = String(url).split(',')[1] || ''
+        fs.writeFileSync(filePath, Buffer.from(base64, 'base64'))
+        return filePath
+      }
+
+      if (!this.isHttpUrl(url)) {
+        const localPath = this.normalizeLocalPath(url)
+        if (localPath && fs.existsSync(localPath)) {
+          fs.copyFileSync(localPath, filePath)
+          return filePath
+        }
+
+        return null
+      }
+
       const response = await fetch(url, { signal: controller.signal })
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
@@ -70,20 +144,6 @@ class MediaService {
     }
   }
 
-  async convertGifToVideo(gifPath) {
-    const videoPath = gifPath.replace(/\.gif$/i, '.mp4')
-
-    try {
-      await exec(`ffmpeg -i "${gifPath}" -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2,tpad=stop_mode=add:stop_duration=3:color=black" -c:v libx264 -preset fast -movflags faststart -pix_fmt yuv420p -y "${videoPath}"`, {
-        timeout: 60000
-      })
-      return videoPath
-    } catch (error) {
-      logger.warn(`[${pluginName}] GIF 转视频失败，已降级为普通图片：${error.message}`)
-      return null
-    }
-  }
-
   async downloadImages(images, prefix = 'img', maxCount = 20) {
     const files = []
     const targets = (images || []).slice(0, maxCount)
@@ -92,6 +152,7 @@ class MediaService {
       const image = targets[index]
       let ext = this.isGifUrl(image.url) ? 'gif' : 'jpg'
       let localPath = await this.downloadFile(image.url, `${prefix}_${Date.now()}_${index}.${ext}`)
+      let isGif = ext === 'gif'
 
       if (!localPath) {
         continue
@@ -99,39 +160,45 @@ class MediaService {
 
       try {
         const buffer = fs.readFileSync(localPath)
-        const isGif = buffer.length > 3 && buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46
+        isGif = this.looksLikeGif(buffer)
 
-        if (isGif) {
-          if (!localPath.endsWith('.gif')) {
-            const newPath = localPath.replace(/\.[^.]+$/, '.gif')
-            fs.renameSync(localPath, newPath)
-            localPath = newPath
-          }
-
-          const videoPath = await this.convertGifToVideo(localPath)
-          if (videoPath) {
-            files.push({ type: 'video', localPath: videoPath, url: image.url })
-            this.cleanupFile(localPath)
-            continue
-          }
+        if (isGif && !localPath.endsWith('.gif')) {
+          const newPath = localPath.replace(/\.[^.]+$/, '.gif')
+          fs.renameSync(localPath, newPath)
+          localPath = newPath
         }
       } catch (error) {
         logger.warn(`[${pluginName}] 识别图片类型失败：${error.message}`)
       }
 
-      files.push({ type: 'image', localPath, url: image.url })
+      if (isGif) {
+        const staticPath = await this.convertGifToStaticImage(localPath)
+        if (!staticPath) {
+          logger.warn(`[${pluginName}] GIF 无法转为静态图，已跳过：${image.url}`)
+          this.cleanupFile(localPath)
+          continue
+        }
+
+        this.cleanupFile(localPath)
+        localPath = staticPath
+      }
+
+      files.push({ type: 'image', localPath, url: image.url, name: image.name || '' })
     }
 
     return files
   }
 
-  async downloadVideos(videos, prefix = 'video', maxCount = 3) {
+  async downloadVideos(videos, prefix = 'video', maxCount = 3, options = {}) {
     const files = []
     const targets = (videos || []).slice(0, maxCount)
+    const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 60000)
 
     for (let index = 0; index < targets.length; index += 1) {
       const video = targets[index]
-      const localPath = await this.downloadFile(video.url, `${prefix}_${Date.now()}_${index}.mp4`)
+      const localPath = await this.downloadFile(video.url, `${prefix}_${Date.now()}_${index}.mp4`, {
+        timeoutMs
+      })
       if (!localPath) {
         continue
       }
@@ -205,10 +272,12 @@ class MediaService {
     }
   }
 
-  async captureScreenshot(url, index = 0, mode = 'viewport') {
+  async captureScreenshot(url, index = 0, mode = 'viewport', options = {}) {
     let browser = null
     this.ensureTempDir()
     const imagePath = path.join(this.tempDir, `cite_${Date.now()}_${index}.png`)
+    const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 10000)
+    const waitUntil = options.waitUntil || 'domcontentloaded'
 
     try {
       browser = await puppeteer.launch({
@@ -219,7 +288,7 @@ class MediaService {
       const page = await browser.newPage()
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
       await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1.5 })
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+      await page.goto(url, { waitUntil, timeout: timeoutMs })
       await page.screenshot({
         path: imagePath,
         fullPage: mode === 'full'
@@ -227,7 +296,7 @@ class MediaService {
 
       return imagePath
     } catch (error) {
-      logger.warn(`[${pluginName}] 来源截图失败：${error.message}`)
+      logger.warn(`[${pluginName}] 来源截图失败：${error.message} (${url})`)
       this.cleanupFile(imagePath)
       return null
     } finally {

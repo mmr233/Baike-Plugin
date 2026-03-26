@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import Config from '../Config.js'
 import { pluginName } from '../constant.js'
-import { beautifyText } from '../../utils/text.js'
+import { debugLog } from '../debug.js'
+import { beautifyText, extractKeyword } from '../../utils/text.js'
 
 function parseJson(text, context = '接口响应') {
   try {
@@ -11,7 +12,301 @@ function parseJson(text, context = '接口响应') {
   }
 }
 
+function extractFirstJsonBlock(text = '') {
+  const source = String(text || '')
+  const startCandidates = [source.indexOf('{'), source.indexOf('[')].filter(index => index >= 0)
+  if (startCandidates.length === 0) {
+    return ''
+  }
+
+  const startIndex = Math.min(...startCandidates)
+  const opening = source[startIndex]
+  const closing = opening === '{' ? '}' : ']'
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = startIndex; index < source.length; index += 1) {
+    const char = source[index]
+
+    if (escaped) {
+      escaped = false
+      continue
+    }
+
+    if (char === '\\' && inString) {
+      escaped = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+
+    if (inString) {
+      continue
+    }
+
+    if (char === opening) {
+      depth += 1
+    } else if (char === closing) {
+      depth -= 1
+      if (depth === 0) {
+        return source.slice(startIndex, index + 1)
+      }
+    }
+  }
+
+  return ''
+}
+
+function parseJsonContent(text, fallback = null) {
+  const content = String(text || '').trim()
+  if (!content) {
+    return fallback
+  }
+
+  const candidates = [content]
+  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fenced?.[1]) {
+    candidates.unshift(fenced[1].trim())
+  }
+
+  const firstJsonBlock = extractFirstJsonBlock(content)
+  if (firstJsonBlock) {
+    candidates.push(firstJsonBlock.trim())
+  }
+
+  for (const candidate of [...new Set(candidates.filter(Boolean))]) {
+    try {
+      return JSON.parse(candidate)
+    } catch {}
+  }
+
+  return fallback
+}
+
+function pushTextParts(value, parts, depth = 0) {
+  if (depth > 8 || value === undefined || value === null) {
+    return
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim()
+    if (normalized) {
+      parts.push(normalized)
+    }
+    return
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      pushTextParts(item, parts, depth + 1)
+    }
+    return
+  }
+
+  if (typeof value !== 'object') {
+    return
+  }
+
+  for (const field of ['text', 'output_text']) {
+    if (typeof value[field] === 'string' && value[field].trim()) {
+      parts.push(value[field].trim())
+    }
+  }
+
+  if (value.message) {
+    pushTextParts(value.message.content ?? value.message, parts, depth + 1)
+  }
+
+  for (const field of ['content', 'output', 'parts', 'items']) {
+    const nested = value[field]
+    if (nested !== undefined && typeof nested !== 'string') {
+      pushTextParts(nested, parts, depth + 1)
+    } else if (typeof nested === 'string' && nested.trim()) {
+      parts.push(nested.trim())
+    }
+  }
+}
+
+function dedupeStrings(items = []) {
+  return [...new Set(items.map(item => String(item || '').trim()).filter(Boolean))]
+}
+
+function extractResponseText(json = {}) {
+  const parts = []
+  const candidates = [
+    json?.choices?.[0]?.message?.content,
+    json?.choices?.[0]?.message,
+    json?.choices?.[0]?.delta?.content,
+    json?.output_text,
+    json?.output,
+    json?.content
+  ]
+
+  for (const candidate of candidates) {
+    pushTextParts(candidate, parts)
+  }
+
+  return dedupeStrings(parts).join('\n').trim()
+}
+
+function pushCitationUrls(value, urls, depth = 0) {
+  if (depth > 8 || value === undefined || value === null) {
+    return
+  }
+
+  if (typeof value === 'string') {
+    const matches = value.match(/https?:\/\/[^\s)>\]]+/gi) || []
+    for (const match of matches) {
+      urls.push(match.replace(/[.,;]+$/, ''))
+    }
+    return
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      pushCitationUrls(item, urls, depth + 1)
+    }
+    return
+  }
+
+  if (typeof value !== 'object') {
+    return
+  }
+
+  for (const field of ['url', 'uri', 'source_url', 'sourceUrl', 'webpage_url', 'webpageUrl', 'link', 'href']) {
+    if (typeof value[field] === 'string') {
+      pushCitationUrls(value[field], urls, depth + 1)
+    }
+  }
+
+  for (const field of ['citations', 'annotations', 'source', 'content', 'message', 'output', 'items']) {
+    if (value[field] !== undefined) {
+      pushCitationUrls(value[field], urls, depth + 1)
+    }
+  }
+}
+
+function extractResponseCitations(json = {}, text = '') {
+  const urls = []
+  const candidates = [
+    json?.citations,
+    json?.choices?.[0]?.message?.citations,
+    json?.choices?.[0]?.message?.annotations,
+    json?.choices?.[0]?.citations,
+    json?.output,
+    text
+  ]
+
+  for (const candidate of candidates) {
+    pushCitationUrls(candidate, urls)
+  }
+
+  return dedupeStrings(urls)
+}
+
+function normalizeSearchResultObject(parsed, rawText = '') {
+  if (!parsed || typeof parsed !== 'object') {
+    return null
+  }
+
+  if (Array.isArray(parsed)) {
+    return {
+      内容: parsed.map(item => (typeof item === 'string' ? item : JSON.stringify(item))).join('\n')
+    }
+  }
+
+  const detailInfo = parsed.详细信息
+    ?? parsed.detail
+    ?? parsed.details
+    ?? parsed.详细内容
+    ?? parsed.info
+  const summary = parsed.总结
+    ?? parsed.summary
+    ?? parsed.answer
+    ?? parsed.overview
+  const content = parsed.内容
+    ?? parsed.content
+    ?? parsed.text
+
+  if (detailInfo !== undefined || summary !== undefined || content !== undefined) {
+    const normalized = {}
+    if (detailInfo !== undefined) {
+      normalized.详细信息 = detailInfo
+    }
+    if (summary !== undefined) {
+      normalized.总结 = summary
+    }
+    if (content !== undefined) {
+      normalized.内容 = content
+    }
+    return normalized
+  }
+
+  if (Object.keys(parsed).length > 0) {
+    return {
+      详细信息: parsed,
+      内容: rawText || JSON.stringify(parsed)
+    }
+  }
+
+  return null
+}
+
+function parseSearchSections(text = '') {
+  const content = String(text || '').trim()
+  if (!content) {
+    return null
+  }
+
+  const detailMatch = content.match(/(?:^|\n)(?:#+\s*)?(?:详细信息|详情|基本信息|介绍)\s*[:：]?\s*([\s\S]*?)(?=(?:\n(?:#+\s*)?(?:总结|概述|结论)\s*[:：]?)|$)/i)
+  const summaryMatch = content.match(/(?:^|\n)(?:#+\s*)?(?:总结|概述|结论)\s*[:：]?\s*([\s\S]*)$/i)
+  const detailInfo = detailMatch?.[1]?.trim() || ''
+  const summary = summaryMatch?.[1]?.trim() || ''
+
+  if (!detailInfo && !summary) {
+    return null
+  }
+
+  return {
+    ...(detailInfo ? { 详细信息: detailInfo } : {}),
+    ...(summary ? { 总结: summary } : {})
+  }
+}
+
+function getImageMimeType(filePath = '') {
+  const normalized = String(filePath || '').toLowerCase()
+  if (normalized.endsWith('.png')) {
+    return 'image/png'
+  }
+  if (normalized.endsWith('.gif')) {
+    return 'image/gif'
+  }
+  if (normalized.endsWith('.webp')) {
+    return 'image/webp'
+  }
+  if (normalized.endsWith('.bmp')) {
+    return 'image/bmp'
+  }
+  return 'image/jpeg'
+}
+
 class ApiService {
+  isPenaltyUnsupportedModel(model = '') {
+    return /grok-(3|4)/i.test(String(model || ''))
+  }
+
+  normalizeTimeoutMs(value, fallback = 120000) {
+    const timeoutMs = Number(value)
+    if (Number.isFinite(timeoutMs) && timeoutMs >= 1000) {
+      return timeoutMs
+    }
+    return fallback
+  }
+
   getModelConfig(modelType) {
     const apiConfig = Config.get('api', {})
     const modelConfig = apiConfig?.[modelType] || {}
@@ -19,7 +314,8 @@ class ApiService {
     return {
       baseUrl: (modelConfig.baseUrl || apiConfig.primaryBaseUrl || '').replace(/\/$/, ''),
       apiKey: modelConfig.apiKey || apiConfig.primaryApiKey || '',
-      model: modelConfig.model || ''
+      model: modelConfig.model || '',
+      timeoutMs: this.normalizeTimeoutMs(modelConfig.timeoutMs, 120000)
     }
   }
 
@@ -27,37 +323,56 @@ class ApiService {
     const {
       baseUrl,
       apiKey,
-      model
+      model,
+      timeoutMs
     } = this.getModelConfig(modelType)
 
     if (!baseUrl || !apiKey || !model) {
       throw new Error(`${modelType} 模型配置不完整，请检查锅巴面板或配置文件`)
     }
 
+    const requestTimeout = this.normalizeTimeoutMs(options.timeoutMs ?? options.timeout, timeoutMs)
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), options.timeout || 120000)
+    const timeoutId = setTimeout(() => controller.abort(), requestTimeout)
 
     try {
+      debugLog('api.request', `准备请求 ${modelType}`, {
+        baseUrl,
+        model,
+        timeout: requestTimeout,
+        messageCount: Array.isArray(messages) ? messages.length : 0
+      })
+
+      const payload = {
+        model,
+        group: 'default',
+        messages,
+        stream: false,
+        temperature: options.temperature ?? 0.3,
+        top_p: options.topP ?? 1
+      }
+
+      if (!this.isPenaltyUnsupportedModel(model)) {
+        payload.frequency_penalty = options.frequencyPenalty ?? 0
+        payload.presence_penalty = options.presencePenalty ?? 0
+      }
+
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`
         },
-        body: JSON.stringify({
-          model,
-          group: 'default',
-          messages,
-          stream: false,
-          temperature: options.temperature ?? 0.3,
-          top_p: options.topP ?? 1,
-          frequency_penalty: options.frequencyPenalty ?? 0,
-          presence_penalty: options.presencePenalty ?? 0
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal
       })
 
       const text = await response.text()
+      debugLog('api.response', `${modelType} 响应`, {
+        ok: response.ok,
+        status: response.status,
+        preview: text.slice(0, 200)
+      })
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
       }
@@ -85,14 +400,12 @@ class ApiService {
           { type: 'input_audio', input_audio: { data: base64, format: 'mp3' } }
         ]
       }
-    ], {
-      timeout: 60000
-    })
+    ])
 
-    return json?.choices?.[0]?.message?.content || null
+    return extractResponseText(json) || null
   }
 
-  async callTextImageAPI(content, imageFiles = []) {
+  async callTextImageAPI(content, imageFiles = [], systemPromptOverride = null) {
     const promptConfig = Config.get('prompt', {})
     const userContent = []
 
@@ -107,7 +420,11 @@ class ApiService {
       }
 
       const base64 = fs.readFileSync(media.localPath).toString('base64')
-      const mimeType = media.localPath.endsWith('.png') ? 'image/png' : 'image/jpeg'
+      const mimeType = getImageMimeType(media.localPath)
+      if (mimeType === 'image/gif') {
+        logger.warn(`[${pluginName}] 检测到未静态化的 GIF，已跳过：${media.localPath}`)
+        continue
+      }
       userContent.push({
         type: 'image_url',
         image_url: {
@@ -121,23 +438,21 @@ class ApiService {
       return null
     }
 
-    let systemPrompt = promptConfig.summaryDefault || ''
-    if (imageCount > 0) {
+    let systemPrompt = systemPromptOverride || promptConfig.summaryDefault || ''
+    if (!systemPromptOverride && imageCount > 0) {
       systemPrompt += (promptConfig.summaryImageAppend || '').replace('{count}', imageCount)
     }
 
     const { json } = await this.requestChatCompletion('summary', [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent }
-    ], {
-      timeout: 120000
-    })
+    ])
 
-    const result = json?.choices?.[0]?.message?.content || null
+    const result = extractResponseText(json) || null
     return result ? beautifyText(result) : null
   }
 
-  async callVideoAPI(content, videoFiles = []) {
+  async callVideoAPI(content, videoFiles = [], systemPromptOverride = null) {
     const promptConfig = Config.get('prompt', {})
     const userContent = []
 
@@ -166,13 +481,11 @@ class ApiService {
     }
 
     const { json } = await this.requestChatCompletion('video', [
-      { role: 'system', content: promptConfig.video || '' },
+      { role: 'system', content: systemPromptOverride || promptConfig.video || '' },
       { role: 'user', content: userContent }
-    ], {
-      timeout: 180000
-    })
+    ])
 
-    const result = json?.choices?.[0]?.message?.content || null
+    const result = extractResponseText(json) || null
     return result ? beautifyText(result) : null
   }
 
@@ -224,13 +537,73 @@ class ApiService {
     const { json } = await this.requestChatCompletion('search', [
       { role: 'user', content: keyword }
     ], {
-      timeout: 100000,
       temperature: 0.7
     })
+    const content = extractResponseText(json)
 
     return {
-      content: json?.choices?.[0]?.message?.content || '',
-      citations: json?.citations || []
+      content,
+      citations: extractResponseCitations(json, content)
+    }
+  }
+
+  async resolveSearchQuery(question, context = {}) {
+    const currentQuestion = String(question || '').trim()
+    if (!currentQuestion) {
+      return {
+        query: '',
+        displayKeyword: '',
+        usedContext: false
+      }
+    }
+
+    const replyText = String(context.replyText || '').trim()
+    const historyTexts = Array.isArray(context.historyTexts) ? context.historyTexts.filter(Boolean) : []
+
+    if (!replyText && historyTexts.length === 0) {
+      const displayKeyword = extractKeyword(currentQuestion) || currentQuestion
+      return {
+        query: currentQuestion,
+        displayKeyword,
+        usedContext: false
+      }
+    }
+
+    const systemPrompt = [
+      '你是一个搜索意图解析助手。',
+      '请结合用户当前问题、引用消息和前序消息，消解指代、省略和上下文依赖，把它改写成适合直接搜索的明确查询。',
+      '输出 JSON，且只能包含三个字段：query、displayKeyword、useContext。',
+      'query：最终用于搜索的一句话或短语，必须明确，不要保留“他/她/它/这个/那个/上面这个”等模糊指代。',
+      'displayKeyword：核心查询对象或主题，尽量简短，例如“胡桃”“往生堂”“米哈游”。',
+      'useContext：布尔值，表示是否实际使用了上下文。',
+      '如果上下文不足以确定具体对象，不要编造，尽量保留原问题原意。只输出 JSON，不要输出其他说明。'
+    ].join('\n')
+
+    const userPrompt = [
+      `当前问题：${currentQuestion}`,
+      '',
+      `引用消息：${replyText || '无'}`,
+      '',
+      '前序消息：',
+      historyTexts.length > 0 ? historyTexts.map((item, index) => `${index + 1}. ${item}`).join('\n') : '无'
+    ].join('\n')
+
+    const { json } = await this.requestChatCompletion('search', [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ], {
+      temperature: 0.1
+    })
+
+    const content = extractResponseText(json)
+    const parsed = parseJsonContent(content, {})
+    const query = String(parsed?.query || '').trim() || currentQuestion
+    const displayKeyword = String(parsed?.displayKeyword || '').trim() || extractKeyword(query) || query
+
+    return {
+      query,
+      displayKeyword,
+      usedContext: Boolean(parsed?.useContext)
     }
   }
 
@@ -242,23 +615,22 @@ class ApiService {
         role: 'user',
         content: `请整理以下关于"${keyword}"的搜索结果：\n\n${searchContent}`
       }
-    ], {
-      timeout: 100000
-    })
+    ])
 
-    const summaryContent = json?.choices?.[0]?.message?.content || ''
-    let jsonString = summaryContent
-    const fenced = summaryContent.match(/```(?:json)?\s*([\s\S]*?)```/)
-    if (fenced) {
-      jsonString = fenced[1].trim()
+    const summaryContent = extractResponseText(json)
+    const parsed = normalizeSearchResultObject(parseJsonContent(summaryContent, null), summaryContent)
+
+    if (parsed) {
+      return parsed
     }
 
-    try {
-      return JSON.parse(jsonString)
-    } catch (error) {
-      logger.warn(`[${pluginName}] 搜索结果结构化失败，已降级为纯文本：${error.message}`)
-      return { 总结: searchContent }
+    const sectionParsed = parseSearchSections(summaryContent)
+    if (sectionParsed) {
+      return sectionParsed
     }
+
+    logger.warn(`[${pluginName}] 搜索结果结构化失败，已降级为纯文本`)
+    return { 内容: summaryContent || searchContent }
   }
 }
 

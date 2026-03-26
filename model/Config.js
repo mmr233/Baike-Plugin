@@ -1,7 +1,26 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { getByPath, cloneDeep, deepMerge } from '../utils/common.js'
+import { getByPath, cloneDeep, isPlainObject } from '../utils/common.js'
 import { pluginName, pluginRoot } from './constant.js'
+
+function normalizeConfig(defaults, overrides) {
+  if (Array.isArray(defaults)) {
+    return Array.isArray(overrides) ? cloneDeep(overrides) : cloneDeep(defaults)
+  }
+
+  if (isPlainObject(defaults)) {
+    const source = isPlainObject(overrides) ? overrides : {}
+    const normalized = {}
+
+    for (const [key, value] of Object.entries(defaults)) {
+      normalized[key] = normalizeConfig(value, source[key])
+    }
+
+    return normalized
+  }
+
+  return overrides === undefined ? cloneDeep(defaults) : cloneDeep(overrides)
+}
 
 const DEFAULT_CONFIG = {
   api: {
@@ -10,22 +29,26 @@ const DEFAULT_CONFIG = {
     search: {
       baseUrl: '',
       apiKey: '',
-      model: 'perplexity-search'
+      model: 'perplexity-search',
+      timeoutMs: 100000
     },
     summary: {
       baseUrl: '',
       apiKey: '',
-      model: 'gemini-flash-latest'
+      model: 'gemini-flash-latest',
+      timeoutMs: 120000
     },
     video: {
       baseUrl: '',
       apiKey: '',
-      model: 'qwen3-vl-plus'
+      model: 'qwen3-vl-plus',
+      timeoutMs: 180000
     },
     audio: {
       baseUrl: '',
       apiKey: '',
-      model: 'grok-4.1-fast'
+      model: 'grok-4.1-fast',
+      timeoutMs: 60000
     }
   },
   cache: {
@@ -91,6 +114,9 @@ const DEFAULT_CONFIG = {
 
 发言统计：{statsText}{extraContext}
 
+目标成员主页资料：
+{memberProfiles}
+
 聊天记录：
 {messageTexts}`
   },
@@ -105,7 +131,11 @@ const DEFAULT_CONFIG = {
     defaultMessageCount: 800,
     atMemberMessageCount: 200,
     maxMessageCount: 500,
-    docMaxChars: 2000
+    docMaxChars: 2000,
+    historyHoursLimit: 24
+  },
+  searchContext: {
+    historyMessageCount: 5
   },
   send: {
     primaryMode: 'html',
@@ -115,7 +145,8 @@ const DEFAULT_CONFIG = {
     groupChatSummary: '',
     memberSummary: '',
     searchScreenshotCount: -1,
-    searchScreenshotMode: 'viewport'
+    searchScreenshotMode: 'viewport',
+    searchScreenshotTimeoutMs: 10000
   },
   scheduledSummary: {
     enabled: true,
@@ -147,9 +178,13 @@ class ConfigManager {
       return
     }
 
-    const defaultConfig = this.readJson(this.defaultFile, DEFAULT_CONFIG)
+    const defaultConfig = normalizeConfig(DEFAULT_CONFIG, this.readJson(this.defaultFile, DEFAULT_CONFIG))
     const userConfig = this.readJson(this.configFile, {})
-    const merged = deepMerge(cloneDeep(defaultConfig), userConfig)
+    const merged = normalizeConfig(defaultConfig, userConfig)
+
+    if (JSON.stringify(defaultConfig) !== JSON.stringify(this.readJson(this.defaultFile, DEFAULT_CONFIG))) {
+      this.writeJson(this.defaultFile, defaultConfig)
+    }
 
     if (JSON.stringify(merged) !== JSON.stringify(userConfig)) {
       this.writeJson(this.configFile, merged)
@@ -171,9 +206,9 @@ class ConfigManager {
 
   getAll() {
     this.ensureFiles()
-    const defaultConfig = this.readJson(this.defaultFile, DEFAULT_CONFIG)
+    const defaultConfig = normalizeConfig(DEFAULT_CONFIG, this.readJson(this.defaultFile, DEFAULT_CONFIG))
     const userConfig = this.readJson(this.configFile, {})
-    return deepMerge(cloneDeep(defaultConfig), userConfig)
+    return normalizeConfig(defaultConfig, userConfig)
   }
 
   get(path, fallback = undefined) {
@@ -182,7 +217,7 @@ class ConfigManager {
 
   setAll(config) {
     try {
-      const merged = deepMerge(cloneDeep(DEFAULT_CONFIG), config || {})
+      const merged = normalizeConfig(DEFAULT_CONFIG, config || {})
       this.writeJson(this.configFile, merged)
       return true
     } catch (error) {
