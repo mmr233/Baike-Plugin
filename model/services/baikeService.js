@@ -193,6 +193,48 @@ class BaikeService {
     }
   }
 
+  getSummaryFileLimits() {
+    const fileConfig = Config.get('fileRequest', {})
+    const loopLimit = Math.max(1, Math.min(Number(fileConfig.maxRequestLoops) || 1, 10))
+    const imageMaxPerRequest = Math.max(0, Number(fileConfig.imageMaxPerRequest) || 0)
+    const videoMaxPerRequest = Math.max(0, Number(fileConfig.videoMaxPerRequest) || 0)
+    const audioMaxPerRequest = Math.max(0, Number(fileConfig.audioMaxPerRequest) || 0)
+    const otherMaxPerRequest = Math.max(0, Number(fileConfig.otherMaxPerRequest) || 0)
+
+    return {
+      loopLimit,
+      imageMaxPerRequest,
+      videoMaxPerRequest,
+      audioMaxPerRequest,
+      otherMaxPerRequest,
+      totalImageLimit: imageMaxPerRequest * loopLimit,
+      totalVideoLimit: videoMaxPerRequest * loopLimit,
+      totalAudioLimit: audioMaxPerRequest * loopLimit,
+      totalOtherLimit: otherMaxPerRequest * loopLimit
+    }
+  }
+
+  async summarizeImageBatches(prompt, imageFiles = [], batchLimit = 0, loopLimit = 1, label = '图片') {
+    const actualBatchLimit = Math.max(0, Number(batchLimit) || 0)
+    if (actualBatchLimit <= 0 || imageFiles.length === 0) {
+      return ''
+    }
+
+    const totalBatches = Math.ceil(imageFiles.length / actualBatchLimit)
+    const actualBatches = Math.min(totalBatches, Math.max(1, Number(loopLimit) || 1))
+    const results = []
+
+    for (let batch = 0; batch < actualBatches; batch += 1) {
+      const chunk = imageFiles.slice(batch * actualBatchLimit, (batch + 1) * actualBatchLimit)
+      const result = await this.apiService.callTextImageAPI(prompt, chunk)
+      if (result) {
+        results.push(actualBatches > 1 ? `【第${batch + 1}批${label}】\n${result}` : result)
+      }
+    }
+
+    return results.join('\n\n')
+  }
+
   messageLikelyContainsMedia(messageData) {
     if (!messageData) {
       return false
@@ -680,11 +722,23 @@ class BaikeService {
         return true
       }
 
-      const fileConfig = Config.get('fileRequest', {})
-      const imageFiles = await this.mediaService.downloadImages(allImages, 'sum_img', fileConfig.imageMaxPerRequest)
-      const videoFiles = await this.mediaService.downloadVideos(allVideos, 'sum_vid', fileConfig.videoMaxPerRequest)
-      const audioFiles = await this.mediaService.downloadAudios(allAudios, 'sum_audio', fileConfig.audioMaxPerRequest)
+      const fileLimits = this.getSummaryFileLimits()
+      const imageFiles = await this.mediaService.downloadImages(allImages, 'sum_img', fileLimits.totalImageLimit)
+      const videoFiles = await this.mediaService.downloadVideos(allVideos, 'sum_vid', fileLimits.totalVideoLimit)
+      const audioFiles = await this.mediaService.downloadAudios(allAudios, 'sum_audio', fileLimits.totalAudioLimit)
       const mediaFiles = [...imageFiles, ...videoFiles]
+
+      debugLog('summary.media', '内容总结媒体批次配置', {
+        loopLimit: fileLimits.loopLimit,
+        imageMaxPerRequest: fileLimits.imageMaxPerRequest,
+        videoMaxPerRequest: fileLimits.videoMaxPerRequest,
+        audioMaxPerRequest: fileLimits.audioMaxPerRequest,
+        otherMaxPerRequest: fileLimits.otherMaxPerRequest,
+        downloadedImages: imageFiles.length,
+        downloadedVideos: videoFiles.length,
+        downloadedAudios: audioFiles.length,
+        otherFiles: allOtherFiles.length
+      })
 
       if (audioFiles.length > 0) {
         await e.reply(`正在识别 ${audioFiles.length} 条语音内容...`)
@@ -699,7 +753,7 @@ class BaikeService {
         this.mediaService.cleanupFiles(audioFiles)
       }
 
-      const otherFileTexts = await this.summarizeOtherFiles(allOtherFiles, fileConfig.otherMaxPerRequest)
+      const otherFileTexts = await this.summarizeOtherFiles(allOtherFiles, fileLimits.totalOtherLimit)
       if (otherFileTexts.length > 0) {
         allTexts.push(...otherFileTexts)
       }
@@ -822,14 +876,21 @@ class BaikeService {
 
       let imageSummary = ''
       if (allImageUrls.length > 0) {
+        const fileLimits = this.getSummaryFileLimits()
         const imageFiles = await this.mediaService.downloadImages(
           allImageUrls.map(url => ({ type: 'image', url })),
           'group_img',
-          Config.get('fileRequest.imageMaxPerRequest', 20)
+          fileLimits.totalImageLimit
         )
 
         if (imageFiles.length > 0) {
-          const imageResult = await this.apiService.callTextImageAPI('请简要描述这些图片的内容，每张图片用一句话概括。', imageFiles)
+          const imageResult = await this.summarizeImageBatches(
+            '请简要描述这些图片的内容，每张图片用一句话概括。',
+            imageFiles,
+            fileLimits.imageMaxPerRequest,
+            fileLimits.loopLimit,
+            '群聊图片'
+          )
           if (imageResult) {
             imageSummary = `\n\n【群聊图片内容】\n${imageResult}`
           }
@@ -838,7 +899,8 @@ class BaikeService {
       }
 
       let docTexts = ''
-      for (const doc of allDocFiles.slice(0, 3)) {
+      const fileLimits = this.getSummaryFileLimits()
+      for (const doc of allDocFiles.slice(0, fileLimits.totalOtherLimit)) {
         let docUrl = doc.url
         if (!docUrl && doc.file_id && e.bot?.sendApi) {
           try {

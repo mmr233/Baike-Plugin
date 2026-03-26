@@ -40,8 +40,8 @@ const summarySchemaRaw = [
   },
   {
     field: 'fileRequest.otherMaxPerRequest',
-    label: '其他附件上限',
-    bottomHelpMessage: '内容总结时最多处理多少个非图片/视频/语音附件，如 txt、md、json、pdf、docx 等',
+    label: '单次其他附件上限',
+    bottomHelpMessage: '内容总结时单批最多处理多少个非图片/视频/语音附件，如 txt、md、json、pdf、docx 等；总上限 = 本值 × 批次循环次数',
     component: 'InputNumber',
     defaultValue: 5,
     componentProps: {
@@ -53,7 +53,7 @@ const summarySchemaRaw = [
   {
     field: 'fileRequest.maxRequestLoops',
     label: '批次循环次数',
-    bottomHelpMessage: '超出单次上限时最多继续请求多少轮',
+    bottomHelpMessage: '总结与媒体处理最多执行多少批，包含首批请求；总处理上限 = 各单次上限 × 本值',
     component: 'InputNumber',
     defaultValue: 2,
     componentProps: {

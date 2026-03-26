@@ -131,7 +131,7 @@ export default class BaikeHelp extends plugin {
         desc: '下面是当前关键配置快照，方便快速确认锅巴是否生效。',
         list: [
           { icon: 41, title: '缓存', desc: `${config.cache.enabled ? '开启' : '关闭'} / TTL ${config.cache.ttl} 分钟 / 容量 ${config.cache.maxSize}` },
-          { icon: 42, title: '图片批次上限', desc: `${config.fileRequest.imageMaxPerRequest} 张 / 循环 ${config.fileRequest.maxRequestLoops} 次` },
+          { icon: 42, title: '图片批次上限', desc: `${config.fileRequest.imageMaxPerRequest} 张 / 批，共最多 ${config.fileRequest.maxRequestLoops} 批` },
           { icon: 43, title: '定时群列表', desc: (config.scheduledSummary.groups || []).join('、') || '未设置' },
           { icon: 44, title: '更新插件', desc: '使用 Yunzai 通用更新器更新当前插件', command: '#百科更新 / #百科强制更新' }
         ]
