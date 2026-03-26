@@ -1,4 +1,5 @@
 import Config from '../Config.js'
+import { pluginName } from '../constant.js'
 import { setByPath, toPositiveNumberArray } from '../../utils/common.js'
 import {
   createScheduledSummaryTask,
@@ -84,6 +85,9 @@ export async function setConfigData(data, { Result }) {
     }
 
     const taskRefreshed = await refreshPluginTasks()
+    logger.mark(
+      `[${pluginName}] 锅巴配置保存成功${taskRefreshed ? '，定时任务已刷新' : ''}`
+    )
     return Result.ok({}, taskRefreshed ? '保存成功，定时任务已刷新' : '保存成功')
   } catch (error) {
     logger.error('[百科查询] 锅巴保存配置失败', error)
