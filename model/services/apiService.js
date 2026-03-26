@@ -3,6 +3,7 @@ import Config from '../Config.js'
 import { pluginName } from '../constant.js'
 import { debugLog } from '../debug.js'
 import { beautifyText, extractKeyword } from '../../utils/text.js'
+import { sleep } from '../../utils/common.js'
 
 function parseJson(text, context = '接口响应') {
   try {
@@ -294,6 +295,60 @@ function getImageMimeType(filePath = '') {
   return 'image/jpeg'
 }
 
+function truncatePromptText(text = '', maxLength = 320) {
+  const normalized = String(text || '')
+    .replace(/\r/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  if (!normalized) {
+    return ''
+  }
+
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength)}...`
+    : normalized
+}
+
+function buildSearchSummaryContextPrompt(context = {}, question = '') {
+  const replyText = truncatePromptText(context?.replyText || '', 360)
+  const replyNearbyTexts = (Array.isArray(context?.replyNearbyTexts) ? context.replyNearbyTexts : [])
+    .map(item => truncatePromptText(item, 220))
+    .filter(Boolean)
+    .slice(0, 12)
+  const historyTexts = (Array.isArray(context?.historyTexts) ? context.historyTexts : [])
+    .map(item => truncatePromptText(item, 220))
+    .filter(Boolean)
+    .slice(0, 8)
+  const currentQuestion = truncatePromptText(question || '', 160)
+  const hasContext = Boolean(replyText || replyNearbyTexts.length > 0 || historyTexts.length > 0)
+
+  if (!hasContext) {
+    return {
+      hasContext: false,
+      promptText: ''
+    }
+  }
+
+  return {
+    hasContext: true,
+    promptText: [
+      '补充说明：下面的“当前问题 / 引用消息 / 前序消息”只能用于理解用户真正想问的对象、角度和重点，不能把其中内容当成事实来源。',
+      '如果上下文与搜索结果冲突，必须以搜索结果为准。',
+      currentQuestion ? `当前问题：${currentQuestion}` : '',
+      `引用消息：${replyText || '无'}`,
+      '引用附近消息：',
+      replyNearbyTexts.length > 0
+        ? replyNearbyTexts.map((item, index) => `${index + 1}. ${item}`).join('\n')
+        : '无',
+      '前序消息：',
+      historyTexts.length > 0
+        ? historyTexts.map((item, index) => `${index + 1}. ${item}`).join('\n')
+        : '无'
+    ].filter(Boolean).join('\n\n')
+  }
+}
+
 class ApiService {
   isPenaltyUnsupportedModel(model = '') {
     return /grok-(3|4)/i.test(String(model || ''))
@@ -307,6 +362,14 @@ class ApiService {
     return fallback
   }
 
+  normalizeRetryCount(value, fallback = 0) {
+    const retryCount = Number(value)
+    if (Number.isFinite(retryCount) && retryCount >= 0) {
+      return Math.min(5, Math.floor(retryCount))
+    }
+    return fallback
+  }
+
   getModelConfig(modelType) {
     const apiConfig = Config.get('api', {})
     const modelConfig = apiConfig?.[modelType] || {}
@@ -315,8 +378,33 @@ class ApiService {
       baseUrl: (modelConfig.baseUrl || apiConfig.primaryBaseUrl || '').replace(/\/$/, ''),
       apiKey: modelConfig.apiKey || apiConfig.primaryApiKey || '',
       model: modelConfig.model || '',
-      timeoutMs: this.normalizeTimeoutMs(modelConfig.timeoutMs, 120000)
+      timeoutMs: this.normalizeTimeoutMs(modelConfig.timeoutMs, 120000),
+      retryCount: this.normalizeRetryCount(modelConfig.retryCount, 0)
     }
+  }
+
+  isRetryableStatus(status) {
+    return [408, 409, 425, 429].includes(status) || status >= 500
+  }
+
+  isRetryableError(error) {
+    if (!error) {
+      return false
+    }
+
+    if (error.name === 'AbortError' || error.retryable === true) {
+      return true
+    }
+
+    if (this.isRetryableStatus(Number(error.status))) {
+      return true
+    }
+
+    return /timeout|timed out|econnreset|econnrefused|enotfound|eai_again|socket hang up/i.test(String(error.message || ''))
+  }
+
+  getRetryDelayMs(attempt) {
+    return Math.min(5000, 1200 * (attempt + 1))
   }
 
   async requestChatCompletion(modelType, messages, options = {}) {
@@ -324,7 +412,8 @@ class ApiService {
       baseUrl,
       apiKey,
       model,
-      timeoutMs
+      timeoutMs,
+      retryCount
     } = this.getModelConfig(modelType)
 
     if (!baseUrl || !apiKey || !model) {
@@ -332,58 +421,81 @@ class ApiService {
     }
 
     const requestTimeout = this.normalizeTimeoutMs(options.timeoutMs ?? options.timeout, timeoutMs)
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), requestTimeout)
+    const maxRetries = this.normalizeRetryCount(options.retryCount, retryCount)
 
-    try {
-      debugLog('api.request', `准备请求 ${modelType}`, {
-        baseUrl,
-        model,
-        timeout: requestTimeout,
-        messageCount: Array.isArray(messages) ? messages.length : 0
-      })
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), requestTimeout)
 
-      const payload = {
-        model,
-        group: 'default',
-        messages,
-        stream: false,
-        temperature: options.temperature ?? 0.3,
-        top_p: options.topP ?? 1
+      try {
+        debugLog('api.request', `准备请求 ${modelType}`, {
+          baseUrl,
+          model,
+          timeout: requestTimeout,
+          retryCount: maxRetries,
+          attempt: attempt + 1,
+          messageCount: Array.isArray(messages) ? messages.length : 0
+        })
+
+        const payload = {
+          model,
+          group: 'default',
+          messages,
+          stream: false,
+          temperature: options.temperature ?? 0.3,
+          top_p: options.topP ?? 1
+        }
+
+        if (!this.isPenaltyUnsupportedModel(model)) {
+          payload.frequency_penalty = options.frequencyPenalty ?? 0
+          payload.presence_penalty = options.presencePenalty ?? 0
+        }
+
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        })
+
+        const text = await response.text()
+        debugLog('api.response', `${modelType} 响应`, {
+          ok: response.ok,
+          status: response.status,
+          attempt: attempt + 1,
+          preview: text.slice(0, 200)
+        })
+        if (!response.ok) {
+          const error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
+          error.status = response.status
+          error.retryable = this.isRetryableStatus(response.status)
+          throw error
+        }
+
+        return {
+          text,
+          json: parseJson(text, `${modelType} 响应`)
+        }
+      } catch (error) {
+        const shouldRetry = attempt < maxRetries && this.isRetryableError(error)
+        if (!shouldRetry) {
+          throw error
+        }
+
+        const delayMs = this.getRetryDelayMs(attempt)
+        logger.warn(
+          `[${pluginName}] ${modelType} 请求失败，${delayMs}ms 后进行第 ${attempt + 2} 次尝试：${error.message}`
+        )
+        await sleep(delayMs)
+      } finally {
+        clearTimeout(timeoutId)
       }
-
-      if (!this.isPenaltyUnsupportedModel(model)) {
-        payload.frequency_penalty = options.frequencyPenalty ?? 0
-        payload.presence_penalty = options.presencePenalty ?? 0
-      }
-
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      })
-
-      const text = await response.text()
-      debugLog('api.response', `${modelType} 响应`, {
-        ok: response.ok,
-        status: response.status,
-        preview: text.slice(0, 200)
-      })
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
-      }
-
-      return {
-        text,
-        json: parseJson(text, `${modelType} 响应`)
-      }
-    } finally {
-      clearTimeout(timeoutId)
     }
+
+    throw new Error(`${modelType} 请求失败：超过最大重试次数`)
   }
 
   async callAudioAPI(audioPath) {
@@ -558,9 +670,10 @@ class ApiService {
     }
 
     const replyText = String(context.replyText || '').trim()
+    const replyNearbyTexts = Array.isArray(context.replyNearbyTexts) ? context.replyNearbyTexts.filter(Boolean) : []
     const historyTexts = Array.isArray(context.historyTexts) ? context.historyTexts.filter(Boolean) : []
 
-    if (!replyText && historyTexts.length === 0) {
+    if (!replyText && replyNearbyTexts.length === 0 && historyTexts.length === 0) {
       const displayKeyword = extractKeyword(currentQuestion) || currentQuestion
       return {
         query: currentQuestion,
@@ -583,6 +696,9 @@ class ApiService {
       `当前问题：${currentQuestion}`,
       '',
       `引用消息：${replyText || '无'}`,
+      '',
+      '引用附近消息：',
+      replyNearbyTexts.length > 0 ? replyNearbyTexts.map((item, index) => `${index + 1}. ${item}`).join('\n') : '无',
       '',
       '前序消息：',
       historyTexts.length > 0 ? historyTexts.map((item, index) => `${index + 1}. ${item}`).join('\n') : '无'
@@ -607,13 +723,27 @@ class ApiService {
     }
   }
 
-  async organizeSearchResult(keyword, searchContent) {
+  async organizeSearchResult(keyword, searchContent, options = {}) {
     const prompt = Config.get('prompt.search', '')
+    const summaryContext = buildSearchSummaryContextPrompt(options.context, options.question || keyword)
+    const userPrompt = summaryContext.hasContext
+      ? [
+          `请整理以下关于"${keyword}"的搜索结果：`,
+          '',
+          summaryContext.promptText,
+          '',
+          '请优先整理最能回答用户当前语境的问题的信息，但最终内容必须完全基于下面的搜索结果。',
+          '',
+          '搜索结果：',
+          searchContent
+        ].join('\n')
+      : `请整理以下关于"${keyword}"的搜索结果：\n\n${searchContent}`
+
     const { json } = await this.requestChatCompletion('summary', [
       { role: 'system', content: prompt },
       {
         role: 'user',
-        content: `请整理以下关于"${keyword}"的搜索结果：\n\n${searchContent}`
+        content: userPrompt
       }
     ])
 

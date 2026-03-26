@@ -2,74 +2,160 @@ import { escapeHtml } from './text.js'
 
 function getJournalCSS() {
   return `
+    :root {
+      --paper-bg: #fdfaf3;
+      --paper-dot: rgba(122, 94, 72, 0.14);
+      --ink-primary: #5d4037;
+      --ink-secondary: #8a6b58;
+      --border-soft: #d9c4b0;
+      --accent-orange: #ff8a5b;
+      --accent-blue: #6ca9dc;
+      --accent-yellow: #fff1a8;
+      --accent-pink: #ffd8cc;
+      --font-title: "YouYuan", "Microsoft YaHei", sans-serif;
+      --font-hand: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+      --font-body: "Microsoft YaHei", "PingFang SC", sans-serif;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-      background: #f5ebe0;
+      font-family: var(--font-body);
+      color: var(--ink-primary);
+      background-color: var(--paper-bg);
+      background-image:
+        radial-gradient(var(--paper-dot) 1.2px, transparent 1.2px),
+        linear-gradient(180deg, #fffdf9 0%, #f7f0e5 100%);
+      background-size: 18px 18px, 100% 100%;
       min-height: 100vh;
-      padding: 16px;
+      padding: 24px 14px 32px;
     }
     .journal {
-      max-width: 620px;
+      max-width: 680px;
       margin: 0 auto;
-      background: #fffdf7;
-      border-radius: 18px;
-      border: 2px solid #d4a574;
-      box-shadow: 3px 3px 0 #e6c9a8, 6px 6px 15px rgba(139,90,43,0.15);
+      background: linear-gradient(180deg, rgba(255,253,248,0.98), rgba(255,249,239,0.98));
+      border-radius: 28px 18px 28px 18px;
+      border: 2px solid #7b5c44;
+      box-shadow: 0 18px 40px rgba(90,64,44,0.12), 8px 8px 0 rgba(197,173,147,0.75);
       overflow: hidden;
       position: relative;
     }
     .journal::before {
       content: '';
       position: absolute;
-      left: 36px;
-      top: 0;
-      bottom: 0;
+      left: 12px;
+      top: 24px;
+      bottom: 18px;
+      width: 18px;
+      background: radial-gradient(circle, #f4ecdf 0 4px, transparent 4.5px);
+      background-size: 18px 46px;
+      background-repeat: repeat-y;
+      z-index: 1;
+    }
+    .journal::after {
+      content: '';
+      position: absolute;
+      left: 34px;
+      top: 18px;
+      bottom: 18px;
       width: 2px;
-      background: repeating-linear-gradient(to bottom, #e8c9a0 0, #e8c9a0 4px, transparent 4px, transparent 8px);
+      background: repeating-linear-gradient(to bottom, #e8d5c3 0, #e8d5c3 8px, transparent 8px, transparent 16px);
       z-index: 1;
     }
     .journal-header {
-      background: linear-gradient(135deg, #c44569 0%, #e8856e 50%, #f0a370 100%);
-      padding: 18px 24px 18px 50px;
+      padding: 28px 22px 16px 52px;
+      text-align: center;
       position: relative;
-      overflow: hidden;
     }
-    .journal-header::after {
-      content: '';
+    .tape-strip {
       position: absolute;
-      right: -20px;
-      top: -20px;
-      width: 80px;
-      height: 80px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 50%;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%) rotate(-2deg);
+      width: 110px;
+      height: 24px;
+      background: rgba(255, 204, 188, 0.72);
+      border-radius: 6px;
+      opacity: 0.92;
     }
-    .journal-header h1 {
-      color: #fff;
-      font-size: 18px;
-      font-weight: bold;
-      text-shadow: 1px 1px 3px rgba(0,0,0,0.2);
-    }
-    .journal-header .date-tag {
-      color: rgba(255,255,255,0.85);
-      font-size: 11px;
-      margin-top: 4px;
-    }
-    .journal-body { padding: 20px 20px 20px 50px; }
-    .section {
-      background: rgba(255,248,235,0.7);
-      border: 1px dashed #d4a574;
-      border-radius: 12px;
-      padding: 14px;
-      margin-bottom: 14px;
+    .title-sticker {
+      display: inline-block;
+      max-width: 100%;
+      min-width: 260px;
+      padding: 18px 26px 16px;
+      border: 3px dashed #7b5c44;
+      border-radius: 18px;
+      background: #fffefb;
       position: relative;
+      box-shadow: 7px 7px 0 var(--accent-pink);
+      transform: rotate(-1.5deg);
+    }
+    .journal-search .title-sticker {
+      box-shadow: 7px 7px 0 #cfe6fb;
+    }
+    .journal-summary .title-sticker {
+      box-shadow: 7px 7px 0 #ffd9c8;
+    }
+    .journal-group .title-sticker {
+      box-shadow: 7px 7px 0 #ffe2ac;
+    }
+    .title-sticker h1 {
+      font-family: var(--font-title);
+      color: var(--accent-orange);
+      font-size: 28px;
+      line-height: 1.15;
+      letter-spacing: 1px;
+      word-break: break-word;
+    }
+    .journal-search .title-sticker h1 {
+      color: #4f8fc7;
+    }
+    .date-tag {
+      position: absolute;
+      right: -10px;
+      bottom: -16px;
+      display: inline-block;
+      padding: 5px 14px;
+      border: 1px solid #7b5c44;
+      background: var(--accent-yellow);
+      color: var(--ink-primary);
+      font-family: var(--font-hand);
+      font-size: 13px;
+      box-shadow: 2px 2px 0 rgba(123,92,68,0.15);
+      transform: rotate(4deg);
+      white-space: nowrap;
+    }
+    .journal-body { padding: 16px 18px 22px 52px; }
+    .section {
+      background: #fffef9;
+      border: 2px solid var(--border-soft);
+      border-radius: 16px;
+      padding: 18px 16px 16px;
+      margin-bottom: 16px;
+      position: relative;
+      box-shadow: 4px 4px 0 rgba(211,190,167,0.6);
+    }
+    .paper-section {
+      background-color: #fffef9;
+      background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent 33px,
+        rgba(166, 207, 231, 0.38) 33px,
+        rgba(166, 207, 231, 0.38) 34px
+      );
+    }
+    .source-section {
+      background: linear-gradient(135deg, rgba(244,250,255,0.95), rgba(255,252,247,0.96));
+    }
+    .quote-section {
+      background: linear-gradient(135deg, rgba(255,248,213,0.96), rgba(255,252,240,0.96));
     }
     .section-title {
-      color: #c44569;
-      font-size: 14px;
-      font-weight: bold;
-      margin-bottom: 10px;
+      color: #c46c3d;
+      font-family: var(--font-title);
+      font-size: 20px;
+      line-height: 1.2;
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
     }
     .text-content {
       color: #5a4a3a;
@@ -82,108 +168,180 @@ function getJournalCSS() {
       position: absolute;
       right: 12px;
       top: 10px;
-      width: 40px;
-      height: 40px;
-      border: 2px solid #c44569;
+      width: 42px;
+      height: 42px;
+      border: 2px solid #c46c3d;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 16px;
-      opacity: 0.3;
+      opacity: 0.35;
       transform: rotate(15deg);
+      background: rgba(255,255,255,0.45);
     }
     .metric-row {
       display: flex;
-      gap: 10px;
-      margin-bottom: 14px;
+      gap: 14px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
     }
     .metric-card {
       flex: 1;
-      border-radius: 12px;
-      padding: 12px;
-      border: 1px solid #ead5c1;
-      background: linear-gradient(135deg, rgba(255,240,243,0.95), rgba(255,228,233,0.95));
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
-      text-align: center;
+      min-width: 0;
+      background: #fff;
+      padding: 10px;
+      border: 1px solid #e7d7c6;
+      box-shadow: 3px 3px 8px rgba(0,0,0,0.05);
+      background-image: radial-gradient(transparent 48%, #fff 50%);
+      background-size: 10px 10px;
+      background-position: -5px -5px;
+      transform: rotate(-1deg);
+      position: relative;
     }
-    .metric-card.blue {
-      background: linear-gradient(135deg, rgba(240,247,255,0.95), rgba(228,240,255,0.95));
-      border-color: #c6d8f0;
+    .metric-card:nth-child(even) {
+      transform: rotate(1deg);
+    }
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      inset: 8px;
+      border: 1px dashed #d5c0ad;
+      pointer-events: none;
+    }
+    .metric-card.blue::before {
+      border-color: #bdd4ea;
+    }
+    .metric-card-inner {
+      position: relative;
+      min-height: 78px;
+      padding: 8px 4px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle, #fff 45%, #fbf8f2 100%);
+    }
+    .metric-card.blue .metric-card-inner {
+      background: radial-gradient(circle, #fff 45%, #f2f8ff 100%);
     }
     .metric-icon {
-      font-size: 19px;
-      margin-bottom: 4px;
+      font-size: 20px;
+      margin-bottom: 6px;
     }
     .metric-label {
-      font-size: 11px;
-      color: #9b7d61;
+      font-family: var(--font-hand);
+      font-size: 13px;
+      color: var(--ink-secondary);
       margin-bottom: 4px;
+      text-align: center;
     }
     .metric-value {
-      font-size: 18px;
-      font-weight: bold;
-      color: #c44569;
+      font-family: var(--font-title);
+      font-size: 28px;
+      line-height: 1;
+      color: var(--accent-orange);
     }
     .metric-card.blue .metric-value {
-      color: #5b9bd5;
+      color: var(--accent-blue);
     }
     .hero-note {
-      margin-bottom: 14px;
-      padding: 14px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, rgba(234,245,255,0.96), rgba(245,250,255,0.96));
-      border: 1px solid #cfe1f3;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+      margin-bottom: 16px;
+      padding: 16px 18px 14px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #fff6b7, #fff1a3);
+      border: 1px solid #d6c277;
+      box-shadow: 5px 5px 0 rgba(214,194,119,0.32);
+      position: relative;
+      transform: rotate(1deg);
+    }
+    .hero-note::before {
+      content: '';
+      position: absolute;
+      width: 56px;
+      height: 16px;
+      left: 18px;
+      top: -8px;
+      background: rgba(255,255,255,0.45);
+      border-radius: 4px;
+      transform: rotate(-4deg);
     }
     .hero-kicker {
-      color: #5b9bd5;
-      font-size: 11px;
+      color: #7b5c44;
+      font-family: var(--font-hand);
+      font-size: 12px;
       letter-spacing: 1px;
       margin-bottom: 6px;
     }
     .hero-text {
-      color: #35506b;
+      color: #4c3a29;
       font-size: 13px;
       line-height: 1.8;
       word-break: break-word;
     }
     .card-stack {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
     }
     .info-card {
-      background: rgba(255,255,255,0.65);
-      border: 1px solid #ead5c1;
-      border-radius: 12px;
-      padding: 12px;
-      margin-bottom: 12px;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.65);
+      background: #fffefb;
+      border: 2px solid #dbc9b7;
+      border-radius: 14px;
+      padding: 14px 14px 12px;
+      box-shadow: 4px 4px 0 rgba(212,190,166,0.56);
+      position: relative;
+      transform: rotate(-0.5deg);
     }
-    .info-card:last-child {
-      margin-bottom: 0;
+    .info-card:nth-child(even) {
+      transform: rotate(0.5deg);
+    }
+    .info-card::before {
+      content: '';
+      position: absolute;
+      left: 16px;
+      top: -9px;
+      width: 54px;
+      height: 16px;
+      border-radius: 4px;
+      background: rgba(184, 221, 244, 0.72);
+      transform: rotate(-6deg);
     }
     .info-card-title {
-      color: #c44569;
-      font-size: 13px;
-      font-weight: bold;
+      color: #b85c2e;
+      font-family: var(--font-title);
+      font-size: 17px;
       margin-bottom: 8px;
+      padding-right: 20px;
     }
     .chart-panel {
-      margin-bottom: 14px;
-      padding: 14px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, rgba(255,250,243,0.96), rgba(255,245,232,0.96));
-      border: 1px solid #ead5c1;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.68);
+      margin-bottom: 16px;
+      padding: 18px 16px 16px 28px;
+      border-radius: 8px 18px 18px 8px;
+      background: #fff;
+      border: 2px solid var(--border-soft);
+      box-shadow: 5px 5px 0 rgba(211,190,167,0.56);
+      position: relative;
+    }
+    .chart-panel::before,
+    .vertical-chart-panel::before {
+      content: '';
+      position: absolute;
+      left: 10px;
+      top: 18px;
+      bottom: 18px;
+      width: 8px;
+      background: repeating-linear-gradient(to bottom, #b5b5b5 0, #b5b5b5 3px, transparent 3px, transparent 16px);
+      border-left: 2px solid #9a9a9a;
     }
     .chart-title {
-      color: #c44569;
-      font-size: 13px;
-      font-weight: bold;
-      margin-bottom: 10px;
+      color: #b85c2e;
+      font-family: var(--font-title);
+      font-size: 18px;
+      margin-bottom: 12px;
     }
     .chart-row {
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
     .chart-row:last-child {
       margin-bottom: 0;
@@ -198,49 +356,56 @@ function getJournalCSS() {
       color: #6e5a48;
     }
     .chart-label {
-      font-weight: bold;
+      font-family: var(--font-hand);
+      font-size: 14px;
       color: #5a4a3a;
       word-break: break-word;
     }
     .chart-value {
-      color: #c44569;
+      color: #b85c2e;
       font-weight: bold;
       white-space: nowrap;
     }
     .chart-track {
-      height: 10px;
+      height: 14px;
       border-radius: 999px;
-      background: rgba(212,165,116,0.18);
+      background: rgba(255, 241, 168, 0.55);
+      border: 1px solid #d6c5aa;
       overflow: hidden;
       position: relative;
     }
     .chart-fill {
       height: 100%;
       border-radius: 999px;
-      background: linear-gradient(90deg, #e8856e 0%, #f0a370 100%);
+      background:
+        repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0 5px, rgba(255,255,255,0) 5px 10px),
+        linear-gradient(90deg, #ff9b73 0%, #ffc16e 100%);
     }
     .chart-fill.blue {
-      background: linear-gradient(90deg, #5b9bd5 0%, #88c0ef 100%);
+      background:
+        repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0 5px, rgba(255,255,255,0) 5px 10px),
+        linear-gradient(90deg, #71b5e6 0%, #9fd2f2 100%);
     }
     .vertical-chart-panel {
-      margin-bottom: 14px;
-      padding: 14px 14px 10px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, rgba(255,250,243,0.96), rgba(255,245,232,0.96));
-      border: 1px solid #ead5c1;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.68);
+      margin-bottom: 16px;
+      padding: 18px 16px 16px 28px;
+      border-radius: 8px 18px 18px 8px;
+      background: #fff;
+      border: 2px solid var(--border-soft);
+      box-shadow: 5px 5px 0 rgba(211,190,167,0.56);
+      position: relative;
     }
     .vertical-chart-title {
-      color: #5b9bd5;
-      font-size: 13px;
-      font-weight: bold;
+      color: #b85c2e;
+      font-family: var(--font-title);
+      font-size: 18px;
       margin-bottom: 12px;
     }
     .vertical-chart-grid {
       display: flex;
       align-items: flex-end;
       gap: 8px;
-      min-height: 170px;
+      min-height: 182px;
     }
     .vertical-chart-item {
       flex: 1 1 0;
@@ -252,17 +417,18 @@ function getJournalCSS() {
       gap: 6px;
     }
     .vertical-chart-value {
-      color: #5b9bd5;
+      color: #5b90c0;
       font-size: 11px;
       font-weight: bold;
       line-height: 1;
     }
     .vertical-chart-track {
       width: 100%;
-      max-width: 26px;
-      height: 110px;
+      max-width: 28px;
+      height: 118px;
       border-radius: 999px;
-      background: rgba(91,155,213,0.16);
+      border: 1px solid #c7dcec;
+      background: rgba(205, 233, 249, 0.5);
       position: relative;
       overflow: hidden;
       display: flex;
@@ -271,12 +437,15 @@ function getJournalCSS() {
     .vertical-chart-fill {
       width: 100%;
       border-radius: 999px;
-      background: linear-gradient(180deg, #88c0ef 0%, #5b9bd5 100%);
+      background:
+        repeating-linear-gradient(180deg, rgba(255,255,255,0.18) 0 5px, rgba(255,255,255,0) 5px 10px),
+        linear-gradient(180deg, #9ecff0 0%, #6aa8d8 100%);
       min-height: 8px;
     }
     .vertical-chart-label {
       color: #6e5a48;
-      font-size: 11px;
+      font-family: var(--font-hand);
+      font-size: 12px;
       line-height: 1.35;
       text-align: center;
       word-break: break-word;
@@ -312,24 +481,37 @@ function getJournalCSS() {
     .source-list {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
     }
     .source-item {
       display: flex;
-      gap: 10px;
+      gap: 12px;
       align-items: flex-start;
-      padding: 10px 12px;
-      background: rgba(255,255,255,0.6);
-      border: 1px solid #ead5c1;
-      border-radius: 10px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.9);
+      border: 2px solid #d9dff0;
+      border-radius: 14px;
+      box-shadow: 4px 4px 0 rgba(190, 208, 228, 0.45);
+      position: relative;
+    }
+    .source-item::before {
+      content: '';
+      position: absolute;
+      right: 16px;
+      top: -8px;
+      width: 48px;
+      height: 16px;
+      border-radius: 4px;
+      background: rgba(255, 241, 168, 0.8);
+      transform: rotate(7deg);
     }
     .source-index {
-      width: 24px;
-      height: 24px;
+      width: 28px;
+      height: 28px;
       border-radius: 999px;
-      background: #5b9bd5;
+      background: #6ca9dc;
       color: #fff;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: bold;
       display: flex;
       align-items: center;
@@ -342,8 +524,8 @@ function getJournalCSS() {
       min-width: 0;
     }
     .source-host {
-      color: #5b9bd5;
-      font-size: 12px;
+      color: #5f94c0;
+      font-size: 13px;
       font-weight: bold;
       margin-bottom: 4px;
       word-break: break-word;
@@ -359,13 +541,87 @@ function getJournalCSS() {
       font-size: 12px;
       line-height: 1.7;
     }
+    .quote-card {
+      background: rgba(255,255,255,0.82);
+      border: 2px solid #e0cf8f;
+      border-radius: 18px;
+      padding: 14px 14px 12px;
+      margin-bottom: 12px;
+      box-shadow: 4px 4px 0 rgba(224, 207, 143, 0.42);
+      position: relative;
+    }
+    .quote-card:last-child {
+      margin-bottom: 0;
+    }
+    .quote-card::before {
+      content: '"';
+      position: absolute;
+      left: 14px;
+      top: 8px;
+      font-size: 30px;
+      line-height: 1;
+      color: rgba(196, 108, 61, 0.2);
+      font-family: Georgia, serif;
+    }
+    .quote-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      padding-left: 18px;
+      font-size: 11px;
+      color: #9a806a;
+    }
+    .quote-author {
+      font-weight: bold;
+    }
+    .quote-content {
+      padding-left: 18px;
+    }
+    .quote-note {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(255,245,183,0.92), rgba(255,239,160,0.92));
+      border: 1px dashed #ccb56e;
+      color: #6a5428;
+    }
+    .quote-note-label {
+      font-family: var(--font-hand);
+      font-size: 12px;
+      color: #8a6726;
+      margin-bottom: 4px;
+    }
+    .supplement-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .supplement-card {
+      background: rgba(255,255,255,0.86);
+      border: 1px dashed #b9cfe2;
+      border-radius: 14px;
+      padding: 12px 14px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.55);
+    }
+    .supplement-card-title {
+      font-family: var(--font-hand);
+      font-size: 14px;
+      color: #5f94c0;
+      margin-bottom: 8px;
+    }
     .journal-footer {
-      background: linear-gradient(90deg, #f5ebe0, #fffdf7, #f5ebe0);
-      padding: 10px 24px;
+      background: linear-gradient(90deg, #f5ead9, #fffdf7, #f5ead9);
+      padding: 12px 24px 14px 52px;
       text-align: center;
       border-top: 1px dashed #d4a574;
     }
-    .journal-footer span { color: #b8977a; font-size: 11px; font-style: italic; }
+    .journal-footer span {
+      color: #a98769;
+      font-family: var(--font-hand);
+      font-size: 12px;
+      letter-spacing: 0.5px;
+    }
     .pin {
       display: inline-block;
       width: 8px;
@@ -511,9 +767,11 @@ function getHostLabel(url = '') {
 function renderMetricCard(icon, label, value, colorClass = '') {
   return `
     <div class="metric-card ${colorClass}">
-      <div class="metric-icon">${icon}</div>
-      <div class="metric-label">${escapeHtml(label)}</div>
-      <div class="metric-value">${escapeHtml(String(value))}</div>
+      <div class="metric-card-inner">
+        <div class="metric-icon">${icon}</div>
+        <div class="metric-label">${escapeHtml(label)}</div>
+        <div class="metric-value">${escapeHtml(String(value))}</div>
+      </div>
     </div>
   `
 }
@@ -583,6 +841,18 @@ function renderVerticalBarChart(items = [], title = '时间分布') {
   `
 }
 
+function renderJournalHeader(title, icon = '') {
+  return `
+    <div class="journal-header">
+      <div class="tape-strip"></div>
+      <div class="title-sticker">
+        <h1>${icon ? `${icon} ` : ''}${escapeHtml(title)}</h1>
+        <div class="date-tag">📅 ${new Date().toLocaleString('zh-CN')} · 胡桃的手帐</div>
+      </div>
+    </div>
+  `
+}
+
 export function generateHutaoHTML(title, content, stats = null) {
   const statsHtml = stats
     ? `
@@ -594,14 +864,11 @@ export function generateHutaoHTML(title, content, stats = null) {
     : ''
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
-    <body><div class="journal">
-      <div class="journal-header">
-        <h1>🔥 ${escapeHtml(title)}</h1>
-        <div class="date-tag">📅 ${new Date().toLocaleString('zh-CN')} · 胡桃的手帐</div>
-      </div>
+    <body><div class="journal journal-summary">
+      ${renderJournalHeader(title, '🔥')}
       <div class="journal-body">
         ${statsHtml}
-        <div class="section">
+        <div class="section paper-section">
           <div class="stamp">✨</div>
           <div class="section-title">内容分析</div>
           ${renderRichTextHtml(content)}
@@ -629,7 +896,7 @@ export function generateSearchHTML(keyword, content, citations = []) {
 
   const contentHtml = content
     ? `
-      <div class="section">
+      <div class="section paper-section">
         <div class="section-title">检索内容</div>
         ${sections.length > 0
           ? `
@@ -649,7 +916,7 @@ export function generateSearchHTML(keyword, content, citations = []) {
 
   const citationsHtml = citations.length > 0
     ? `
-      <div class="section" style="background:rgba(245,235,224,0.5);">
+      <div class="section source-section">
         <div class="section-title">参考来源</div>
         <div class="source-list">
           ${citations.map((item, index) => `
@@ -667,11 +934,8 @@ export function generateSearchHTML(keyword, content, citations = []) {
     : ''
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
-    <body><div class="journal">
-      <div class="journal-header" style="background:linear-gradient(135deg,#5b9bd5 0%,#7cb8e8 50%,#a0d2f0 100%);">
-        <h1>🔍 ${escapeHtml(keyword)}</h1>
-        <div class="date-tag">📅 ${new Date().toLocaleString('zh-CN')} · 胡桃的手帐</div>
-      </div>
+    <body><div class="journal journal-search">
+      ${renderJournalHeader(keyword, '🔍')}
       <div class="journal-body">
         <div class="metric-row">
           ${renderMetricCard('🧩', contentLabel, contentCount)}
@@ -699,7 +963,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
     hourlyActivity = {},
     isMemberMode = false
   } = data
-  const { topicSummary = '', highlights = [] } = parsedContent || {}
+  const { topicSummary = '', highlights = [], extraSections = [] } = parsedContent || {}
   const rankChartHtml = !isMemberMode && sortedMembers.length > 0
     ? renderBarChart(
       sortedMembers.slice(0, 10).map(([name, count], index) => ({
@@ -737,7 +1001,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
 
   const topicHtml = topicSummary
     ? `
-      <div class="section">
+      <div class="section paper-section">
         <div class="stamp">📝</div>
         <div class="section-title">话题总结</div>
         ${renderRichTextHtml(topicSummary)}
@@ -747,34 +1011,53 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
 
   const highlightsHtml = highlights.length > 0
     ? `
-      <div class="section">
+      <div class="section quote-section">
         <div class="section-title">${isMemberMode ? '成员消息精选' : '群消息精选'}</div>
         ${highlights.map(item => `
-          <div style="background:rgba(255,255,255,0.5);border:1px solid #ead5c1;border-radius:10px;padding:12px;margin-bottom:10px;">
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:#b8977a;margin-bottom:6px;">
-              <span>${escapeHtml(item.sender || '匿名')}</span>
+          <div class="quote-card">
+            <div class="quote-meta">
+              <span class="quote-author">${escapeHtml(item.sender || '匿名')}</span>
               <span>${escapeHtml(item.time || '')}</span>
             </div>
-            ${renderRichTextHtml(item.content || '')}
-            ${item.roast ? `<div style="margin-top:8px;">${renderRichTextHtml(item.roast)}</div>` : ''}
+            <div class="quote-content">${renderRichTextHtml(item.content || '')}</div>
+            ${item.roast ? `
+              <div class="quote-note">
+                <div class="quote-note-label">AI 锐评</div>
+                ${renderRichTextHtml(item.roast)}
+              </div>
+            ` : ''}
           </div>
         `).join('')}
       </div>
     `
     : ''
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
-    <body><div class="journal">
-      <div class="journal-header">
-        <h1>🔥 ${escapeHtml(title)}</h1>
-        <div class="date-tag">📅 ${new Date().toLocaleString('zh-CN')} · 胡桃的手帐</div>
+  const extraSectionsHtml = extraSections.length > 0
+    ? `
+      <div class="section source-section">
+        <div class="section-title">补充观察</div>
+        <div class="supplement-list">
+          ${extraSections.map(item => `
+            <div class="supplement-card">
+              <div class="supplement-card-title">${escapeHtml(item.title || '补充信息')}</div>
+              ${renderRichTextHtml(item.content || '')}
+            </div>
+          `).join('')}
+        </div>
       </div>
+    `
+    : ''
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
+    <body><div class="journal journal-group">
+      ${renderJournalHeader(title, '🔥')}
       <div class="journal-body">
         ${statsHtml}
         ${rankChartHtml}
         ${activityChartHtml}
         ${topicHtml}
         ${highlightsHtml}
+        ${extraSectionsHtml}
       </div>
       <div class="journal-footer"><span>✿ 胡桃手帐 · 百科查询插件出品 ✿</span></div>
     </div></body></html>`

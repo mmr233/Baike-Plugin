@@ -10,18 +10,45 @@ export const taskSchema = [
     defaultValue: true
   },
   {
-    field: 'scheduledSummary.cron',
-    label: 'Cron 表达式',
-    bottomHelpMessage: '格式：秒 分 时 日 月 周。修改后需要重载插件或重启 Yunzai',
-    component: 'Input',
+    field: 'scheduledSummary.hour',
+    label: '执行小时',
+    bottomHelpMessage: '每天几点执行自动群总结（0-23）',
+    component: 'InputNumber',
+    defaultValue: 22,
     componentProps: {
-      placeholder: '0 0 22 * * *'
+      min: 0,
+      max: 23,
+      step: 1
+    }
+  },
+  {
+    field: 'scheduledSummary.minute',
+    label: '执行分钟',
+    bottomHelpMessage: '每小时第几分钟执行（0-59）',
+    component: 'InputNumber',
+    defaultValue: 0,
+    componentProps: {
+      min: 0,
+      max: 59,
+      step: 1
+    }
+  },
+  {
+    field: 'scheduledSummary.second',
+    label: '执行秒数',
+    bottomHelpMessage: '每分钟第几秒执行，建议避开 0 秒高峰（0-59）',
+    component: 'InputNumber',
+    defaultValue: 0,
+    componentProps: {
+      min: 0,
+      max: 59,
+      step: 1
     }
   },
   {
     field: 'scheduledSummary.groups',
     label: '定时总结群列表',
-    bottomHelpMessage: '可选群或手动输入群号',
+    bottomHelpMessage: '可选群或手动输入群号，启用后会每天在上方时间自动总结这些群',
     component: 'GSelectGroup',
     componentProps: {
       placeholder: '点击选择群聊',
@@ -31,7 +58,7 @@ export const taskSchema = [
   {
     field: 'scheduledSummary.messageCount',
     label: '定时总结消息数',
-    bottomHelpMessage: '仅供定时任务使用，不影响手动“总结”',
+    bottomHelpMessage: '仅供定时任务使用，不影响手动“总结”；历史时间范围仍沿用群聊总结配置',
     component: 'InputNumber',
     defaultValue: 300,
     componentProps: {

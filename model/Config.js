@@ -22,6 +22,104 @@ function normalizeConfig(defaults, overrides) {
   return overrides === undefined ? cloneDeep(defaults) : cloneDeep(overrides)
 }
 
+const DEFAULT_SCHEDULED_SUMMARY_TIME = {
+  hour: 22,
+  minute: 0,
+  second: 0
+}
+
+function clampInteger(value, min, max, fallback) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return fallback
+  }
+  return Math.min(max, Math.max(min, Math.floor(numeric)))
+}
+
+function isValidCron(cron) {
+  if (!cron || typeof cron !== 'string') {
+    return false
+  }
+
+  const parts = cron.trim().split(/\s+/)
+  return parts.length >= 5 && parts.length <= 6
+}
+
+function parseCronToTime(cron, fallback = DEFAULT_SCHEDULED_SUMMARY_TIME) {
+  if (!isValidCron(cron)) {
+    return { ...fallback }
+  }
+
+  const parts = cron.trim().split(/\s+/)
+  if (parts.length === 6) {
+    return {
+      hour: clampInteger(parts[2], 0, 23, fallback.hour),
+      minute: clampInteger(parts[1], 0, 59, fallback.minute),
+      second: clampInteger(parts[0], 0, 59, fallback.second)
+    }
+  }
+
+  return {
+    hour: clampInteger(parts[1], 0, 23, fallback.hour),
+    minute: clampInteger(parts[0], 0, 59, fallback.minute),
+    second: fallback.second
+  }
+}
+
+function migrateLegacyConfig(config) {
+  if (!isPlainObject(config)) {
+    return {}
+  }
+
+  const nextConfig = cloneDeep(config)
+  const scheduledSummary = isPlainObject(nextConfig.scheduledSummary)
+    ? { ...nextConfig.scheduledSummary }
+    : {}
+
+  if (isValidCron(scheduledSummary.cron)) {
+    const time = parseCronToTime(scheduledSummary.cron, DEFAULT_SCHEDULED_SUMMARY_TIME)
+    if (scheduledSummary.hour === undefined) {
+      scheduledSummary.hour = time.hour
+    }
+    if (scheduledSummary.minute === undefined) {
+      scheduledSummary.minute = time.minute
+    }
+    if (scheduledSummary.second === undefined) {
+      scheduledSummary.second = time.second
+    }
+  }
+
+  if (
+    scheduledSummary.hour !== undefined
+    || scheduledSummary.minute !== undefined
+    || scheduledSummary.second !== undefined
+    || scheduledSummary.cron !== undefined
+  ) {
+    scheduledSummary.hour = clampInteger(
+      scheduledSummary.hour,
+      0,
+      23,
+      DEFAULT_SCHEDULED_SUMMARY_TIME.hour
+    )
+    scheduledSummary.minute = clampInteger(
+      scheduledSummary.minute,
+      0,
+      59,
+      DEFAULT_SCHEDULED_SUMMARY_TIME.minute
+    )
+    scheduledSummary.second = clampInteger(
+      scheduledSummary.second,
+      0,
+      59,
+      DEFAULT_SCHEDULED_SUMMARY_TIME.second
+    )
+    delete scheduledSummary.cron
+    nextConfig.scheduledSummary = scheduledSummary
+  }
+
+  return nextConfig
+}
+
 const DEFAULT_CONFIG = {
   api: {
     primaryBaseUrl: 'https://your-api.example.com/v1',
@@ -30,25 +128,29 @@ const DEFAULT_CONFIG = {
       baseUrl: '',
       apiKey: '',
       model: 'perplexity-search',
-      timeoutMs: 100000
+      timeoutMs: 100000,
+      retryCount: 1
     },
     summary: {
       baseUrl: '',
       apiKey: '',
       model: 'gemini-flash-latest',
-      timeoutMs: 120000
+      timeoutMs: 120000,
+      retryCount: 1
     },
     video: {
       baseUrl: '',
       apiKey: '',
       model: 'qwen3-vl-plus',
-      timeoutMs: 180000
+      timeoutMs: 180000,
+      retryCount: 1
     },
     audio: {
       baseUrl: '',
       apiKey: '',
       model: 'grok-4.1-fast',
-      timeoutMs: 60000
+      timeoutMs: 60000,
+      retryCount: 1
     }
   },
   cache: {
@@ -84,6 +186,11 @@ const DEFAULT_CONFIG = {
 4. 使用简洁清晰的中文表达`,
     groupChat: `请分析以下群聊记录，严格按以下格式输出（不要使用markdown格式）：
 
+额外要求：
+1. 最终输出只能包含“===话题总结===”和“===消息精选===”两部分
+2. 不要在结尾额外输出“发言统计”“群聊图片内容”“文档”“成员资料”等标题
+3. 图片、文档和成员资料只允许融合进话题总结或消息精选的内容里，不要原样复述这些标题
+
 ===话题总结===
 （总结群内讨论的主要话题、热点内容和整体氛围，用纯文本描述）
 
@@ -100,6 +207,11 @@ const DEFAULT_CONFIG = {
 聊天记录：
 {messageTexts}`,
     groupMember: `请分析以下群聊中指定成员的聊天记录，严格按以下格式输出（不要使用markdown格式）：
+
+额外要求：
+1. 最终输出只能包含“===话题总结===”和“===消息精选===”两部分
+2. 不要在结尾额外输出“发言统计”“群聊图片内容”“文档”“目标成员主页资料”等标题
+3. 图片、文档和主页资料只允许融合进话题总结或消息精选的内容里，不要原样复述这些标题
 
 ===话题总结===
 （总结他们讨论的主要话题、观点和互动情况，用纯文本描述）
@@ -135,7 +247,8 @@ const DEFAULT_CONFIG = {
     historyHoursLimit: 24
   },
   searchContext: {
-    historyMessageCount: 5
+    historyMessageCount: 5,
+    replyNearbyMessageCount: 6
   },
   send: {
     primaryMode: 'html',
@@ -150,7 +263,9 @@ const DEFAULT_CONFIG = {
   },
   scheduledSummary: {
     enabled: true,
-    cron: '0 0 22 * * *',
+    hour: 22,
+    minute: 0,
+    second: 0,
     groups: [575872693],
     messageCount: 300
   }
@@ -178,8 +293,11 @@ class ConfigManager {
       return
     }
 
-    const defaultConfig = normalizeConfig(DEFAULT_CONFIG, this.readJson(this.defaultFile, DEFAULT_CONFIG))
-    const userConfig = this.readJson(this.configFile, {})
+    const defaultConfig = normalizeConfig(
+      DEFAULT_CONFIG,
+      migrateLegacyConfig(this.readJson(this.defaultFile, DEFAULT_CONFIG))
+    )
+    const userConfig = migrateLegacyConfig(this.readJson(this.configFile, {}))
     const merged = normalizeConfig(defaultConfig, userConfig)
 
     if (JSON.stringify(defaultConfig) !== JSON.stringify(this.readJson(this.defaultFile, DEFAULT_CONFIG))) {
@@ -206,8 +324,11 @@ class ConfigManager {
 
   getAll() {
     this.ensureFiles()
-    const defaultConfig = normalizeConfig(DEFAULT_CONFIG, this.readJson(this.defaultFile, DEFAULT_CONFIG))
-    const userConfig = this.readJson(this.configFile, {})
+    const defaultConfig = normalizeConfig(
+      DEFAULT_CONFIG,
+      migrateLegacyConfig(this.readJson(this.defaultFile, DEFAULT_CONFIG))
+    )
+    const userConfig = migrateLegacyConfig(this.readJson(this.configFile, {}))
     return normalizeConfig(defaultConfig, userConfig)
   }
 

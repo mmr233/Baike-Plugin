@@ -857,8 +857,27 @@ class MessageService {
       scope: e.group_id ? 'group' : 'private'
     })
 
+    return this.dedupeAndSortMessages(messages, {
+      excludeMessageIds: [...(options.excludeMessageIds || []), e.message_id]
+    })
+      .slice(-actualCount)
+  }
+
+  getMessageUniqueKey(messageData) {
+    const id = this.getMessageId(messageData)
+    if (id) {
+      return `id:${id}`
+    }
+
+    const time = this.getMessageTime(messageData)
+    const seq = this.getMessageSeq(messageData)
+    const { userId } = this.getMessageSender(messageData)
+    return `ts:${time}:seq:${seq}:user:${userId}`
+  }
+
+  dedupeAndSortMessages(messages = [], options = {}) {
     const excludeIds = new Set(
-      [...(options.excludeMessageIds || []), e.message_id]
+      (options.excludeMessageIds || [])
         .map(item => String(item || '').trim())
         .filter(Boolean)
     )
@@ -871,7 +890,7 @@ class MessageService {
         continue
       }
 
-      const key = id || `${this.getMessageTime(item)}:${this.getMessageSeq(item)}:${this.getMessageSender(item).userId}`
+      const key = this.getMessageUniqueKey(item)
       if (seenKeys.has(key)) {
         continue
       }
@@ -880,33 +899,196 @@ class MessageService {
       uniqueMessages.push(item)
     }
 
-    return uniqueMessages
-      .sort((a, b) => (
-        this.getMessageTime(a) - this.getMessageTime(b)
-        || this.getMessageSeq(a) - this.getMessageSeq(b)
-      ))
-      .slice(-actualCount)
+    return uniqueMessages.sort((a, b) => (
+      this.getMessageTime(a) - this.getMessageTime(b)
+      || this.getMessageSeq(a) - this.getMessageSeq(b)
+    ))
+  }
+
+  isSameMessage(messageA, messageB) {
+    if (!messageA || !messageB) {
+      return false
+    }
+
+    const idA = this.getMessageId(messageA)
+    const idB = this.getMessageId(messageB)
+    if (idA && idB) {
+      return idA === idB
+    }
+
+    return this.getMessageSeq(messageA) === this.getMessageSeq(messageB)
+      && this.getMessageTime(messageA) === this.getMessageTime(messageB)
+      && this.getMessageSender(messageA).userId === this.getMessageSender(messageB).userId
+  }
+
+  selectMessagesAroundAnchor(messages = [], anchorMessage, count) {
+    const actualCount = Number(count) || 0
+    if (actualCount <= 0 || !anchorMessage) {
+      return []
+    }
+
+    const sorted = this.dedupeAndSortMessages(messages)
+    const anchorIndex = sorted.findIndex(item => this.isSameMessage(item, anchorMessage))
+    if (anchorIndex === -1) {
+      return []
+    }
+
+    const selected = []
+    let leftIndex = anchorIndex - 1
+    let rightIndex = anchorIndex + 1
+
+    while (selected.length < actualCount && (leftIndex >= 0 || rightIndex < sorted.length)) {
+      if (leftIndex >= 0) {
+        selected.unshift(sorted[leftIndex])
+        leftIndex -= 1
+      }
+
+      if (selected.length >= actualCount) {
+        break
+      }
+
+      if (rightIndex < sorted.length) {
+        selected.push(sorted[rightIndex])
+        rightIndex += 1
+      }
+    }
+
+    return selected
+  }
+
+  async getChatHistoryMessagesBySeq(e, messageSeq, count, reverseOrder = true) {
+    const actualSeq = Number(messageSeq) || 0
+    const actualCount = Number(count) || 0
+    if (actualSeq <= 0 || actualCount <= 0) {
+      return []
+    }
+
+    try {
+      if (e.group?.getChatHistory) {
+        const messages = await e.group.getChatHistory(actualSeq, actualCount, reverseOrder)
+        if (Array.isArray(messages) && messages.length > 0) {
+          return messages
+        }
+      } else if (e.friend?.getChatHistory) {
+        const messages = await e.friend.getChatHistory(actualSeq, actualCount, reverseOrder)
+        if (Array.isArray(messages) && messages.length > 0) {
+          return messages
+        }
+      }
+    } catch {}
+
+    try {
+      if (e.bot?.sendApi && e.group_id) {
+        const response = await e.bot.sendApi('get_group_msg_history', {
+          group_id: e.group_id,
+          message_seq: actualSeq,
+          count: actualCount,
+          reverseOrder
+        })
+        return response?.data?.messages || response?.messages || response?.data || []
+      }
+
+      if (e.bot?.sendApi && e.user_id) {
+        const response = await e.bot.sendApi('get_friend_msg_history', {
+          user_id: e.user_id,
+          message_seq: actualSeq,
+          count: actualCount,
+          reverseOrder
+        })
+        return response?.data?.messages || response?.messages || response?.data || []
+      }
+    } catch {}
+
+    return []
+  }
+
+  async getNearbyMessagesForContext(e, anchorMessage, count, options = {}) {
+    const actualCount = Number(count) || 0
+    if (actualCount <= 0 || !anchorMessage) {
+      return []
+    }
+
+    const fetchCount = Math.max(actualCount * 3, actualCount + 6)
+    const extraRecentCount = Math.max(actualCount * 6, 30)
+    const candidates = [anchorMessage]
+
+    try {
+      const recentMessages = await this.getRecentChatMessages(e, extraRecentCount, {
+        excludeMessageIds: options.excludeMessageIds || []
+      })
+      candidates.push(...recentMessages)
+    } catch {}
+
+    const anchorSeq = this.getMessageSeq(anchorMessage)
+    if (anchorSeq > 0) {
+      try {
+        const previousMessages = await this.getChatHistoryMessagesBySeq(e, anchorSeq, fetchCount, true)
+        candidates.push(...previousMessages)
+      } catch {}
+
+      try {
+        const nextMessages = await this.getChatHistoryMessagesBySeq(e, anchorSeq, fetchCount, false)
+        candidates.push(...nextMessages)
+      } catch {}
+    }
+
+    const nearbyMessages = this.selectMessagesAroundAnchor(
+      this.dedupeAndSortMessages(candidates),
+      anchorMessage,
+      actualCount
+    )
+
+    debugLog('message.replyNearby', '获取引用附近消息完成', {
+      anchorSeq,
+      requestedCount: actualCount,
+      candidateCount: candidates.length,
+      nearbyCount: nearbyMessages.length
+    })
+
+    return nearbyMessages
   }
 
   async buildSearchContext(e, options = {}) {
     const historyCount = Math.max(0, Number(options.historyCount) || 0)
+    const replyNearbyCount = Math.max(0, Number(options.replyNearbyCount) || 0)
     const message = Array.isArray(e.message) ? e.message : []
     const replySegment = message.find(item => item.type === 'reply')
     const replyId = String(replySegment?.id || e.reply_id || '').trim()
     let replyMessage = null
     let replyText = ''
+    let replyNearbyMessages = []
+    const replyNearbyTexts = []
 
     if (replyId) {
       replyMessage = await this.getReplyMessage(e, { id: replyId })
       replyText = await this.formatMessageForContext(e, replyMessage)
+
+      if (replyMessage && replyNearbyCount > 0) {
+        replyNearbyMessages = await this.getNearbyMessagesForContext(e, replyMessage, replyNearbyCount, {
+          excludeMessageIds: [replyId]
+        })
+
+        for (const item of replyNearbyMessages) {
+          const formatted = await this.formatMessageForContext(e, item, {
+            includeMediaPlaceholders: false
+          })
+          if (formatted) {
+            replyNearbyTexts.push(formatted)
+          }
+        }
+      }
     }
 
     const historyMessages = await this.getRecentChatMessages(e, historyCount, {
       excludeMessageIds: replyId ? [replyId] : []
     })
     const historyTexts = []
+    const replyNearbyKeys = new Set(replyNearbyMessages.map(item => this.getMessageUniqueKey(item)))
 
     for (const item of historyMessages) {
+      if (replyNearbyKeys.has(this.getMessageUniqueKey(item))) {
+        continue
+      }
       const formatted = await this.formatMessageForContext(e, item, {
         includeMediaPlaceholders: false
       })
@@ -917,15 +1099,18 @@ class MessageService {
 
     debugLog('message.context', '搜索上下文构建完成', {
       replyInjected: Boolean(replyText),
+      replyNearbyInjectedCount: replyNearbyTexts.length,
       historyInjectedCount: historyTexts.length
     })
 
     return {
       replyText,
       replyMessage,
+      replyNearbyTexts,
+      replyNearbyMessages,
       historyTexts,
       historyMessages,
-      hasContext: Boolean(replyText || historyTexts.length > 0)
+      hasContext: Boolean(replyText || replyNearbyTexts.length > 0 || historyTexts.length > 0)
     }
   }
 

@@ -62,10 +62,107 @@ export function formatDetailValue(value, indent = '') {
   return String(value ?? '')
 }
 
+function parseBracketSections(text = '') {
+  const normalized = String(text || '').replace(/\r/g, '').trim()
+  if (!normalized) {
+    return []
+  }
+
+  const sections = []
+  const pattern = /(?:^|\n)【([^】\n]+)】\s*\n([\s\S]*?)(?=(?:\n【[^】\n]+】\s*\n)|$)/g
+  let match = pattern.exec(normalized)
+
+  while (match) {
+    sections.push({
+      title: String(match[1] || '').trim(),
+      content: String(match[2] || '').trim()
+    })
+    match = pattern.exec(normalized)
+  }
+
+  return sections.filter(item => item.title && item.content)
+}
+
+function findSummaryTailIndex(text = '') {
+  const normalized = String(text || '').replace(/\r/g, '')
+  const patterns = [
+    /(?:^|\n)发言统计[（(]?[^\n：:]*[：:]/,
+    /(?:^|\n)【群聊图片内容】/,
+    /(?:^|\n)【文档:[^\n]+】/,
+    /(?:^|\n)【目标成员主页资料】/,
+    /(?:^|\n)【补充信息】/
+  ]
+
+  let minIndex = -1
+  for (const pattern of patterns) {
+    const match = pattern.exec(normalized)
+    if (!match) {
+      continue
+    }
+
+    const index = match.index + (match[0].startsWith('\n') ? 1 : 0)
+    if (minIndex === -1 || index < minIndex) {
+      minIndex = index
+    }
+  }
+
+  return minIndex
+}
+
+function extractSummaryTailSections(text = '') {
+  const normalized = String(text || '').replace(/\r/g, '').trim()
+  if (!normalized) {
+    return {
+      highlightText: '',
+      statsSummary: '',
+      extraSections: []
+    }
+  }
+
+  const tailIndex = findSummaryTailIndex(normalized)
+  if (tailIndex < 0) {
+    return {
+      highlightText: normalized,
+      statsSummary: '',
+      extraSections: []
+    }
+  }
+
+  let tailText = normalized.slice(tailIndex).trim()
+  let statsSummary = ''
+
+  if (/^发言统计[（(]?[^\n：:]*[：:]/.test(tailText)) {
+    const bracketIndex = tailText.search(/\n(?=【[^】\n]+】\s*\n)/)
+    if (bracketIndex >= 0) {
+      statsSummary = tailText.slice(0, bracketIndex).trim()
+      tailText = tailText.slice(bracketIndex).trim()
+    } else {
+      statsSummary = tailText.trim()
+      tailText = ''
+    }
+  }
+
+  const extraSections = parseBracketSections(tailText)
+  if (extraSections.length === 0 && tailText) {
+    extraSections.push({
+      title: '补充信息',
+      content: tailText
+    })
+  }
+
+  return {
+    highlightText: normalized.slice(0, tailIndex).trim(),
+    statsSummary,
+    extraSections
+  }
+}
+
 export function parseSummaryContent(text = '') {
   const result = {
     topicSummary: '',
-    highlights: []
+    highlights: [],
+    statsSummary: '',
+    extraSections: []
   }
 
   if (!text) {
@@ -79,7 +176,11 @@ export function parseSummaryContent(text = '') {
 
   const highlightMatch = text.match(/===消息精选===([\s\S]*)$/)
   if (highlightMatch) {
-    const sections = highlightMatch[1]
+    const tailParsed = extractSummaryTailSections(highlightMatch[1])
+    result.statsSummary = tailParsed.statsSummary
+    result.extraSections = tailParsed.extraSections
+
+    const sections = tailParsed.highlightText
       .split(/---+/)
       .map(item => item.trim())
       .filter(Boolean)
@@ -103,7 +204,7 @@ export function parseSummaryContent(text = '') {
     }
   }
 
-  if (!result.topicSummary && result.highlights.length === 0) {
+  if (!result.topicSummary && result.highlights.length === 0 && result.extraSections.length === 0) {
     result.topicSummary = text.trim()
   }
 

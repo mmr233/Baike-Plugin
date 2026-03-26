@@ -61,6 +61,18 @@ export const apiSchema = [
     }
   },
   {
+    field: 'api.search.retryCount',
+    label: '搜索重试次数',
+    bottomHelpMessage: '失败后额外重试几次；建议 0-2 次，避免重复扣费',
+    component: 'InputNumber',
+    defaultValue: 1,
+    componentProps: {
+      min: 0,
+      max: 5,
+      step: 1
+    }
+  },
+  {
     component: 'Divider',
     label: '总结 / 视频 / 音频模型',
     componentProps: {
@@ -100,6 +112,18 @@ export const apiSchema = [
     }
   },
   {
+    field: 'api.summary.retryCount',
+    label: '总结重试次数',
+    bottomHelpMessage: '群聊总结、内容总结、图片理解等总结模型请求共用该重试次数',
+    component: 'InputNumber',
+    defaultValue: 1,
+    componentProps: {
+      min: 0,
+      max: 5,
+      step: 1
+    }
+  },
+  {
     field: 'api.video.model',
     label: '视频模型名',
     component: 'Input',
@@ -131,6 +155,18 @@ export const apiSchema = [
     }
   },
   {
+    field: 'api.video.retryCount',
+    label: '视频重试次数',
+    bottomHelpMessage: '视频分析失败后的额外重试次数',
+    component: 'InputNumber',
+    defaultValue: 1,
+    componentProps: {
+      min: 0,
+      max: 5,
+      step: 1
+    }
+  },
+  {
     field: 'api.audio.model',
     label: '音频模型名',
     component: 'Input',
@@ -159,6 +195,18 @@ export const apiSchema = [
       min: 1000,
       max: 600000,
       step: 1000
+    }
+  },
+  {
+    field: 'api.audio.retryCount',
+    label: '音频重试次数',
+    bottomHelpMessage: '语音转写失败后的额外重试次数',
+    component: 'InputNumber',
+    defaultValue: 1,
+    componentProps: {
+      min: 0,
+      max: 5,
+      step: 1
     }
   }
 ]

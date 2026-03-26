@@ -1,6 +1,32 @@
 import Config from '../Config.js'
 import { setByPath, toPositiveNumberArray } from '../../utils/common.js'
 
+function clampInteger(value, min, max, fallback) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return fallback
+  }
+  return Math.min(max, Math.max(min, Math.floor(numeric)))
+}
+
+async function refreshPluginTasks() {
+  try {
+    if (!globalThis.Bot?.stat && !global.Bot?.stat) {
+      return false
+    }
+
+    const { default: PluginsLoader } = await import('../../../../lib/plugins/loader.js')
+    if (typeof PluginsLoader?.createTask === 'function') {
+      PluginsLoader.createTask()
+      return true
+    }
+  } catch (error) {
+    logger.debug?.('[百科查询] 定时任务刷新跳过', error)
+  }
+
+  return false
+}
+
 export async function setConfigData(data, { Result }) {
   try {
     const nextConfig = Config.getAll()
@@ -14,11 +40,28 @@ export async function setConfigData(data, { Result }) {
       setByPath(nextConfig, key, value)
     }
 
+    nextConfig.scheduledSummary = {
+      ...(nextConfig.scheduledSummary || {}),
+      groups: toPositiveNumberArray(nextConfig.scheduledSummary?.groups),
+      hour: clampInteger(nextConfig.scheduledSummary?.hour, 0, 23, 22),
+      minute: clampInteger(nextConfig.scheduledSummary?.minute, 0, 59, 0),
+      second: clampInteger(nextConfig.scheduledSummary?.second, 0, 59, 0),
+      messageCount: clampInteger(nextConfig.scheduledSummary?.messageCount, 50, 2000, 300)
+    }
+
+    for (const modelType of ['search', 'summary', 'video', 'audio']) {
+      nextConfig.api[modelType] = {
+        ...(nextConfig.api?.[modelType] || {}),
+        retryCount: clampInteger(nextConfig.api?.[modelType]?.retryCount, 0, 5, 1)
+      }
+    }
+
     if (!Config.setAll(nextConfig)) {
       return Result.error('保存失败')
     }
 
-    return Result.ok({}, '保存成功，定时任务 cron 变更需重载插件或重启 Yunzai')
+    const taskRefreshed = await refreshPluginTasks()
+    return Result.ok({}, taskRefreshed ? '保存成功，定时任务已刷新' : '保存成功')
   } catch (error) {
     logger.error('[百科查询] 锅巴保存配置失败', error)
     return Result.error(`保存失败：${error.message}`)

@@ -6,6 +6,14 @@ function padIcon(icon) {
   return String(icon).padStart(2, '0')
 }
 
+function formatTimePart(value) {
+  return String(value).padStart(2, '0')
+}
+
+function formatDailyTime(config = {}) {
+  return `${formatTimePart(config.hour ?? 22)}:${formatTimePart(config.minute ?? 0)}:${formatTimePart(config.second ?? 0)}`
+}
+
 function processHelpList(helpList) {
   return helpList.map(group => ({
     ...group,
@@ -103,7 +111,7 @@ export default class BaikeHelp extends plugin {
         list: [
           { icon: 21, title: '整群总结', desc: `默认抓取 ${config.chatSummary.defaultMessageCount} 条群消息`, command: '总结' },
           { icon: 22, title: '@成员总结', desc: `@成员模式默认抓取 ${config.chatSummary.atMemberMessageCount} 条消息`, command: '总结 @某人' },
-          { icon: 23, title: '定时群总结', desc: config.scheduledSummary.enabled ? `已启用，cron: ${config.scheduledSummary.cron}` : '当前未启用' }
+          { icon: 23, title: '定时群总结', desc: config.scheduledSummary.enabled ? `已启用，每天 ${formatDailyTime(config.scheduledSummary)}` : '当前未启用' }
         ]
       },
       {

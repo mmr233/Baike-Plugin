@@ -433,11 +433,14 @@ class BaikeService {
 
     let searchQuery = keyword
     let displayKeyword = keyword
+    let searchContext = null
 
     try {
       const historyCount = isExplicitSearch ? 0 : Config.get('searchContext.historyMessageCount', 5)
-      let context = await this.messageService.buildSearchContext(e, { historyCount })
+      const replyNearbyCount = Config.get('searchContext.replyNearbyMessageCount', 6)
+      let context = await this.messageService.buildSearchContext(e, { historyCount, replyNearbyCount })
       context = await this.enrichSearchContextWithMedia(e, context)
+      searchContext = context
       const shouldResolveIntent = context.hasContext
 
       if (shouldResolveIntent) {
@@ -449,7 +452,11 @@ class BaikeService {
       logger.warn(`[${pluginName}] 搜索意图解析失败，已回退原始关键词：${error.message}`)
     }
 
-    return this.doSearch(e, searchQuery, { displayKeyword })
+    return this.doSearch(e, searchQuery, {
+      displayKeyword,
+      rawQuestion: rawQuestion || keyword,
+      searchContext
+    })
   }
 
   async summarize(e) {
@@ -831,15 +838,17 @@ class BaikeService {
 
   async doSearch(e, searchQuery, options = {}) {
     const displayKeyword = options.displayKeyword || searchQuery
+    const rawQuestion = options.rawQuestion || displayKeyword
+    const searchContext = options.searchContext?.hasContext ? options.searchContext : null
     const userInfo = this.messageService.getUserInfo(e)
     const cacheKey = this.getCacheKey('search', searchQuery)
     const cached = this.tryGetCache(cacheKey, '搜索')
-    let data = cached?.data || null
+    let data = searchContext ? null : cached?.data || null
     let citations = cached?.citations || []
     let rawContent = cached?.rawContent || ''
     const screenshotPaths = []
 
-    if (!data) {
+    if (!rawContent) {
       try {
         const searchResult = await this.apiService.searchKeyword(searchQuery)
         if (!searchResult.content) {
@@ -849,18 +858,38 @@ class BaikeService {
 
         citations = searchResult.citations || []
         rawContent = searchResult.content
-        data = await this.apiService.organizeSearchResult(displayKeyword, searchResult.content)
-
-        if (!data?.详细信息 && !data?.总结) {
-          data = { 内容: searchResult.content }
-        }
-
-        this.setCache(cacheKey, { data, citations, rawContent })
       } catch (error) {
         if (error.name === 'AbortError') {
           await e.reply('查询超时，请稍后重试')
         } else {
           logger.error(`[${pluginName}] 搜索失败`, error)
+          await e.reply('查询失败，请稍后重试')
+        }
+        return true
+      }
+    }
+
+    if (!data) {
+      try {
+        data = await this.apiService.organizeSearchResult(displayKeyword, rawContent, {
+          question: rawQuestion,
+          context: searchContext
+        })
+
+        if (!data?.详细信息 && !data?.总结) {
+          data = { 内容: rawContent }
+        }
+
+        this.setCache(cacheKey, {
+          data: searchContext ? (cached?.data || null) : data,
+          citations,
+          rawContent
+        })
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          await e.reply('查询超时，请稍后重试')
+        } else {
+          logger.error(`[${pluginName}] 搜索结果整理失败`, error)
           await e.reply('查询失败，请稍后重试')
         }
         return true

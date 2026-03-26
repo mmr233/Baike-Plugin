@@ -143,5 +143,17 @@ export const summarySchema = [
       max: 20,
       step: 1
     }
+  },
+  {
+    field: 'searchContext.replyNearbyMessageCount',
+    label: '引用附近注入条数',
+    bottomHelpMessage: '使用引用消息搜索时，额外注入引用消息附近的上下文消息总条数，优先按时间顺序从引用消息两侧取值，0 为关闭',
+    component: 'InputNumber',
+    defaultValue: 6,
+    componentProps: {
+      min: 0,
+      max: 20,
+      step: 1
+    }
   }
 ]

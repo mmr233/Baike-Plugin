@@ -7,7 +7,6 @@
   "license": "MIT",
   "description": "百科查询与内容总结插件，支持锅巴面板与帮助HTML",
   "dependencies": {
-    "node-schedule": "^2.1.1",
     "puppeteer": "^24.7.1"
   },
   "imports": {
