@@ -1,3 +1,5 @@
+import { enhanceSchemas } from './schemaHelpers.js'
+
 const sendOptions = [
   { label: '跟随主发送方式', value: '' },
   { label: 'HTML 图片', value: 'html' },
@@ -5,7 +7,7 @@ const sendOptions = [
   { label: '纯文本', value: 'text' }
 ]
 
-export const runtimeSchema = [
+const runtimeSchemaRaw = [
   {
     component: 'SOFT_GROUP_BEGIN',
     label: '缓存与发送'
@@ -138,3 +140,14 @@ export const runtimeSchema = [
     }
   }
 ]
+
+const runtimeRecommendationMap = {
+  'send.search': '跟随主发送方式',
+  'send.contentSummary': '跟随主发送方式',
+  'send.groupChatSummary': '跟随主发送方式',
+  'send.memberSummary': '跟随主发送方式'
+}
+
+export const runtimeSchema = enhanceSchemas(runtimeSchemaRaw, {
+  recommendationMap: runtimeRecommendationMap
+})

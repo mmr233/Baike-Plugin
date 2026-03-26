@@ -1,7 +1,7 @@
 import plugin from '../../../lib/plugins/plugin.js'
 import baikeService from '../model/services/baikeService.js'
 import { pluginTitle } from '#model'
-import { getScheduledSummaryCron, runScheduledSummary } from '../model/services/taskService.js'
+import { createScheduledSummaryTask } from '../model/services/taskService.js'
 
 export default class BaikeApp extends plugin {
   constructor() {
@@ -26,13 +26,8 @@ export default class BaikeApp extends plugin {
       ]
     })
 
-    this.task = [{
-      get cron() {
-        return getScheduledSummaryCron()
-      },
-      name: '[Baike-Plugin]自动群总结',
-      fnc: () => runScheduledSummary()
-    }]
+    const scheduledTask = createScheduledSummaryTask()
+    this.task = scheduledTask ? [scheduledTask] : []
   }
 
   async search(e) {

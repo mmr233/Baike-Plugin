@@ -258,7 +258,8 @@ const DEFAULT_CONFIG = {
   },
   searchContext: {
     historyMessageCount: 5,
-    replyNearbyMessageCount: 6
+    replyNearbyMessageCount: 6,
+    filterBotMessages: true
   },
   send: {
     primaryMode: 'html',

@@ -88,6 +88,15 @@ function parseJsonContent(text, fallback = null) {
   return fallback
 }
 
+function truncateDebugText(value, limit = 160) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!text) {
+    return ''
+  }
+
+  return text.length > limit ? `${text.slice(0, limit)}...` : text
+}
+
 function pushTextParts(value, parts, depth = 0) {
   if (depth > 8 || value === undefined || value === null) {
     return
@@ -673,6 +682,16 @@ class ApiService {
     const replyNearbyTexts = Array.isArray(context.replyNearbyTexts) ? context.replyNearbyTexts.filter(Boolean) : []
     const historyTexts = Array.isArray(context.historyTexts) ? context.historyTexts.filter(Boolean) : []
 
+    debugLog('search.intent', '准备解析搜索意图', {
+      question: truncateDebugText(currentQuestion, 120),
+      replyInjected: Boolean(replyText),
+      replyNearbyCount: replyNearbyTexts.length,
+      historyCount: historyTexts.length,
+      replyPreview: truncateDebugText(replyText, 160),
+      replyNearbyPreview: replyNearbyTexts.slice(0, 2).map(item => truncateDebugText(item, 120)),
+      historyPreview: historyTexts.slice(0, 2).map(item => truncateDebugText(item, 120))
+    })
+
     if (!replyText && replyNearbyTexts.length === 0 && historyTexts.length === 0) {
       const displayKeyword = extractKeyword(currentQuestion) || currentQuestion
       return {
@@ -715,11 +734,19 @@ class ApiService {
     const parsed = parseJsonContent(content, {})
     const query = String(parsed?.query || '').trim() || currentQuestion
     const displayKeyword = String(parsed?.displayKeyword || '').trim() || extractKeyword(query) || query
+    const usedContext = Boolean(parsed?.useContext)
+
+    debugLog('search.intent', '搜索意图解析完成', {
+      query: truncateDebugText(query, 160),
+      displayKeyword: truncateDebugText(displayKeyword, 80),
+      usedContext,
+      modelOutputPreview: truncateDebugText(content, 200)
+    })
 
     return {
       query,
       displayKeyword,
-      usedContext: Boolean(parsed?.useContext)
+      usedContext
     }
   }
 

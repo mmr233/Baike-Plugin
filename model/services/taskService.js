@@ -2,6 +2,8 @@ import Config from '../Config.js'
 import { pluginName } from '../constant.js'
 import baikeService from './baikeService.js'
 
+export const SCHEDULED_SUMMARY_TASK_NAME = '[Baike-Plugin]自动群总结'
+
 function clampInteger(value, min, max, fallback) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) {
@@ -40,6 +42,19 @@ export function getScheduledSummaryCron(taskConfig = Config.get('scheduledSummar
   }
 
   return `${normalized.second} ${normalized.minute} ${normalized.hour} * * *`
+}
+
+export function createScheduledSummaryTask(taskConfig = Config.get('scheduledSummary', {})) {
+  const cron = getScheduledSummaryCron(taskConfig)
+  if (!cron) {
+    return null
+  }
+
+  return {
+    cron,
+    name: SCHEDULED_SUMMARY_TASK_NAME,
+    fnc: () => runScheduledSummary()
+  }
 }
 
 export function formatScheduledSummaryTime(taskConfig = Config.get('scheduledSummary', {})) {

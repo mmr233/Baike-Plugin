@@ -1,4 +1,6 @@
-export const taskSchema = [
+import { enhanceSchemas } from './schemaHelpers.js'
+
+const taskSchemaRaw = [
   {
     component: 'SOFT_GROUP_BEGIN',
     label: '定时群总结'
@@ -68,3 +70,11 @@ export const taskSchema = [
     }
   }
 ]
+
+const taskRecommendationMap = {
+  'scheduledSummary.groups': '按需选择群聊'
+}
+
+export const taskSchema = enhanceSchemas(taskSchemaRaw, {
+  recommendationMap: taskRecommendationMap
+})

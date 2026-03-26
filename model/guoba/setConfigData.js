@@ -1,5 +1,9 @@
 import Config from '../Config.js'
 import { setByPath, toPositiveNumberArray } from '../../utils/common.js'
+import {
+  createScheduledSummaryTask,
+  SCHEDULED_SUMMARY_TASK_NAME
+} from '../services/taskService.js'
 
 function clampInteger(value, min, max, fallback) {
   const numeric = Number(value)
@@ -16,6 +20,25 @@ async function refreshPluginTasks() {
     }
 
     const { default: PluginsLoader } = await import('../../../../lib/plugins/loader.js')
+    if (PluginsLoader && Array.isArray(PluginsLoader.task)) {
+      PluginsLoader.task = PluginsLoader.task.filter(item => {
+        if (String(item?.name || '') !== SCHEDULED_SUMMARY_TASK_NAME) {
+          return true
+        }
+
+        try {
+          item?.job?.cancel?.()
+        } catch {}
+
+        return false
+      })
+
+      const scheduledTask = createScheduledSummaryTask()
+      if (scheduledTask) {
+        PluginsLoader.task.push(scheduledTask)
+      }
+    }
+
     if (typeof PluginsLoader?.createTask === 'function') {
       PluginsLoader.createTask()
       return true

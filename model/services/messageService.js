@@ -1169,13 +1169,25 @@ class MessageService {
   async buildSearchContext(e, options = {}) {
     const historyCount = Math.max(0, Number(options.historyCount) || 0)
     const replyNearbyCount = Math.max(0, Number(options.replyNearbyCount) || 0)
+    const filterBotMessages = options.filterBotMessages !== false
     const message = Array.isArray(e.message) ? e.message : []
     const replySegment = message.find(item => item.type === 'reply')
     const replyId = String(replySegment?.id || e.reply_id || '').trim()
+    const botUserId = this.getBotUserId(e)
+    const isBotMessage = messageData => {
+      if (!botUserId || !messageData) {
+        return false
+      }
+
+      const senderId = String(this.getMessageSender(messageData).userId || '').trim()
+      return Boolean(senderId) && senderId === botUserId
+    }
     let replyMessage = null
     let replyText = ''
     let replyNearbyMessages = []
     const replyNearbyTexts = []
+    let filteredReplyNearbyBotCount = 0
+    let filteredHistoryBotCount = 0
 
     if (replyId) {
       replyMessage = await this.getReplyMessage(e, { id: replyId })
@@ -1187,6 +1199,11 @@ class MessageService {
         })
 
         for (const item of replyNearbyMessages) {
+          if (filterBotMessages && isBotMessage(item)) {
+            filteredReplyNearbyBotCount += 1
+            continue
+          }
+
           const formatted = await this.formatMessageForContext(e, item, {
             includeMediaPlaceholders: false
           })
@@ -1204,6 +1221,11 @@ class MessageService {
     const replyNearbyKeys = new Set(replyNearbyMessages.map(item => this.getMessageUniqueKey(item)))
 
     for (const item of historyMessages) {
+      if (filterBotMessages && isBotMessage(item)) {
+        filteredHistoryBotCount += 1
+        continue
+      }
+
       if (replyNearbyKeys.has(this.getMessageUniqueKey(item))) {
         continue
       }
@@ -1218,7 +1240,14 @@ class MessageService {
     debugLog('message.context', '搜索上下文构建完成', {
       replyInjected: Boolean(replyText),
       replyNearbyInjectedCount: replyNearbyTexts.length,
-      historyInjectedCount: historyTexts.length
+      historyInjectedCount: historyTexts.length,
+      filterBotMessages,
+      botMessageFilteredCount: filteredReplyNearbyBotCount + filteredHistoryBotCount,
+      filteredReplyNearbyBotCount,
+      filteredHistoryBotCount,
+      replyPreview: this.truncateContextText(replyText, 120),
+      replyNearbyPreview: replyNearbyTexts.slice(0, 2).map(item => this.truncateContextText(item, 120)),
+      historyPreview: historyTexts.slice(0, 2).map(item => this.truncateContextText(item, 120))
     })
 
     return {

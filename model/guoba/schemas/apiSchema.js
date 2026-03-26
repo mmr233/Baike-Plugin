@@ -1,4 +1,6 @@
-export const apiSchema = [
+import { enhanceSchemas } from './schemaHelpers.js'
+
+const apiSchemaRaw = [
   {
     component: 'SOFT_GROUP_BEGIN',
     label: '接口配置'
@@ -210,3 +212,20 @@ export const apiSchema = [
     }
   }
 ]
+
+const apiRecommendationMap = {
+  'api.primaryBaseUrl': 'https://your-api.example.com/v1',
+  'api.primaryApiKey': '按需填写',
+  'api.search.baseUrl': '留空使用主接口地址',
+  'api.search.apiKey': '留空使用主接口密钥',
+  'api.summary.baseUrl': '留空使用主接口地址',
+  'api.summary.apiKey': '留空使用主接口密钥',
+  'api.video.baseUrl': '留空使用主接口地址',
+  'api.video.apiKey': '留空使用主接口密钥',
+  'api.audio.baseUrl': '留空使用主接口地址',
+  'api.audio.apiKey': '留空使用主接口密钥'
+}
+
+export const apiSchema = enhanceSchemas(apiSchemaRaw, {
+  recommendationMap: apiRecommendationMap
+})

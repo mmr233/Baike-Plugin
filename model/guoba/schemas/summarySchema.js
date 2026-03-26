@@ -1,4 +1,6 @@
-export const summarySchema = [
+import { enhanceSchemas } from './schemaHelpers.js'
+
+const summarySchemaRaw = [
   {
     component: 'SOFT_GROUP_BEGIN',
     label: '总结与媒体'
@@ -155,5 +157,14 @@ export const summarySchema = [
       max: 20,
       step: 1
     }
+  },
+  {
+    field: 'searchContext.filterBotMessages',
+    label: '过滤机器人消息',
+    bottomHelpMessage: '搜索上下文注入时是否过滤机器人本人消息（包含引用附近与前文注入）',
+    component: 'Switch',
+    defaultValue: true
   }
 ]
+
+export const summarySchema = enhanceSchemas(summarySchemaRaw)

@@ -1,3 +1,5 @@
+import { enhanceSchemas } from './schemaHelpers.js'
+
 const textAreaProps = {
   rows: 8,
   autosize: {
@@ -6,7 +8,7 @@ const textAreaProps = {
   }
 }
 
-export const promptSchema = [
+const promptSchemaRaw = [
   {
     component: 'SOFT_GROUP_BEGIN',
     label: '提示词'
@@ -51,7 +53,7 @@ export const promptSchema = [
   {
     field: 'prompt.groupChat',
     label: '群聊总结提示词',
-    bottomHelpMessage: '支持 {statsText}、{extraContext}、{messageTexts} 占位符',
+    bottomHelpMessage: '支持 {statsText}、{extraContext}、{botProfile}、{messageTexts} 占位符',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -61,7 +63,7 @@ export const promptSchema = [
   {
     field: 'prompt.groupMember',
     label: '@成员总结提示词',
-    bottomHelpMessage: '支持 {statsText}、{extraContext}、{memberProfiles}、{messageTexts} 占位符',
+    bottomHelpMessage: '支持 {statsText}、{extraContext}、{memberProfiles}、{botProfile}、{messageTexts} 占位符',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -69,3 +71,16 @@ export const promptSchema = [
     }
   }
 ]
+
+const promptRecommendationMap = {
+  'prompt.search': '保持默认模板',
+  'prompt.summaryDefault': '保持默认模板',
+  'prompt.summaryImageAppend': '保持默认模板',
+  'prompt.video': '保持默认模板',
+  'prompt.groupChat': '保持默认模板',
+  'prompt.groupMember': '保持默认模板'
+}
+
+export const promptSchema = enhanceSchemas(promptSchemaRaw, {
+  recommendationMap: promptRecommendationMap
+})

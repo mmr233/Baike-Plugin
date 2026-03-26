@@ -193,6 +193,53 @@ class BaikeService {
     }
   }
 
+  messageLikelyContainsMedia(messageData) {
+    if (!messageData) {
+      return false
+    }
+
+    const content = messageData.message || messageData.content || []
+    const list = Array.isArray(content) ? content : []
+    for (const segmentItem of list) {
+      const data = this.messageService.getSegmentData(segmentItem)
+      const type = segmentItem?.type || data?.type || data?._type || ''
+      if (['image', 'video', 'record', 'file', 'forward', 'json', 'xml'].includes(type)) {
+        return true
+      }
+    }
+
+    const rawMessage = String(messageData?.raw_message || '')
+    return /\[CQ:(image|video|record|file|forward)/i.test(rawMessage)
+  }
+
+  pickRecentMediaMessageForSearchContext(e, context = {}) {
+    const historyMessages = Array.isArray(context.historyMessages) ? context.historyMessages : []
+    if (historyMessages.length === 0) {
+      return null
+    }
+
+    const currentUserId = String(e?.user_id || '').trim()
+    let fallbackMessage = null
+
+    for (let index = historyMessages.length - 1; index >= 0; index -= 1) {
+      const item = historyMessages[index]
+      if (!this.messageLikelyContainsMedia(item)) {
+        continue
+      }
+
+      const senderId = String(this.messageService.getMessageSender(item).userId || '').trim()
+      if (currentUserId && senderId === currentUserId) {
+        return item
+      }
+
+      if (!fallbackMessage) {
+        fallbackMessage = item
+      }
+    }
+
+    return fallbackMessage
+  }
+
   async describeSearchContextMedia(e, messageData, label = '引用消息') {
     if (!messageData) {
       return ''
@@ -337,21 +384,55 @@ class BaikeService {
   }
 
   async enrichSearchContextWithMedia(e, context = {}) {
-    if (!context?.replyMessage) {
+    if (!context?.hasContext) {
       return context
     }
 
-    const replyMediaSummary = await this.describeSearchContextMedia(e, context.replyMessage, '引用消息')
-    if (!replyMediaSummary) {
+    if (context?.replyMessage) {
+      const replyMediaSummary = await this.describeSearchContextMedia(e, context.replyMessage, '引用消息')
+      if (!replyMediaSummary) {
+        return context
+      }
+
+      return {
+        ...context,
+        replyText: [
+          context.replyText,
+          `[引用媒体补充] ${replyMediaSummary}`
+        ].filter(Boolean).join('\n'),
+        hasContext: true
+      }
+    }
+
+    const historyMediaMessage = this.pickRecentMediaMessageForSearchContext(e, context)
+    if (!historyMediaMessage) {
       return context
     }
+
+    const historyMediaSummary = await this.describeSearchContextMedia(e, historyMediaMessage, '前文消息')
+    if (!historyMediaSummary) {
+      return context
+    }
+
+    const historyEntry = [
+      await this.messageService.formatMessageForContext(e, historyMediaMessage, {
+        includeMediaPlaceholders: true
+      }),
+      `[前文媒体补充] ${historyMediaSummary}`
+    ].filter(Boolean).join('\n')
+
+    const historyTexts = Array.isArray(context.historyTexts) ? [...context.historyTexts] : []
+    historyTexts.push(historyEntry)
+
+    debugLog('search.context.media', '无引用模式注入最近前文媒体补充', {
+      injected: true,
+      historyCountAfterInject: historyTexts.length,
+      preview: this.messageService.truncateContextText(historyEntry, 180)
+    })
 
     return {
       ...context,
-      replyText: [
-        context.replyText,
-        `[引用媒体补充] ${replyMediaSummary}`
-      ].filter(Boolean).join('\n'),
+      historyTexts,
       hasContext: true
     }
   }
@@ -438,7 +519,12 @@ class BaikeService {
     try {
       const historyCount = isExplicitSearch ? 0 : Config.get('searchContext.historyMessageCount', 5)
       const replyNearbyCount = Config.get('searchContext.replyNearbyMessageCount', 6)
-      let context = await this.messageService.buildSearchContext(e, { historyCount, replyNearbyCount })
+      const filterBotMessages = Config.get('searchContext.filterBotMessages', true)
+      let context = await this.messageService.buildSearchContext(e, {
+        historyCount,
+        replyNearbyCount,
+        filterBotMessages
+      })
       context = await this.enrichSearchContextWithMedia(e, context)
       searchContext = context
       const shouldResolveIntent = context.hasContext
