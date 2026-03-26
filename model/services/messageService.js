@@ -444,7 +444,8 @@ class MessageService {
     const aliases = [...new Set([card, nickname, actualUserId].filter(Boolean))]
 
     const lines = [
-      '这是当前正在执行总结的机器人账号本人；如果聊天记录里出现该账号，请把它视为机器人发言，不要当作普通群友。'
+      '这是当前正在执行总结的机器人账号本人；如果聊天记录里出现该账号，请把它视为机器人发言，不要当作普通群友。',
+      '涉及机器人发言的分析、点评和吐槽，请使用第一人称“我”来表述，不要用“机器人/它/该账号”等第三人称代称。'
     ]
 
     if (actualUserId) {

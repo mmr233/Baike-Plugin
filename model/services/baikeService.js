@@ -783,7 +783,7 @@ class BaikeService {
       const messageTexts = formattedMessages
         .map(item => {
           const isBotMessage = botProfile.userId && String(item.user_id || '') === botProfile.userId
-          const senderName = isBotMessage ? `${item.nickname}(机器人)` : item.nickname
+          const senderName = isBotMessage ? '我(机器人)' : item.nickname
           return `[${item.time}] ${senderName}: ${item.text}`
         })
         .join('\n')
