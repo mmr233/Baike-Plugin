@@ -365,6 +365,123 @@ class MessageService {
     return profiles.join('\n\n')
   }
 
+  getBotUserId(e) {
+    const candidates = [
+      e?.self_id,
+      e?.bot?.self_id,
+      Array.isArray(e?.bot?.uin) ? e.bot.uin[0] : e?.bot?.uin,
+      Array.isArray(globalThis.Bot?.uin) ? globalThis.Bot.uin[0] : globalThis.Bot?.uin,
+      Array.isArray(global.Bot?.uin) ? global.Bot.uin[0] : global.Bot?.uin
+    ]
+
+    for (const candidate of candidates) {
+      const value = String(candidate || '').trim()
+      if (value) {
+        return value
+      }
+    }
+
+    return ''
+  }
+
+  async getBotProfileData(e) {
+    const botUserId = this.getBotUserId(e)
+    if (!botUserId) {
+      return {}
+    }
+
+    const normalizedUserId = Number(botUserId) || botUserId
+    const merged = {
+      user_id: normalizedUserId,
+      nickname: e?.bot?.nickname || e?.bot?.name || ''
+    }
+
+    const tasks = [
+      async () => {
+        if (!e?.bot?.sendApi) {
+          return {}
+        }
+        return this.normalizeProfileObject(await e.bot.sendApi('get_login_info', {}))
+      },
+      async () => {
+        if (!e?.group_id) {
+          return {}
+        }
+        return this.getGroupMemberProfileData(e, e.group_id, botUserId)
+      },
+      async () => {
+        if (!e?.bot?.sendApi) {
+          return {}
+        }
+        return this.normalizeProfileObject(await e.bot.sendApi('get_stranger_info', {
+          user_id: normalizedUserId,
+          no_cache: true
+        }))
+      }
+    ]
+
+    for (const task of tasks) {
+      try {
+        Object.assign(merged, this.normalizeProfileObject(await task()))
+      } catch {}
+    }
+
+    return merged
+  }
+
+  formatBotProfile(profile = {}, fallbackUserId = '') {
+    const actualUserId = String(this.pickProfileValue(profile, ['user_id', 'uid', 'uin']) || fallbackUserId || '').trim()
+    const card = this.normalizeProfileTextValue(this.pickProfileValue(profile, ['card', 'group_name']))
+    const nickname = this.normalizeProfileTextValue(this.pickProfileValue(profile, ['nickname', 'name', 'nick']))
+    const roleMap = {
+      owner: '群主',
+      admin: '管理员',
+      member: '群成员'
+    }
+    const roleRaw = this.normalizeProfileTextValue(this.pickProfileValue(profile, ['role']))
+    const role = roleMap[roleRaw] || roleRaw
+    const title = this.normalizeProfileTextValue(this.pickProfileValue(profile, ['title', 'special_title']))
+    const aliases = [...new Set([card, nickname, actualUserId].filter(Boolean))]
+
+    const lines = [
+      '这是当前正在执行总结的机器人账号本人；如果聊天记录里出现该账号，请把它视为机器人发言，不要当作普通群友。'
+    ]
+
+    if (actualUserId) {
+      lines.push(`机器人QQ：${actualUserId}`)
+    }
+    if (card) {
+      lines.push(`本群名片：${card}`)
+    }
+    if (nickname && nickname !== card) {
+      lines.push(`QQ昵称：${nickname}`)
+    }
+    if (role) {
+      lines.push(`群身份：${role}`)
+    }
+    if (title) {
+      lines.push(`群头衔：${title}`)
+    }
+    if (aliases.length > 0) {
+      lines.push(`识别名称：${aliases.join(' / ')}`)
+    }
+    if (aliases.length === 0 && !actualUserId) {
+      lines.push('机器人名称未知，但聊天记录中属于机器人账号的消息都应视为机器人本人发言。')
+    }
+
+    return {
+      userId: actualUserId,
+      aliases,
+      promptText: lines.join('\n')
+    }
+  }
+
+  async getBotProfileForPrompt(e) {
+    const botUserId = this.getBotUserId(e)
+    const profile = await this.getBotProfileData(e)
+    return this.formatBotProfile(profile, botUserId)
+  }
+
   async extractImages(e, message) {
     const images = []
     const list = Array.isArray(message) ? message : []

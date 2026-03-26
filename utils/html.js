@@ -1,4 +1,43 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { pluginName, pluginRoot, packageInfo } from '../model/constant.js'
 import { escapeHtml } from './text.js'
+
+let footerTextCache = null
+
+function formatHostName(name = '') {
+  const normalized = String(name || '').trim().toLowerCase()
+  if (normalized === 'trss-yunzai') {
+    return 'TRSS-Yunzai'
+  }
+  if (normalized === 'miao-yunzai') {
+    return 'Miao-Yunzai'
+  }
+  if (normalized === 'yunzai-bot') {
+    return 'Yunzai-Bot'
+  }
+  return normalized ? String(name) : 'Yunzai'
+}
+
+function getFooterText() {
+  if (footerTextCache) {
+    return footerTextCache
+  }
+
+  const pluginVersion = packageInfo?.version || '1.0.0'
+  let hostName = 'Yunzai'
+  let hostVersion = ''
+
+  try {
+    const hostPackagePath = path.join(pluginRoot, '..', '..', 'package.json')
+    const hostPackage = JSON.parse(fs.readFileSync(hostPackagePath, 'utf8'))
+    hostName = formatHostName(hostPackage?.name || hostName)
+    hostVersion = hostPackage?.version ? ` ${hostPackage.version}` : ''
+  } catch {}
+
+  footerTextCache = `Created By ${hostName}${hostVersion} & ${pluginName} ${pluginVersion}`
+  return footerTextCache
+}
 
 function getJournalCSS() {
   return `
@@ -768,7 +807,7 @@ function renderMetricCard(icon, label, value, colorClass = '') {
   return `
     <div class="metric-card ${colorClass}">
       <div class="metric-card-inner">
-        <div class="metric-icon">${icon}</div>
+        ${icon ? `<div class="metric-icon">${icon}</div>` : ''}
         <div class="metric-label">${escapeHtml(label)}</div>
         <div class="metric-value">${escapeHtml(String(value))}</div>
       </div>
@@ -846,8 +885,8 @@ function renderJournalHeader(title, icon = '') {
     <div class="journal-header">
       <div class="tape-strip"></div>
       <div class="title-sticker">
-        <h1>${icon ? `${icon} ` : ''}${escapeHtml(title)}</h1>
-        <div class="date-tag">📅 ${new Date().toLocaleString('zh-CN')} · 胡桃的手帐</div>
+        <h1>${escapeHtml(title)}</h1>
+        <div class="date-tag">${new Date().toLocaleString('zh-CN')} · 胡桃的手帐</div>
       </div>
     </div>
   `
@@ -857,8 +896,8 @@ export function generateHutaoHTML(title, content, stats = null) {
   const statsHtml = stats
     ? `
       <div class="metric-row">
-        ${renderMetricCard('📨', '消息数量', stats.messageCount || 0)}
-        ${renderMetricCard('👥', '活跃成员', stats.memberCount || 0, 'blue')}
+        ${renderMetricCard('', '消息数量', stats.messageCount || 0)}
+        ${renderMetricCard('', '活跃成员', stats.memberCount || 0, 'blue')}
       </div>
     `
     : ''
@@ -874,7 +913,7 @@ export function generateHutaoHTML(title, content, stats = null) {
           ${renderRichTextHtml(content)}
         </div>
       </div>
-      <div class="journal-footer"><span>✿ 胡桃手帐 · 百科查询插件出品 ✿</span></div>
+      <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
     </div></body></html>`
 }
 
@@ -951,7 +990,7 @@ export function generateSearchHTML(keyword, content, citations = []) {
         ${contentHtml}
         ${citationsHtml}
       </div>
-      <div class="journal-footer"><span>✿ 胡桃手帐 · 百科查询插件出品 ✿</span></div>
+      <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
     </div></body></html>`
 }
 
@@ -964,6 +1003,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
     isMemberMode = false
   } = data
   const { topicSummary = '', highlights = [], extraSections = [] } = parsedContent || {}
+  const displayTitle = isMemberMode ? '群友画像' : title
   const rankChartHtml = !isMemberMode && sortedMembers.length > 0
     ? renderBarChart(
       sortedMembers.slice(0, 10).map(([name, count], index) => ({
@@ -989,13 +1029,13 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
   const statsHtml = isMemberMode
     ? `
       <div class="metric-row">
-        ${renderMetricCard('📨', '相关消息', messageCount)}
+        ${renderMetricCard('', '相关消息', messageCount)}
       </div>
     `
     : `
       <div class="metric-row">
-        ${renderMetricCard('📨', '消息数量', messageCount)}
-        ${renderMetricCard('👥', '活跃成员', memberCount, 'blue')}
+        ${renderMetricCard('', '消息数量', messageCount)}
+        ${renderMetricCard('', '活跃成员', memberCount, 'blue')}
       </div>
     `
 
@@ -1022,7 +1062,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
             <div class="quote-content">${renderRichTextHtml(item.content || '')}</div>
             ${item.roast ? `
               <div class="quote-note">
-                <div class="quote-note-label">AI 锐评</div>
+                <div class="quote-note-label">胡桃锐评</div>
                 ${renderRichTextHtml(item.roast)}
               </div>
             ` : ''}
@@ -1050,7 +1090,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
     <body><div class="journal journal-group">
-      ${renderJournalHeader(title, '🔥')}
+      ${renderJournalHeader(displayTitle, '')}
       <div class="journal-body">
         ${statsHtml}
         ${rankChartHtml}
@@ -1059,6 +1099,6 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
         ${highlightsHtml}
         ${extraSectionsHtml}
       </div>
-      <div class="journal-footer"><span>✿ 胡桃手帐 · 百科查询插件出品 ✿</span></div>
+      <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
     </div></body></html>`
 }

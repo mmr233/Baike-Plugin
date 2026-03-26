@@ -618,9 +618,17 @@ class BaikeService {
         allTexts.push(...otherFileTexts)
       }
 
+      const botProfile = await this.messageService.getBotProfileForPrompt(e)
       const prompt = allTexts.length > 0
-        ? `请对以下内容进行全面分析和总结：\n\n${allTexts.join('\n\n')}`
-        : '请分析这些媒体内容，描述你看到的内容并进行总结。'
+        ? [
+            '请对以下内容进行全面分析和总结。',
+            botProfile.promptText ? `机器人身份说明：\n${botProfile.promptText}` : '',
+            allTexts.join('\n\n')
+          ].filter(Boolean).join('\n\n')
+        : [
+            '请分析这些媒体内容，描述你看到的内容并进行总结。',
+            botProfile.promptText ? `机器人身份说明：\n${botProfile.promptText}` : ''
+          ].filter(Boolean).join('\n\n')
 
       const result = await this.apiService.callSummaryAPI(prompt, mediaFiles)
       this.mediaService.cleanupFiles(mediaFiles)
@@ -771,7 +779,14 @@ class BaikeService {
 
       const sortedMembers = Object.entries(userMessageCounts).sort((a, b) => b[1] - a[1])
       const statsText = sortedMembers.slice(0, 10).map(([name, count]) => `${name}: ${count}条`).join('、')
-      const messageTexts = formattedMessages.map(item => `[${item.time}] ${item.nickname}: ${item.text}`).join('\n')
+      const botProfile = await this.messageService.getBotProfileForPrompt(e)
+      const messageTexts = formattedMessages
+        .map(item => {
+          const isBotMessage = botProfile.userId && String(item.user_id || '') === botProfile.userId
+          const senderName = isBotMessage ? `${item.nickname}(机器人)` : item.nickname
+          return `[${item.time}] ${senderName}: ${item.text}`
+        })
+        .join('\n')
       const memberProfilesText = actualMembers.length > 0
         ? await this.messageService.getGroupMemberProfiles(e, actualMembers)
         : ''
@@ -784,10 +799,15 @@ class BaikeService {
         extraContext += `\n\n【目标成员主页资料】\n${memberProfilesText}`
       }
 
+      if (botProfile.promptText && !promptTemplate.includes('{botProfile}')) {
+        extraContext += `\n\n【机器人身份】\n${botProfile.promptText}`
+      }
+
       const prompt = promptTemplate
         .replace('{statsText}', statsText)
         .replace('{extraContext}', extraContext)
         .replace('{memberProfiles}', memberProfilesText || '无')
+        .replace('{botProfile}', botProfile.promptText || '无')
         .replace('{messageTexts}', messageTexts)
 
       const result = await this.apiService.callTextImageAPI(prompt, [])
