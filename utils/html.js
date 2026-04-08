@@ -64,7 +64,6 @@ function getJournalCSS() {
         radial-gradient(var(--paper-dot) 1.2px, transparent 1.2px),
         linear-gradient(180deg, #fffdf9 0%, #f7f0e5 100%);
       background-size: 18px 18px, 100% 100%;
-      min-height: 100vh;
       padding: 24px 14px 32px;
     }
     .journal {
