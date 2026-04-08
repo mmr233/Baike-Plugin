@@ -41,7 +41,7 @@ const summarySchemaRaw = [
   {
     field: 'fileRequest.otherMaxPerRequest',
     label: '单次其他附件上限',
-    bottomHelpMessage: '内容总结时单批最多处理多少个非图片/视频/语音附件，如 txt、md、json、js、py 等；总上限 = 本值 × 批次循环次数',
+    bottomHelpMessage: '内容总结时单批最多处理多少个非图片/视频/语音附件，如 txt、md、json、js、py、docx、pdf 等；总上限 = 本值 × 批次循环次数',
     component: 'InputNumber',
     defaultValue: 5,
     componentProps: {
@@ -53,13 +53,37 @@ const summarySchemaRaw = [
   {
     field: 'fileRequest.otherTextPreviewChars',
     label: '文本附件截取字数',
-    bottomHelpMessage: '文本类附件单文件最多截取多少字符参与内容总结；pdf/doc/docx 当前不直接提取正文或内嵌图片',
+    bottomHelpMessage: '文本类附件或文档正文单文件最多截取多少字符参与内容总结；txt、docx、pdf 都会受此值限制',
     component: 'InputNumber',
     defaultValue: 1500,
     componentProps: {
       min: 100,
       max: 20000,
       step: 100
+    }
+  },
+  {
+    field: 'fileRequest.documentPageMaxPerFile',
+    label: '文档最大页数',
+    bottomHelpMessage: 'PDF 单文件最多读取多少页正文；超出后会截断并在结果中提示',
+    component: 'InputNumber',
+    defaultValue: 10,
+    componentProps: {
+      min: 1,
+      max: 50,
+      step: 1
+    }
+  },
+  {
+    field: 'fileRequest.documentImageMaxPerFile',
+    label: '文档图片上限',
+    bottomHelpMessage: 'DOCX 内嵌图片或 PDF 页面截图，单文件最多提交多少张给图片模型分析',
+    component: 'InputNumber',
+    defaultValue: 4,
+    componentProps: {
+      min: 0,
+      max: 12,
+      step: 1
     }
   },
   {

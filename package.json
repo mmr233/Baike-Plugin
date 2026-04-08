@@ -7,6 +7,10 @@
   "license": "MIT",
   "description": "百科查询与内容总结插件，支持锅巴面板与帮助HTML",
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.96",
+    "adm-zip": "^0.5.17",
+    "mammoth": "^1.12.0",
+    "pdfjs-dist": "^5.6.205",
     "puppeteer": "^24.7.1"
   },
   "imports": {

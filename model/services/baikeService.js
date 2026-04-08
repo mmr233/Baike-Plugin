@@ -4,6 +4,7 @@ import resultCache from '../cache.js'
 import { debugLog } from '../debug.js'
 import { pluginName } from '../constant.js'
 import ApiService from './apiService.js'
+import DocumentService from './documentService.js'
 import MediaService from './mediaService.js'
 import MessageService from './messageService.js'
 import { beautifyText, extractKeyword, formatDetailValue, parseSummaryContent } from '../../utils/text.js'
@@ -16,6 +17,7 @@ class BaikeService {
     this.apiService = new ApiService()
     this.mediaService = new MediaService()
     this.messageService = new MessageService()
+    this.documentService = new DocumentService(this.mediaService, this.messageService)
   }
 
   getFormattedDate(timestamp) {
@@ -82,6 +84,125 @@ class BaikeService {
   getOtherAttachmentPreviewLimit(fallback = 1500) {
     const fileConfig = Config.get('fileRequest', {})
     return Math.max(100, Number(fileConfig.otherTextPreviewChars) || fallback)
+  }
+
+  async resolveAttachmentUrl(file = {}, e = null) {
+    if (file?.url) {
+      return file.url
+    }
+
+    if (!file?.file_id || !e?.bot?.sendApi) {
+      return ''
+    }
+
+    try {
+      const fileInfo = await e.bot.sendApi('get_file', { file_id: file.file_id })
+      return this.messageService.getUsableFileInfoSource(fileInfo)
+    } catch {
+      try {
+        const fileInfo = await e.bot.sendApi('get_file', { file: file.file_id })
+        return this.messageService.getUsableFileInfoSource(fileInfo)
+      } catch {
+        return ''
+      }
+    }
+  }
+
+  async summarizeAttachmentImages(fileName = '', images = [], options = {}) {
+    if (!Array.isArray(images) || images.length === 0) {
+      return ''
+    }
+
+    const batchLimit = Math.max(0, Number(options.batchLimit) || this.getSummaryFileLimits().imageMaxPerRequest)
+    if (batchLimit <= 0) {
+      return ''
+    }
+
+    const totalBatches = Math.ceil(images.length / batchLimit)
+    const kindLabel = options.kind === 'pdf' ? 'PDF 页面截图' : '文档内嵌图片'
+    const results = []
+
+    for (let batch = 0; batch < totalBatches; batch += 1) {
+      const chunk = images.slice(batch * batchLimit, (batch + 1) * batchLimit)
+      const prompt = [
+        `这些图片来自附件《${fileName}》的${kindLabel}。`,
+        totalBatches > 1 ? `这是第 ${batch + 1} / ${totalBatches} 批。` : '',
+        options.kind === 'pdf'
+          ? '请按页码顺序提取标题、正文要点、图表、插图、截图文字和页面之间的承接关系。'
+          : '请按图片顺序提取标题、正文要点、图表、插图、截图文字，以及它们和正文内容的关系。',
+        '直接输出纯文本，不要使用 markdown，不要编造。'
+      ].filter(Boolean).join('\n')
+
+      const result = await this.apiService.callImageAPI(
+        prompt,
+        chunk,
+        '你是一个文档图片理解助手。请提取有助于最终总结的关键信息，保留图片顺序，优先识别标题、正文、表格、图表、人物、场景和截图文字。直接输出简洁中文，不要使用 markdown，不要编造。'
+      )
+
+      if (result) {
+        results.push(totalBatches > 1 ? `【第${batch + 1}批附件图片】\n${result}` : result)
+      }
+    }
+
+    return results.join('\n\n')
+  }
+
+  async summarizeResolvedAttachment(file = {}, localPath = '', options = {}) {
+    const name = String(file?.name || 'file').trim() || 'file'
+    const previewLimit = Math.max(100, Number(options.previewLimit) || this.getOtherAttachmentPreviewLimit())
+    const documentConfig = this.documentService.getProcessingConfig()
+    const imageMaxPerFile = Math.max(
+      0,
+      Number(options.imageMaxPerFile ?? documentConfig.documentImageMaxPerFile) || 0
+    )
+    const pageLimit = Math.max(
+      1,
+      Number(options.pageLimit ?? documentConfig.documentPageMaxPerFile) || documentConfig.documentPageMaxPerFile
+    )
+    const sections = []
+    let extracted = null
+
+    try {
+      extracted = await this.documentService.extractAttachment(localPath, name, {
+        textLimit: previewLimit,
+        imageLimit: imageMaxPerFile,
+        pageLimit
+      })
+
+      const textResult = extracted?.textResult || { text: '', truncated: false, isEmpty: true }
+      if (textResult.text) {
+        sections.push(`【附件:${name}】\n${textResult.text}${textResult.truncated ? '\n...(已截断)' : ''}`)
+      } else if (extracted?.kind === 'text') {
+        sections.push(`【附件:${name}】文件内容为空`)
+      }
+
+      if (Array.isArray(extracted?.images) && extracted.images.length > 0) {
+        const imageSummary = await this.summarizeAttachmentImages(name, extracted.images, {
+          kind: extracted.kind,
+          batchLimit: options.imageBatchLimit
+        })
+
+        if (imageSummary) {
+          sections.push(`【附件配图:${name}】\n${imageSummary}`)
+        } else {
+          sections.push(`【附件处理说明:${name}】已提取到文档图片，但当前图片分析上限为 0`)
+        }
+      }
+
+      if (Array.isArray(extracted?.notes) && extracted.notes.length > 0) {
+        sections.push(`【附件处理说明:${name}】${extracted.notes.join('；')}`)
+      }
+
+      if (sections.length === 0) {
+        sections.push(`【附件:${name}】未提取到可用内容`)
+      }
+    } finally {
+      if (Array.isArray(extracted?.images) && extracted.images.length > 0) {
+        this.mediaService.cleanupFiles(extracted.images)
+      }
+    }
+
+    return sections
   }
 
   buildSearchContent(data = {}, fallbackText = '') {
@@ -242,17 +363,16 @@ class BaikeService {
       100,
       Number(options.previewLimit) || this.getOtherAttachmentPreviewLimit()
     )
+    const event = options.event || null
     const includeLimitNote = options.includeLimitNote !== false
     const targets = otherFiles.slice(0, actualLimit)
 
     for (let index = 0; index < targets.length; index += 1) {
       const file = targets[index]
-      if (!file?.url) {
-        continue
-      }
+      const resolvedUrl = await this.resolveAttachmentUrl(file, event)
 
       const localPath = await this.mediaService.downloadFile(
-        file.url,
+        resolvedUrl,
         `sum_other_${Date.now()}_${index}_${this.sanitizeFilename(file.name)}`
       )
 
@@ -262,23 +382,17 @@ class BaikeService {
       }
 
       try {
-        if (this.isTextLikeAttachment(file.name)) {
-          const content = fs.readFileSync(localPath, 'utf8')
-          const normalized = content.trim()
-          if (normalized) {
-            const truncated = normalized.slice(0, previewLimit)
-            texts.push(`【附件:${file.name}】\n${truncated}${normalized.length > previewLimit ? '\n...(已截断)' : ''}`)
-          } else {
-            texts.push(`【附件:${file.name}】文件内容为空`)
+        const sections = await this.summarizeResolvedAttachment(
+          { ...file, url: resolvedUrl },
+          localPath,
+          {
+            previewLimit,
+            imageMaxPerFile: options.imageMaxPerFile,
+            pageLimit: options.pageLimit,
+            imageBatchLimit: options.imageBatchLimit
           }
-        } else {
-          const ext = this.messageService.getFileExtension(file.name, file.url)
-          if (['doc', 'docx', 'pdf'].includes(ext)) {
-            texts.push(`【附件:${file.name}】已检测到 Word/PDF 文档，当前版本暂不直接提取正文或内嵌图片，请结合文件名理解其主题`)
-          } else {
-            texts.push(`【附件:${file.name}】已检测到附件，但当前仅支持直接提取文本类文件内容，请结合文件名理解其主题`)
-          }
-        }
+        )
+        texts.push(...sections)
       } catch (error) {
         texts.push(`【附件:${file.name}】读取失败：${error.message}`)
       } finally {
@@ -515,7 +629,12 @@ class BaikeService {
         const otherFileTexts = await this.summarizeOtherFiles(
           allOtherFiles,
           mediaLimits.otherMaxPerRequest,
-          { previewLimit: 400 }
+          {
+            previewLimit: 400,
+            event: e,
+            imageMaxPerFile: mediaLimits.imageMaxPerRequest,
+            imageBatchLimit: mediaLimits.imageMaxPerRequest
+          }
         )
         if (otherFileTexts.length > 0) {
           parts.push(...otherFileTexts.map(text => this.messageService.truncateContextText(text, 400)))
@@ -899,7 +1018,10 @@ class BaikeService {
         this.mediaService.cleanupFiles(audioFiles)
       }
 
-      const otherFileTexts = await this.summarizeOtherFiles(allOtherFiles, fileLimits.totalOtherLimit)
+      const otherFileTexts = await this.summarizeOtherFiles(allOtherFiles, fileLimits.totalOtherLimit, {
+        event: e,
+        imageBatchLimit: fileLimits.imageMaxPerRequest
+      })
       if (otherFileTexts.length > 0) {
         extraExtractedTexts.push(...otherFileTexts)
       }
@@ -1061,38 +1183,14 @@ class BaikeService {
 
       let docTexts = ''
       const fileLimits = this.getSummaryFileLimits()
-      for (const doc of allDocFiles.slice(0, fileLimits.totalOtherLimit)) {
-        let docUrl = doc.url
-        if (!docUrl && doc.file_id && e.bot?.sendApi) {
-          try {
-            const fileInfo = await e.bot.sendApi('get_file', { file_id: doc.file_id })
-            docUrl = fileInfo?.data?.url || fileInfo?.url || ''
-          } catch {}
-        }
-
-        if (!docUrl) {
-          continue
-        }
-
-        try {
-          const localPath = await this.mediaService.downloadFile(docUrl, `doc_${Date.now()}_${doc.name}`)
-          if (localPath && fs.existsSync(localPath)) {
-            if (this.isTextLikeAttachment(doc.name)) {
-              const content = fs.readFileSync(localPath, 'utf8')
-              const limit = chatConfig.docMaxChars || 2000
-              const truncated = content.slice(0, limit)
-              docTexts += `\n\n【文档: ${doc.name}】\n${truncated}${content.length > limit ? '...(已截断)' : ''}`
-            } else {
-              const ext = this.messageService.getFileExtension(doc.name, docUrl)
-              if (['doc', 'docx', 'pdf'].includes(ext)) {
-                docTexts += `\n\n【文档: ${doc.name}】当前版本暂不直接提取 Word/PDF 正文或内嵌图片，请结合文件名和聊天上下文理解其主题`
-              } else {
-                docTexts += `\n\n【文档: ${doc.name}】已检测到附件，但当前仅支持直接提取文本类文件内容`
-              }
-            }
-            this.mediaService.cleanupFile(localPath)
-          }
-        } catch {}
+      const docTextBlocks = await this.summarizeOtherFiles(allDocFiles, fileLimits.totalOtherLimit, {
+        previewLimit: chatConfig.docMaxChars || 2000,
+        includeLimitNote: false,
+        event: e,
+        imageBatchLimit: fileLimits.imageMaxPerRequest
+      })
+      if (docTextBlocks.length > 0) {
+        docTexts = `\n\n${docTextBlocks.join('\n\n')}`
       }
 
       const sortedMembers = Object.entries(userMessageCounts).sort((a, b) => b[1] - a[1])

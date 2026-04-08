@@ -255,6 +255,8 @@ const DEFAULT_CONFIG = {
     audioMaxPerRequest: 5,
     otherMaxPerRequest: 5,
     otherTextPreviewChars: 1500,
+    documentPageMaxPerFile: 10,
+    documentImageMaxPerFile: 4,
     maxRequestLoops: 2,
     longImageAutoSplit: {
       enabled: true,
