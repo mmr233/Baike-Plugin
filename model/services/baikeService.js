@@ -76,12 +76,12 @@ class BaikeService {
   }
 
   isTextLikeAttachment(name = '') {
-    const ext = String(name).toLowerCase().split('.').pop()
-    return [
-      'txt', 'md', 'markdown', 'json', 'xml', 'csv', 'log', 'html', 'htm',
-      'js', 'ts', 'jsx', 'tsx', 'py', 'java', 'c', 'cpp', 'h', 'hpp',
-      'cs', 'go', 'rs', 'php', 'rb', 'sh', 'ps1', 'ini', 'yaml', 'yml', 'toml'
-    ].includes(ext)
+    return this.messageService.isTextLikeFileName(name)
+  }
+
+  getOtherAttachmentPreviewLimit(fallback = 1500) {
+    const fileConfig = Config.get('fileRequest', {})
+    return Math.max(100, Number(fileConfig.otherTextPreviewChars) || fallback)
   }
 
   buildSearchContent(data = {}, fallbackText = '') {
@@ -238,7 +238,10 @@ class BaikeService {
     }
 
     const texts = []
-    const previewLimit = Math.max(100, Number(options.previewLimit) || 1500)
+    const previewLimit = Math.max(
+      100,
+      Number(options.previewLimit) || this.getOtherAttachmentPreviewLimit()
+    )
     const includeLimitNote = options.includeLimitNote !== false
     const targets = otherFiles.slice(0, actualLimit)
 
@@ -269,7 +272,12 @@ class BaikeService {
             texts.push(`【附件:${file.name}】文件内容为空`)
           }
         } else {
-          texts.push(`【附件:${file.name}】已检测到附件，但当前仅支持直接提取文本类文件内容，请结合文件名理解其主题`)
+          const ext = this.messageService.getFileExtension(file.name, file.url)
+          if (['doc', 'docx', 'pdf'].includes(ext)) {
+            texts.push(`【附件:${file.name}】已检测到 Word/PDF 文档，当前版本暂不直接提取正文或内嵌图片，请结合文件名理解其主题`)
+          } else {
+            texts.push(`【附件:${file.name}】已检测到附件，但当前仅支持直接提取文本类文件内容，请结合文件名理解其主题`)
+          }
         }
       } catch (error) {
         texts.push(`【附件:${file.name}】读取失败：${error.message}`)
@@ -1069,10 +1077,19 @@ class BaikeService {
         try {
           const localPath = await this.mediaService.downloadFile(docUrl, `doc_${Date.now()}_${doc.name}`)
           if (localPath && fs.existsSync(localPath)) {
-            const content = fs.readFileSync(localPath, 'utf8')
-            const limit = chatConfig.docMaxChars || 2000
-            const truncated = content.slice(0, limit)
-            docTexts += `\n\n【文档: ${doc.name}】\n${truncated}${content.length > limit ? '...(已截断)' : ''}`
+            if (this.isTextLikeAttachment(doc.name)) {
+              const content = fs.readFileSync(localPath, 'utf8')
+              const limit = chatConfig.docMaxChars || 2000
+              const truncated = content.slice(0, limit)
+              docTexts += `\n\n【文档: ${doc.name}】\n${truncated}${content.length > limit ? '...(已截断)' : ''}`
+            } else {
+              const ext = this.messageService.getFileExtension(doc.name, docUrl)
+              if (['doc', 'docx', 'pdf'].includes(ext)) {
+                docTexts += `\n\n【文档: ${doc.name}】当前版本暂不直接提取 Word/PDF 正文或内嵌图片，请结合文件名和聊天上下文理解其主题`
+              } else {
+                docTexts += `\n\n【文档: ${doc.name}】已检测到附件，但当前仅支持直接提取文本类文件内容`
+              }
+            }
             this.mediaService.cleanupFile(localPath)
           }
         } catch {}

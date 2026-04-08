@@ -1,8 +1,19 @@
 import fs from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { debugLog } from '../debug.js'
 
 class MessageService {
+  getTextLikeFileExtensions() {
+    return new Set([
+      'txt', 'md', 'markdown', 'json', 'xml', 'csv', 'log', 'html', 'htm',
+      'js', 'mjs', 'cjs', 'ts', 'mts', 'cts', 'jsx', 'tsx',
+      'py', 'java', 'c', 'cpp', 'cc', 'h', 'hpp',
+      'cs', 'go', 'rs', 'php', 'rb', 'sh', 'ps1', 'bat', 'cmd',
+      'ini', 'cfg', 'conf', 'yaml', 'yml', 'toml', 'sql', 'vue', 'svelte'
+    ])
+  }
+
   getMessageData(messageData) {
     return messageData?.data || messageData || {}
   }
@@ -13,6 +24,109 @@ class MessageService {
 
   getMediaUrl(data) {
     return data?.url || data?.file || data?.path || ''
+  }
+
+  getFileIdCandidates(...sources) {
+    const candidates = []
+
+    for (const source of sources) {
+      const data = this.getSegmentData(source)
+      for (const key of ['file_id', 'fileId', 'fid', 'res_id', 'id']) {
+        const value = String(data?.[key] || source?.[key] || '').trim()
+        if (value) {
+          candidates.push(value)
+        }
+      }
+    }
+
+    return [...new Set(candidates)]
+  }
+
+  getSegmentFileName(segmentItem, ...extraSources) {
+    const data = this.getSegmentData(segmentItem)
+    const candidates = [
+      data?.name,
+      segmentItem?.name,
+      data?.file_name,
+      segmentItem?.file_name,
+      data?.filename,
+      segmentItem?.filename,
+      data?.title,
+      segmentItem?.title
+    ]
+
+    for (const source of extraSources) {
+      const item = this.getSegmentData(source)
+      candidates.push(
+        item?.name,
+        source?.name,
+        item?.file_name,
+        source?.file_name,
+        item?.filename,
+        source?.filename,
+        item?.title,
+        source?.title
+      )
+    }
+
+    for (const candidate of candidates) {
+      const value = String(candidate || '').trim()
+      if (value) {
+        return value
+      }
+    }
+
+    const mediaCandidates = [
+      data?.path,
+      segmentItem?.path,
+      data?.file,
+      segmentItem?.file,
+      data?.url,
+      segmentItem?.url
+    ]
+
+    for (const candidate of mediaCandidates) {
+      const normalized = this.normalizeLocalMediaPath(candidate)
+      const value = String(normalized || '').trim()
+      if (!value) {
+        continue
+      }
+
+      try {
+        const basename = path.basename(value.split('?')[0])
+        if (basename && basename !== '.' && basename !== path.sep) {
+          return basename
+        }
+      } catch {}
+    }
+
+    return 'file'
+  }
+
+  getFileExtension(name = '', fallbackSource = '') {
+    const value = String(name || '').trim()
+    const getExt = input => {
+      const normalized = String(input || '').trim()
+      if (!normalized) {
+        return ''
+      }
+
+      const plain = normalized.split('?')[0].split('#')[0]
+      const basename = plain.split(/[\\/]/).pop() || plain
+      const dotIndex = basename.lastIndexOf('.')
+      if (dotIndex <= 0 || dotIndex === basename.length - 1) {
+        return ''
+      }
+
+      return basename.slice(dotIndex + 1).toLowerCase()
+    }
+
+    return getExt(value) || getExt(fallbackSource)
+  }
+
+  isTextLikeFileName(name = '', fallbackSource = '') {
+    const ext = this.getFileExtension(name, fallbackSource)
+    return this.getTextLikeFileExtensions().has(ext)
   }
 
   isHttpMediaSource(source = '') {
@@ -70,6 +184,76 @@ class MessageService {
     }
 
     return ''
+  }
+
+  getUsableFileInfoSource(fileInfo = {}) {
+    const data = fileInfo?.data || fileInfo || {}
+    return this.getUsableMediaSource(
+      data?.url,
+      fileInfo?.url,
+      data?.download_url,
+      fileInfo?.download_url,
+      data?.downloadUrl,
+      fileInfo?.downloadUrl,
+      data?.src,
+      fileInfo?.src,
+      data?.file,
+      fileInfo?.file,
+      data?.path,
+      fileInfo?.path
+    )
+  }
+
+  async resolveFileSegment(e, segmentItem) {
+    const data = this.getSegmentData(segmentItem)
+    let url = this.getUsableMediaSource(
+      data?.url,
+      segmentItem?.url,
+      data?.download_url,
+      segmentItem?.download_url,
+      data?.downloadUrl,
+      segmentItem?.downloadUrl
+    )
+    let fileInfo = null
+    const fileIdCandidates = this.getFileIdCandidates(data, segmentItem)
+
+    if (!url && e.bot?.sendApi) {
+      for (const candidate of fileIdCandidates) {
+        try {
+          fileInfo = await e.bot.sendApi('get_file', { file_id: candidate })
+        } catch {
+          try {
+            fileInfo = await e.bot.sendApi('get_file', { file: candidate })
+          } catch {
+            fileInfo = null
+          }
+        }
+
+        url = this.getUsableFileInfoSource(fileInfo)
+        if (url) {
+          break
+        }
+      }
+    }
+
+    if (!url) {
+      url = this.getUsableMediaSource(
+        this.getMediaUrl(data),
+        segmentItem?.file,
+        segmentItem?.path,
+        data?.path
+      )
+    }
+
+    const name = this.getSegmentFileName(segmentItem, data, fileInfo)
+    const fileId = fileIdCandidates[0] || ''
+
+    return {
+      url,
+      name,
+      ext: this.getFileExtension(name, url),
+      file_id: fileId
+    }
   }
 
   getMessageList(messageData) {
@@ -633,25 +817,12 @@ class MessageService {
         continue
       }
 
-      let url = this.getUsableMediaSource(data?.url, segmentItem?.url)
-      const name = data.name || segmentItem?.name || 'file'
-
-      if (!url && data.file_id && e.bot?.sendApi) {
-        try {
-          const fileInfo = await e.bot.sendApi('get_file', { file_id: data.file_id })
-          url = this.getUsableMediaSource(fileInfo?.data?.url, fileInfo?.url, fileInfo?.data?.file, fileInfo?.file, fileInfo?.data?.path, fileInfo?.path)
-        } catch {}
-      }
-
-      if (!url) {
-        url = this.getUsableMediaSource(this.getMediaUrl(data), segmentItem?.file, segmentItem?.path)
-      }
+      const { url, name, ext, file_id } = await this.resolveFileSegment(e, segmentItem)
 
       if (!url) {
         continue
       }
 
-      const ext = name.toLowerCase().split('.').pop()
       if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) {
         files.push({ type: 'image', url, name })
       } else if (['mp4', 'avi', 'mov', 'mkv', 'webm'].includes(ext)) {
@@ -659,7 +830,7 @@ class MessageService {
       } else if (['mp3', 'wav', 'm4a', 'aac', 'flac', 'amr', 'silk', 'slk'].includes(ext)) {
         files.push({ type: 'audio', url, name })
       } else {
-        files.push({ type: 'other', url, name, ext, file_id: data.file_id || '' })
+        files.push({ type: 'other', url, name, ext, file_id })
       }
     }
 
@@ -1468,12 +1639,19 @@ class MessageService {
           texts.push('[语音]')
         } else if (type === 'file') {
           result.hasMedia = true
-          const name = segmentData.name || segmentItem?.name || 'file'
-          const ext = name.toLowerCase().split('.').pop()
-          const url = this.getMediaUrl(segmentData) || segmentItem?.url || ''
-          const fileId = segmentData.file_id || ''
+          const name = this.getSegmentFileName(segmentItem, segmentData)
+          const url = this.getUsableMediaSource(
+            this.getMediaUrl(segmentData),
+            segmentItem?.url,
+            segmentItem?.file,
+            segmentItem?.path,
+            segmentData?.download_url,
+            segmentItem?.download_url
+          )
+          const ext = this.getFileExtension(name, url)
+          const fileId = this.getFileIdCandidates(segmentData, segmentItem)[0] || ''
 
-          if (['txt', 'doc', 'docx', 'pdf', 'md', 'csv', 'json', 'xml', 'log', 'html', 'htm'].includes(ext)) {
+          if (this.isTextLikeFileName(name, url) || ['doc', 'docx', 'pdf'].includes(ext)) {
             result.docFiles.push({ name, url, file_id: fileId })
             texts.push(`[文档:${name}]`)
           } else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) {

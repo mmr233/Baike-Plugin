@@ -254,6 +254,7 @@ const DEFAULT_CONFIG = {
     videoMaxPerRequest: 3,
     audioMaxPerRequest: 5,
     otherMaxPerRequest: 5,
+    otherTextPreviewChars: 1500,
     maxRequestLoops: 2,
     longImageAutoSplit: {
       enabled: true,

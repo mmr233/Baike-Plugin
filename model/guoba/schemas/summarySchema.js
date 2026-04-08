@@ -41,13 +41,25 @@ const summarySchemaRaw = [
   {
     field: 'fileRequest.otherMaxPerRequest',
     label: '单次其他附件上限',
-    bottomHelpMessage: '内容总结时单批最多处理多少个非图片/视频/语音附件，如 txt、md、json、pdf、docx 等；总上限 = 本值 × 批次循环次数',
+    bottomHelpMessage: '内容总结时单批最多处理多少个非图片/视频/语音附件，如 txt、md、json、js、py 等；总上限 = 本值 × 批次循环次数',
     component: 'InputNumber',
     defaultValue: 5,
     componentProps: {
       min: 0,
       max: 20,
       step: 1
+    }
+  },
+  {
+    field: 'fileRequest.otherTextPreviewChars',
+    label: '文本附件截取字数',
+    bottomHelpMessage: '文本类附件单文件最多截取多少字符参与内容总结；pdf/doc/docx 当前不直接提取正文或内嵌图片',
+    component: 'InputNumber',
+    defaultValue: 1500,
+    componentProps: {
+      min: 100,
+      max: 20000,
+      step: 100
     }
   },
   {
