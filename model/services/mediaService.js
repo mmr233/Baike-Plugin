@@ -791,7 +791,46 @@ class MediaService {
       const page = await browser.newPage()
       await page.setViewport({ width: 760, height: 1200, deviceScaleFactor: 2 })
       await page.setContent(html, { waitUntil: 'networkidle0' })
-      await page.screenshot({ path: imagePath, fullPage: true, type: 'png' })
+      await page.evaluate(async () => {
+        if (document.fonts?.ready) {
+          await document.fonts.ready
+        }
+
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      })
+
+      const clip = await page.evaluate(() => {
+        const body = document.body
+        const journal = document.querySelector('.journal')
+        const target = journal || body
+        const targetRect = target.getBoundingClientRect()
+        const bodyStyle = getComputedStyle(body)
+        const paddingRight = parseFloat(bodyStyle.paddingRight) || 0
+        const paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0
+        const shadowBleed = 28
+
+        return {
+          width: Math.max(1, Math.ceil(targetRect.right + paddingRight + shadowBleed)),
+          height: Math.max(1, Math.ceil(targetRect.bottom + paddingBottom + shadowBleed))
+        }
+      })
+
+      await page.setViewport({
+        width: Math.max(760, clip.width),
+        height: Math.max(320, Math.min(clip.height, 1200)),
+        deviceScaleFactor: 2
+      })
+      await page.screenshot({
+        path: imagePath,
+        type: 'png',
+        captureBeyondViewport: true,
+        clip: {
+          x: 0,
+          y: 0,
+          width: clip.width,
+          height: clip.height
+        }
+      })
       return imagePath
     } catch (error) {
       logger.error(`[${pluginName}] HTML 转图片失败：${error.message}`)
