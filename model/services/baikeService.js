@@ -165,6 +165,48 @@ class BaikeService {
     ].filter(Boolean).join('\n\n')
   }
 
+  hasBracketSections(text = '') {
+    return /(?:^|\n)【[^】\n]+】\s*\n/.test(String(text || ''))
+  }
+
+  buildSummaryHtmlContent(result = '') {
+    const actualResult = beautifyText(String(result || '').trim())
+    if (!actualResult) {
+      return ''
+    }
+
+    if (this.hasBracketSections(actualResult)) {
+      return actualResult
+    }
+
+    const blocks = actualResult
+      .replace(/\r/g, '')
+      .split(/\n{2,}/)
+      .map(item => item.trim())
+      .filter(Boolean)
+
+    if (blocks.length === 0) {
+      return actualResult
+    }
+
+    if (blocks.length === 1) {
+      return `【摘要】\n${blocks[0]}`
+    }
+
+    if (blocks.length === 2) {
+      return [
+        `【摘要】\n${blocks[0]}`,
+        `【要点】\n${blocks[1]}`
+      ].join('\n\n')
+    }
+
+    return [
+      `【摘要】\n${blocks[0]}`,
+      `【要点】\n${blocks.slice(1, -1).join('\n\n')}`,
+      `【补充说明】\n${blocks[blocks.length - 1]}`
+    ].join('\n\n')
+  }
+
   buildImageOverflowNotices(summaryMeta = {}, options = {}) {
     const notices = []
     const skippedSourceCount = Math.max(0, Number(summaryMeta?.skippedSourceCount) || 0)
@@ -681,7 +723,7 @@ class BaikeService {
       const result = cached.result
       const notices = Array.isArray(cached.notices) ? cached.notices : []
       const displayText = this.buildSummaryDisplayText(result, notices)
-      const html = generateHutaoHTML('内容总结', result, null, notices)
+      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, notices)
       const userInfo = this.messageService.getUserInfo(e)
       await this.sendResult(
         e,
@@ -890,7 +932,7 @@ class BaikeService {
 
       this.setCache(cacheKey, { result, notices: summaryNotices })
       const displayText = this.buildSummaryDisplayText(result, summaryNotices)
-      const html = generateHutaoHTML('内容总结', result, null, summaryNotices)
+      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, summaryNotices)
       const userInfo = this.messageService.getUserInfo(e)
       await this.sendResult(
         e,
