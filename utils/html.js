@@ -891,40 +891,28 @@ function renderJournalHeader(title, icon = '') {
   `
 }
 
+function renderSnapshotNote(text = '', kicker = '摘要快照') {
+  const actualText = String(text || '').trim()
+  if (!actualText) {
+    return ''
+  }
+
+  return `
+    <div class="hero-note">
+      <div class="hero-kicker">${escapeHtml(kicker)}</div>
+      <div class="hero-text">${escapeHtml(actualText)}</div>
+    </div>
+  `
+}
+
 export function generateHutaoHTML(title, content, stats = null, notices = []) {
   const actualNotices = Array.isArray(notices) ? notices.filter(Boolean) : []
   const sections = parseBracketSections(content)
-  const paragraphCount = sections.length > 0
-    ? sections.reduce((sum, item) => sum + normalizeTextBlocks(item.content).length, 0)
-    : normalizeTextBlocks(content).length
-  const contentCount = sections.length > 0
-    ? sections.length
-    : Math.max(normalizeTextBlocks(content).length, content ? 1 : 0)
-  const contentLabel = sections.length > 0 ? '信息模块' : '内容段落'
   const previewText = getPreviewText(content)
-  const statsHtml = `
-      <div class="metric-row">
-        ${renderMetricCard('🧩', contentLabel, contentCount)}
-        ${renderMetricCard('⚠', '处理提示', actualNotices.length, 'blue')}
-      </div>
-    `
-  const chartHtml = renderBarChart([
-    { label: '信息模块', value: sections.length > 0 ? sections.length : 1 },
-    { label: '内容段落', value: Math.max(1, paragraphCount), color: 'blue' },
-    { label: '处理提示', value: actualNotices.length }
-  ], '内容数量统计')
-  const noticeHtml = actualNotices.length > 0
-    ? `
-      <div class="section source-section">
-        <div class="section-title">处理提示</div>
-        ${renderRichTextHtml(actualNotices.map(item => `• ${item}`).join('\n'))}
-      </div>
-    `
-    : ''
   const contentHtml = content
     ? `
       <div class="section paper-section">
-        <div class="section-title">内容分析</div>
+        <div class="section-title">核心内容</div>
         ${sections.length > 0
           ? `
             <div class="card-stack">
@@ -940,21 +928,22 @@ export function generateHutaoHTML(title, content, stats = null, notices = []) {
       </div>
     `
     : ''
+  const noticeHtml = actualNotices.length > 0
+    ? `
+      <div class="section source-section">
+        <div class="section-title">处理提示</div>
+        ${renderRichTextHtml(actualNotices.map(item => `• ${item}`).join('\n'))}
+      </div>
+    `
+    : ''
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
     <body><div class="journal journal-summary">
       ${renderJournalHeader(title, '🔥')}
       <div class="journal-body">
-        ${statsHtml}
-        ${chartHtml}
-        ${previewText ? `
-          <div class="hero-note">
-            <div class="hero-kicker">SUMMARY SNAPSHOT</div>
-            <div class="hero-text">${escapeHtml(previewText)}</div>
-          </div>
-        ` : ''}
-        ${noticeHtml}
+        ${renderSnapshotNote(previewText, '摘要快照')}
         ${contentHtml}
+        ${noticeHtml}
       </div>
       <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
     </div></body></html>`
@@ -962,24 +951,12 @@ export function generateHutaoHTML(title, content, stats = null, notices = []) {
 
 export function generateSearchHTML(keyword, content, citations = []) {
   const sections = parseBracketSections(content)
-  const paragraphCount = sections.length > 0
-    ? sections.reduce((sum, item) => sum + normalizeTextBlocks(item.content).length, 0)
-    : normalizeTextBlocks(content).length
-  const contentCount = sections.length > 0
-    ? sections.length
-    : Math.max(normalizeTextBlocks(content).length, content ? 1 : 0)
-  const contentLabel = sections.length > 0 ? '信息模块' : '内容段落'
   const previewText = getPreviewText(content)
-  const chartHtml = renderBarChart([
-    { label: '信息模块', value: sections.length > 0 ? sections.length : 1 },
-    { label: '内容段落', value: Math.max(1, paragraphCount), color: 'blue' },
-    { label: '参考来源', value: citations.length }
-  ], '信息数量统计')
 
   const contentHtml = content
     ? `
       <div class="section paper-section">
-        <div class="section-title">检索内容</div>
+        <div class="section-title">核心内容</div>
         ${sections.length > 0
           ? `
             <div class="card-stack">
@@ -1019,17 +996,7 @@ export function generateSearchHTML(keyword, content, citations = []) {
     <body><div class="journal journal-search">
       ${renderJournalHeader(keyword, '🔍')}
       <div class="journal-body">
-        <div class="metric-row">
-          ${renderMetricCard('🧩', contentLabel, contentCount)}
-          ${renderMetricCard('🔗', '参考来源', citations.length, 'blue')}
-        </div>
-        ${chartHtml}
-        ${previewText ? `
-          <div class="hero-note">
-            <div class="hero-kicker">RESULT SNAPSHOT</div>
-            <div class="hero-text">${escapeHtml(previewText)}</div>
-          </div>
-        ` : ''}
+        ${renderSnapshotNote(previewText, '摘要快照')}
         ${contentHtml}
         ${citationsHtml}
       </div>

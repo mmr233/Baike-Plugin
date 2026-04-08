@@ -85,24 +85,39 @@ class BaikeService {
   }
 
   buildSearchContent(data = {}, fallbackText = '') {
-    if (data?.详细信息) {
-      if (typeof data.详细信息 === 'object') {
-        let detailText = ''
-        for (const [key, value] of Object.entries(data.详细信息)) {
-          detailText += `【${key}】\n${formatDetailValue(value, '  ')}\n\n`
-        }
-        return detailText.trim()
+    const sections = []
+    const seen = new Set()
+    const pushSection = (title, value) => {
+      const text = beautifyText(String(value || '').trim())
+      const normalized = text.replace(/\s+/g, ' ').trim()
+      if (!normalized || seen.has(normalized)) {
+        return
       }
 
-      return beautifyText(data.详细信息)
-    }
-
-    if (data?.内容) {
-      return beautifyText(data.内容)
+      seen.add(normalized)
+      sections.push(title ? `【${title}】\n${text}` : text)
     }
 
     if (data?.总结) {
-      return beautifyText(data.总结)
+      pushSection('总结', data.总结)
+    }
+
+    if (data?.详细信息) {
+      if (typeof data.详细信息 === 'object') {
+        for (const [key, value] of Object.entries(data.详细信息)) {
+          pushSection(key, formatDetailValue(value, '  '))
+        }
+      } else {
+        pushSection('详细信息', data.详细信息)
+      }
+    }
+
+    if (data?.内容) {
+      pushSection(sections.length > 0 ? '补充内容' : '内容', data.内容)
+    }
+
+    if (sections.length > 0) {
+      return sections.join('\n\n')
     }
 
     return beautifyText(fallbackText || '')
