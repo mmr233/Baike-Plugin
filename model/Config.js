@@ -138,6 +138,13 @@ const DEFAULT_CONFIG = {
       timeoutMs: 120000,
       retryCount: 1
     },
+    image: {
+      baseUrl: '',
+      apiKey: '',
+      model: 'gemini-flash-latest',
+      timeoutMs: 120000,
+      retryCount: 1
+    },
     video: {
       baseUrl: '',
       apiKey: '',

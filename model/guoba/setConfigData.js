@@ -73,7 +73,7 @@ export async function setConfigData(data, { Result }) {
       messageCount: clampInteger(nextConfig.scheduledSummary?.messageCount, 50, 2000, 300)
     }
 
-    for (const modelType of ['search', 'summary', 'video', 'audio']) {
+    for (const modelType of ['search', 'image', 'summary', 'video', 'audio']) {
       nextConfig.api[modelType] = {
         ...(nextConfig.api?.[modelType] || {}),
         retryCount: clampInteger(nextConfig.api?.[modelType]?.retryCount, 0, 5, 1)

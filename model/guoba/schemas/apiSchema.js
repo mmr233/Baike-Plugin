@@ -8,7 +8,7 @@ const apiSchemaRaw = [
   {
     field: 'api.primaryBaseUrl',
     label: '主接口地址',
-    bottomHelpMessage: '搜索/总结/视频/音频未单独配置地址时都会回退到这里',
+    bottomHelpMessage: '搜索/图片/总结/视频/音频未单独配置地址时都会回退到这里',
     component: 'Input',
     componentProps: {
       placeholder: 'https://example.com/v1'
@@ -76,10 +76,54 @@ const apiSchemaRaw = [
   },
   {
     component: 'Divider',
-    label: '总结 / 视频 / 音频模型',
+    label: '图片 / 总结 / 视频 / 音频模型',
     componentProps: {
       orientation: 'left',
       plain: true
+    }
+  },
+  {
+    field: 'api.image.model',
+    label: '图片模型名',
+    component: 'Input',
+    componentProps: {
+      placeholder: 'gemini-flash-latest'
+    }
+  },
+  {
+    field: 'api.image.baseUrl',
+    label: '图片接口地址',
+    bottomHelpMessage: '留空则使用主接口地址',
+    component: 'Input'
+  },
+  {
+    field: 'api.image.apiKey',
+    label: '图片接口密钥',
+    bottomHelpMessage: '留空则使用主接口密钥',
+    component: 'InputPassword'
+  },
+  {
+    field: 'api.image.timeoutMs',
+    label: '图片请求超时（毫秒）',
+    bottomHelpMessage: '图片理解、长图切片理解等请求默认共用此超时',
+    component: 'InputNumber',
+    defaultValue: 120000,
+    componentProps: {
+      min: 1000,
+      max: 600000,
+      step: 1000
+    }
+  },
+  {
+    field: 'api.image.retryCount',
+    label: '图片重试次数',
+    bottomHelpMessage: '图片理解失败后的额外重试次数',
+    component: 'InputNumber',
+    defaultValue: 1,
+    componentProps: {
+      min: 0,
+      max: 5,
+      step: 1
     }
   },
   {
@@ -116,7 +160,7 @@ const apiSchemaRaw = [
   {
     field: 'api.summary.retryCount',
     label: '总结重试次数',
-    bottomHelpMessage: '群聊总结、内容总结、图片理解等总结模型请求共用该重试次数',
+    bottomHelpMessage: '群聊总结、内容总结、搜索结果整理等总结模型请求共用该重试次数',
     component: 'InputNumber',
     defaultValue: 1,
     componentProps: {
@@ -218,6 +262,8 @@ const apiRecommendationMap = {
   'api.primaryApiKey': '按需填写',
   'api.search.baseUrl': '留空使用主接口地址',
   'api.search.apiKey': '留空使用主接口密钥',
+  'api.image.baseUrl': '留空使用主接口地址',
+  'api.image.apiKey': '留空使用主接口密钥',
   'api.summary.baseUrl': '留空使用主接口地址',
   'api.summary.apiKey': '留空使用主接口密钥',
   'api.video.baseUrl': '留空使用主接口地址',

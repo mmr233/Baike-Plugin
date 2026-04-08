@@ -277,7 +277,7 @@ class BaikeService {
 
     for (let batch = 0; batch < actualBatches; batch += 1) {
       const chunk = imageFiles.slice(batch * actualBatchLimit, (batch + 1) * actualBatchLimit)
-      const result = await this.apiService.callTextImageAPI(prompt, chunk)
+      const result = await this.apiService.callImageAPI(prompt, chunk)
       if (result) {
         results.push(actualBatches > 1 ? `【第${batch + 1}批${label}】\n${result}` : result)
       }
@@ -372,7 +372,7 @@ class BaikeService {
 
       if (imageFiles.length > 0) {
         try {
-          const imageSummary = await this.apiService.callTextImageAPI(
+          const imageSummary = await this.apiService.callImageAPI(
             `${label}包含图片。请识别其中最有助于回答“这是什么 / 他是谁 / 她是谁”的主体、角色名、作品名、品牌、地点、界面标题和图片文字。直接输出简洁中文，不要使用 markdown，也不要编造。`,
             imageFiles,
             '你是一个搜索上下文图片理解助手。请只提取有助于后续搜索消解指代的关键信息，优先识别人物、角色、物体、地点、作品名、品牌和图片中的文字。直接输出简洁中文，不要使用 markdown，不要编造。'
@@ -861,7 +861,8 @@ class BaikeService {
           ].filter(Boolean).join('\n\n')
 
       const result = await this.apiService.callSummaryAPI(prompt, mediaFiles)
-      this.mediaService.cleanupFiles(mediaFiles)
+      this.mediaService.cleanupFiles(imageFiles)
+      this.mediaService.cleanupFiles(videoFiles)
       const summaryNotices = this.buildImageOverflowNotices(imageFiles.summaryMeta, {
         processedCount: imageFiles.length,
         totalLimit: fileLimits.totalImageLimit
@@ -1053,7 +1054,7 @@ class BaikeService {
         .replace('{botProfile}', botProfile.promptText || '无')
         .replace('{messageTexts}', messageTexts)
 
-      const result = await this.apiService.callTextImageAPI(prompt, [])
+      const result = await this.apiService.callSummaryTextAPI(prompt)
       if (!result) {
         await e.reply('总结失败，请稍后重试')
         return true

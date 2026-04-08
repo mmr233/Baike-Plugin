@@ -33,8 +33,8 @@ const promptSchemaRaw = [
   },
   {
     field: 'prompt.summaryImageAppend',
-    label: '总结图片补充提示词',
-    bottomHelpMessage: '支持 {count} 占位符，表示本次上传的图片数量',
+    label: '图片分析补充提示词',
+    bottomHelpMessage: '支持 {count} 占位符，表示本次上传的图片数量；图片模型请求时会自动追加',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,

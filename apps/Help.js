@@ -127,8 +127,9 @@ export default class BaikeHelp extends plugin {
         desc: '模型、缓存、发送模式和自动群总结都可以通过锅巴面板调整。',
         list: [
           { icon: 31, title: '搜索模型', desc: config.api.search.model || '未配置' },
-          { icon: 32, title: '总结模型', desc: config.api.summary.model || '未配置' },
-          { icon: 33, title: '发送优先级', desc: `${config.send.primaryMode} -> 自动降级 ${config.send.autoFallback ? '已开启' : '已关闭'}` }
+          { icon: 32, title: '图片模型', desc: config.api.image?.model || config.api.summary.model || '未配置' },
+          { icon: 33, title: '总结模型', desc: config.api.summary.model || '未配置' },
+          { icon: 34, title: '发送优先级', desc: `${config.send.primaryMode} -> 自动降级 ${config.send.autoFallback ? '已开启' : '已关闭'}` }
         ]
       }
     ]

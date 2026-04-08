@@ -380,6 +380,12 @@ function buildSearchSummaryContextPrompt(context = {}, question = '') {
   }
 }
 
+function hasUsableImageFiles(imageFiles = []) {
+  return (imageFiles || []).some(
+    media => media?.type === 'image' && media?.localPath && fs.existsSync(media.localPath)
+  )
+}
+
 class ApiService {
   isPenaltyUnsupportedModel(model = '') {
     return /grok-(3|4)/i.test(String(model || ''))
@@ -548,7 +554,23 @@ class ApiService {
     return extractResponseText(json) || null
   }
 
-  async callTextImageAPI(content, imageFiles = [], systemPromptOverride = null) {
+  async callSummaryTextAPI(content, systemPromptOverride = null) {
+    const promptConfig = Config.get('prompt', {})
+    const actualContent = String(content || '').trim()
+    if (!actualContent) {
+      return null
+    }
+
+    const { json } = await this.requestChatCompletion('summary', [
+      { role: 'system', content: systemPromptOverride || promptConfig.summaryDefault || '' },
+      { role: 'user', content: actualContent }
+    ])
+
+    const result = extractResponseText(json) || null
+    return result ? beautifyText(result) : null
+  }
+
+  async callImageAPI(content, imageFiles = [], systemPromptOverride = null) {
     const promptConfig = Config.get('prompt', {})
     const userContent = []
     const splitMetas = []
@@ -595,13 +617,21 @@ class ApiService {
       systemPrompt += (promptConfig.summaryImageAppend || '').replace('{count}', imageCount)
     }
 
-    const { json } = await this.requestChatCompletion('summary', [
+    const { json } = await this.requestChatCompletion('image', [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent }
     ])
 
     const result = extractResponseText(json) || null
     return result ? beautifyText(result) : null
+  }
+
+  async callTextImageAPI(content, imageFiles = [], systemPromptOverride = null) {
+    if (hasUsableImageFiles(imageFiles)) {
+      return this.callImageAPI(content, imageFiles, systemPromptOverride)
+    }
+
+    return this.callSummaryTextAPI(content, systemPromptOverride)
   }
 
   async callVideoAPI(content, videoFiles = [], systemPromptOverride = null) {
@@ -645,20 +675,27 @@ class ApiService {
     const fileConfig = Config.get('fileRequest', {})
     const imageFiles = mediaFiles.filter(item => item.type === 'image')
     const videoFiles = mediaFiles.filter(item => item.type === 'video')
-    const results = []
+    const mediaSections = []
+    const normalizedContent = String(content || '').trim()
 
-    if (content || imageFiles.length > 0) {
+    if (imageFiles.length > 0) {
       const imageLimit = fileConfig.imageMaxPerRequest || 20
       const loopLimit = fileConfig.maxRequestLoops || 1
-      const totalBatches = Math.ceil(imageFiles.length / imageLimit) || 1
+      const totalBatches = Math.ceil(imageFiles.length / imageLimit)
       const actualBatches = Math.min(totalBatches, loopLimit)
 
       for (let batch = 0; batch < actualBatches; batch += 1) {
         const chunk = imageFiles.slice(batch * imageLimit, (batch + 1) * imageLimit)
-        const prompt = batch === 0 ? content : `继续分析第${batch + 1}批图片内容`
-        const result = await this.callTextImageAPI(prompt, chunk)
+        const prompt = [
+          actualBatches > 1 ? `这是第 ${batch + 1} / ${actualBatches} 批图片。` : '',
+          '请逐图观察这些图片，提取后续统一总结所需的关键信息。',
+          '优先描述主题、人物、场景、图片文字、表格内容、时间顺序和图片之间的上下文关系。',
+          '如果多张图片属于同一长图或同一组内容，请按顺序整合理解。',
+          '直接输出纯文本，不要使用 markdown，不要编造。'
+        ].filter(Boolean).join('\n')
+        const result = await this.callImageAPI(prompt, chunk)
         if (result) {
-          results.push(actualBatches > 1 ? `【第${batch + 1}批图片分析】\n${result}` : result)
+          mediaSections.push(actualBatches > 1 ? `【第${batch + 1}批图片分析】\n${result}` : `【图片分析】\n${result}`)
         }
       }
     }
@@ -671,18 +708,37 @@ class ApiService {
 
       for (let batch = 0; batch < actualBatches; batch += 1) {
         const chunk = videoFiles.slice(batch * videoLimit, (batch + 1) * videoLimit)
-        const prompt = batch === 0
-          ? (content ? `请结合以下背景信息分析视频：${content}` : '请分析这个视频的内容')
-          : `继续分析第${batch + 1}批视频内容`
+        const prompt = [
+          actualBatches > 1 ? `这是第 ${batch + 1} / ${actualBatches} 批视频。` : '',
+          '请分析这些视频，提取后续统一总结所需的关键信息。',
+          '优先描述主题、人物、场景、字幕、关键动作和关键台词。',
+          '直接输出纯文本，不要使用 markdown，不要编造。'
+        ].filter(Boolean).join('\n')
 
         const result = await this.callVideoAPI(prompt, chunk)
         if (result) {
-          results.push(actualBatches > 1 ? `【第${batch + 1}批视频分析】\n${result}` : result)
+          mediaSections.push(actualBatches > 1 ? `【第${batch + 1}批视频分析】\n${result}` : `【视频分析】\n${result}`)
         }
       }
     }
 
-    return results.length > 0 ? results.join('\n\n') : null
+    if (!normalizedContent && mediaSections.length === 0) {
+      return null
+    }
+
+    if (mediaSections.length === 0) {
+      return this.callSummaryTextAPI(normalizedContent)
+    }
+
+    const finalPrompt = [
+      normalizedContent,
+      normalizedContent
+        ? '以下是从图片和视频中提取出的补充信息，请与上文一起综合理解后给出最终总结：'
+        : '以下是从图片和视频中提取出的信息，请基于这些内容给出最终总结：',
+      mediaSections.join('\n\n')
+    ].filter(Boolean).join('\n\n')
+
+    return this.callSummaryTextAPI(finalPrompt)
   }
 
   async searchKeyword(keyword) {

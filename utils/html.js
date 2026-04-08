@@ -893,19 +893,50 @@ function renderJournalHeader(title, icon = '') {
 
 export function generateHutaoHTML(title, content, stats = null, notices = []) {
   const actualNotices = Array.isArray(notices) ? notices.filter(Boolean) : []
-  const statsHtml = stats
-    ? `
+  const sections = parseBracketSections(content)
+  const paragraphCount = sections.length > 0
+    ? sections.reduce((sum, item) => sum + normalizeTextBlocks(item.content).length, 0)
+    : normalizeTextBlocks(content).length
+  const contentCount = sections.length > 0
+    ? sections.length
+    : Math.max(normalizeTextBlocks(content).length, content ? 1 : 0)
+  const contentLabel = sections.length > 0 ? '信息模块' : '内容段落'
+  const previewText = getPreviewText(content)
+  const statsHtml = `
       <div class="metric-row">
-        ${renderMetricCard('', '消息数量', stats.messageCount || 0)}
-        ${renderMetricCard('', '活跃成员', stats.memberCount || 0, 'blue')}
+        ${renderMetricCard('🧩', contentLabel, contentCount)}
+        ${renderMetricCard('⚠', '处理提示', actualNotices.length, 'blue')}
+      </div>
+    `
+  const chartHtml = renderBarChart([
+    { label: '信息模块', value: sections.length > 0 ? sections.length : 1 },
+    { label: '内容段落', value: Math.max(1, paragraphCount), color: 'blue' },
+    { label: '处理提示', value: actualNotices.length }
+  ], '内容数量统计')
+  const noticeHtml = actualNotices.length > 0
+    ? `
+      <div class="section source-section">
+        <div class="section-title">处理提示</div>
+        ${renderRichTextHtml(actualNotices.map(item => `• ${item}`).join('\n'))}
       </div>
     `
     : ''
-  const noticeHtml = actualNotices.length > 0
+  const contentHtml = content
     ? `
-      <div class="section quote-section">
-        <div class="section-title">处理提示</div>
-        ${renderRichTextHtml(actualNotices.map(item => `• ${item}`).join('\n'))}
+      <div class="section paper-section">
+        <div class="section-title">内容分析</div>
+        ${sections.length > 0
+          ? `
+            <div class="card-stack">
+              ${sections.map(item => `
+                <div class="info-card">
+                  <div class="info-card-title">${escapeHtml(item.title)}</div>
+                  ${renderRichTextHtml(item.content)}
+                </div>
+              `).join('')}
+            </div>
+          `
+          : renderRichTextHtml(content)}
       </div>
     `
     : ''
@@ -915,12 +946,15 @@ export function generateHutaoHTML(title, content, stats = null, notices = []) {
       ${renderJournalHeader(title, '🔥')}
       <div class="journal-body">
         ${statsHtml}
+        ${chartHtml}
+        ${previewText ? `
+          <div class="hero-note">
+            <div class="hero-kicker">SUMMARY SNAPSHOT</div>
+            <div class="hero-text">${escapeHtml(previewText)}</div>
+          </div>
+        ` : ''}
         ${noticeHtml}
-        <div class="section paper-section">
-          <div class="stamp">✨</div>
-          <div class="section-title">内容分析</div>
-          ${renderRichTextHtml(content)}
-        </div>
+        ${contentHtml}
       </div>
       <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
     </div></body></html>`
