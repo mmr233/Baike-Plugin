@@ -892,12 +892,21 @@ function renderJournalHeader(title, icon = '') {
   `
 }
 
-export function generateHutaoHTML(title, content, stats = null) {
+export function generateHutaoHTML(title, content, stats = null, notices = []) {
+  const actualNotices = Array.isArray(notices) ? notices.filter(Boolean) : []
   const statsHtml = stats
     ? `
       <div class="metric-row">
         ${renderMetricCard('', '消息数量', stats.messageCount || 0)}
         ${renderMetricCard('', '活跃成员', stats.memberCount || 0, 'blue')}
+      </div>
+    `
+    : ''
+  const noticeHtml = actualNotices.length > 0
+    ? `
+      <div class="section quote-section">
+        <div class="section-title">处理提示</div>
+        ${renderRichTextHtml(actualNotices.map(item => `• ${item}`).join('\n'))}
       </div>
     `
     : ''
@@ -907,6 +916,7 @@ export function generateHutaoHTML(title, content, stats = null) {
       ${renderJournalHeader(title, '🔥')}
       <div class="journal-body">
         ${statsHtml}
+        ${noticeHtml}
         <div class="section paper-section">
           <div class="stamp">✨</div>
           <div class="section-title">内容分析</div>

@@ -693,13 +693,39 @@ class MessageService {
     return null
   }
 
+  getSummaryPlaceholderByMediaType(type = '', name = '') {
+    if (type === 'image') {
+      return '[图片]'
+    }
+    if (type === 'video') {
+      return '[视频]'
+    }
+    if (type === 'audio') {
+      return '[语音]'
+    }
+
+    const safeName = String(name || '').trim()
+    return safeName ? `[附件:${safeName}]` : '[附件]'
+  }
+
+  getSummaryPlaceholdersFromFiles(files = []) {
+    const placeholders = []
+
+    for (const file of files || []) {
+      placeholders.push(this.getSummaryPlaceholderByMediaType(file?.type, file?.name))
+    }
+
+    return placeholders
+  }
+
   async parseForwardMessage(e, forwardSegment, depth = 0) {
     const result = {
       texts: [],
       images: [],
       videos: [],
       audios: [],
-      files: []
+      files: [],
+      orderedTexts: []
     }
 
     if (depth > 5) {
@@ -737,6 +763,26 @@ class MessageService {
         const itemData = item?.data || item || {}
         const message = itemData.message || itemData.content || item?.message || item?.content || []
         const list = Array.isArray(message) ? message : []
+        const messageParts = []
+        const flushMessageParts = () => {
+          if (messageParts.length === 0) {
+            return
+          }
+
+          const { userId, nickname } = this.getMessageSender(itemData)
+          const time = this.formatContextTime(this.getMessageTime(itemData))
+          const prefixParts = []
+          if (time) {
+            prefixParts.push(time)
+          }
+          if (nickname || userId) {
+            prefixParts.push(nickname || userId)
+          }
+
+          const text = messageParts.join(' ')
+          result.orderedTexts.push(prefixParts.length > 0 ? `[${prefixParts.join(' | ')}] ${text}` : text)
+          messageParts.length = 0
+        }
 
         for (const segmentItem of list) {
           const segmentData = this.getSegmentData(segmentItem)
@@ -746,24 +792,43 @@ class MessageService {
             const text = segmentData.text || segmentItem?.text || ''
             if (text.trim()) {
               result.texts.push(text.trim())
+              messageParts.push(text.trim())
             }
           } else if (type === 'image') {
-            result.images.push(...await this.extractImages(e, [segmentItem]))
+            const images = await this.extractImages(e, [segmentItem])
+            result.images.push(...images)
+            if (images.length > 0) {
+              messageParts.push(...images.map(() => this.getSummaryPlaceholderByMediaType('image')))
+            }
           } else if (type === 'video') {
-            result.videos.push(...await this.extractVideos(e, [segmentItem]))
+            const videos = await this.extractVideos(e, [segmentItem])
+            result.videos.push(...videos)
+            if (videos.length > 0) {
+              messageParts.push(...videos.map(() => this.getSummaryPlaceholderByMediaType('video')))
+            }
           } else if (type === 'record') {
-            result.audios.push(...await this.extractVoices(e, [segmentItem]))
+            const audios = await this.extractVoices(e, [segmentItem])
+            result.audios.push(...audios)
+            if (audios.length > 0) {
+              messageParts.push(...audios.map(() => this.getSummaryPlaceholderByMediaType('audio')))
+            }
           } else if (type === 'file') {
-            result.files.push(...await this.extractFiles(e, [segmentItem]))
+            const files = await this.extractFiles(e, [segmentItem])
+            result.files.push(...files)
+            messageParts.push(...this.getSummaryPlaceholdersFromFiles(files))
           } else if (type === 'forward') {
+            flushMessageParts()
             const nested = await this.parseForwardMessage(e, segmentItem, depth + 1)
             result.texts.push(...nested.texts)
             result.images.push(...nested.images)
             result.videos.push(...nested.videos)
             result.audios.push(...(nested.audios || []))
             result.files.push(...(nested.files || []))
+            result.orderedTexts.push(...(nested.orderedTexts || []))
           }
         }
+
+        flushMessageParts()
       }
     } catch (error) {
       logger.error(`[百科查询] 解析转发消息失败：${error.message}`)

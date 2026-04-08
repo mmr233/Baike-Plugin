@@ -85,6 +85,7 @@ export default class BaikeHelp extends plugin {
 
   createHelpList(e) {
     const config = Config.getAll()
+    const longImageConfig = config.fileRequest.longImageAutoSplit || {}
 
     const helpList = [
       {
@@ -102,7 +103,14 @@ export default class BaikeHelp extends plugin {
         list: [
           { icon: 11, title: '引用消息总结', desc: '引用任意消息后提取文本和媒体统一分析', command: '总结 + 引用消息' },
           { icon: 12, title: '图片 / 视频总结', desc: '直接发送媒体后使用总结命令', command: '总结 + 图片/视频/语音' },
-          { icon: 13, title: '语音转写总结', desc: `语音单次最多处理 ${config.fileRequest.audioMaxPerRequest} 条` }
+          { icon: 13, title: '语音转写总结', desc: `语音单次最多处理 ${config.fileRequest.audioMaxPerRequest} 条` },
+          {
+            icon: 14,
+            title: '长图自动裁剪',
+            desc: longImageConfig.enabled
+              ? `已开启，超过 ${longImageConfig.triggerHeight || 3200}px 自动拆分`
+              : '当前未启用'
+          }
         ]
       },
       {
@@ -132,8 +140,15 @@ export default class BaikeHelp extends plugin {
         list: [
           { icon: 41, title: '缓存', desc: `${config.cache.enabled ? '开启' : '关闭'} / TTL ${config.cache.ttl} 分钟 / 容量 ${config.cache.maxSize}` },
           { icon: 42, title: '图片批次上限', desc: `${config.fileRequest.imageMaxPerRequest} 张 / 批，共最多 ${config.fileRequest.maxRequestLoops} 批` },
-          { icon: 43, title: '定时群列表', desc: (config.scheduledSummary.groups || []).join('、') || '未设置' },
-          { icon: 44, title: '更新插件', desc: '使用 Yunzai 通用更新器更新当前插件', command: '#百科更新 / #百科强制更新' }
+          {
+            icon: 43,
+            title: '长图裁剪参数',
+            desc: longImageConfig.enabled
+              ? `阈值 ${longImageConfig.triggerHeight || 3200}px / 单片 ${longImageConfig.chunkHeight || 2800}px / 重叠 ${longImageConfig.overlap || 96}px`
+              : '已关闭'
+          },
+          { icon: 44, title: '定时群列表', desc: (config.scheduledSummary.groups || []).join('、') || '未设置' },
+          { icon: 45, title: '更新插件', desc: '使用 Yunzai 通用更新器更新当前插件', command: '#百科更新 / #百科强制更新' }
         ]
       })
     }

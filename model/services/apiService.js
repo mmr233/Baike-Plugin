@@ -304,6 +304,28 @@ function getImageMimeType(filePath = '') {
   return 'image/jpeg'
 }
 
+function buildSplitImageHint(splitMetas = []) {
+  if (!Array.isArray(splitMetas) || splitMetas.length === 0) {
+    return ''
+  }
+
+  const sourceKeys = new Set()
+  for (const meta of splitMetas) {
+    const totalParts = Number(meta?.totalParts) || 0
+    if (totalParts <= 1) {
+      continue
+    }
+
+    sourceKeys.add(String(meta?.sourceKey || `${meta?.originalWidth || 0}x${meta?.originalHeight || 0}`))
+  }
+
+  if (sourceKeys.size === 0) {
+    return ''
+  }
+
+  return `补充说明：其中 ${sourceKeys.size} 张超长图片已自动拆成 ${splitMetas.length} 个连续片段，片段顺序与原图一致并按从上到下排列，相邻片段可能有少量重叠。请把同一长图的相邻片段连续理解，不要当作互不相关的多张图片。`
+}
+
 function truncatePromptText(text = '', maxLength = 320) {
   const normalized = String(text || '')
     .replace(/\r/g, '')
@@ -529,6 +551,7 @@ class ApiService {
   async callTextImageAPI(content, imageFiles = [], systemPromptOverride = null) {
     const promptConfig = Config.get('prompt', {})
     const userContent = []
+    const splitMetas = []
 
     if (content) {
       userContent.push({ type: 'text', text: content })
@@ -552,7 +575,15 @@ class ApiService {
           url: `data:${mimeType};base64,${base64}`
         }
       })
+      if (media?.splitMeta?.totalParts > 1) {
+        splitMetas.push(media.splitMeta)
+      }
       imageCount += 1
+    }
+
+    const splitHint = buildSplitImageHint(splitMetas)
+    if (splitHint) {
+      userContent.splice(content ? 1 : 0, 0, { type: 'text', text: splitHint })
     }
 
     if (userContent.length === 0) {

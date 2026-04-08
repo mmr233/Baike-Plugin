@@ -247,7 +247,14 @@ const DEFAULT_CONFIG = {
     videoMaxPerRequest: 3,
     audioMaxPerRequest: 5,
     otherMaxPerRequest: 5,
-    maxRequestLoops: 2
+    maxRequestLoops: 2,
+    longImageAutoSplit: {
+      enabled: true,
+      triggerHeight: 3200,
+      chunkHeight: 2800,
+      overlap: 96,
+      maxSegments: 8
+    }
   },
   chatSummary: {
     defaultMessageCount: 800,

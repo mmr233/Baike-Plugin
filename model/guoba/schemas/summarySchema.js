@@ -64,6 +64,69 @@ const summarySchemaRaw = [
   },
   {
     component: 'Divider',
+    label: '长图自动裁剪',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'fileRequest.longImageAutoSplit.enabled',
+    label: '启用长图自动裁剪',
+    bottomHelpMessage: '当输入图片高度超过阈值时，自动拆成多张再发给模型，适用于图片总结和搜索上下文图片理解',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'fileRequest.longImageAutoSplit.triggerHeight',
+    label: '长图触发高度',
+    bottomHelpMessage: '图片高度超过这个值时才会触发自动裁剪，单位为像素',
+    component: 'InputNumber',
+    defaultValue: 3200,
+    componentProps: {
+      min: 1200,
+      max: 24000,
+      step: 100
+    }
+  },
+  {
+    field: 'fileRequest.longImageAutoSplit.chunkHeight',
+    label: '单片目标高度',
+    bottomHelpMessage: '长图裁剪后每一片的大致高度，插件会在这个高度附近寻找更适合的切点，尽量避开文字行',
+    component: 'InputNumber',
+    defaultValue: 2800,
+    componentProps: {
+      min: 800,
+      max: 12000,
+      step: 100
+    }
+  },
+  {
+    field: 'fileRequest.longImageAutoSplit.overlap',
+    label: '片段重叠高度',
+    bottomHelpMessage: '相邻裁剪片段会保留少量重叠区域，降低切到文字时的信息丢失风险',
+    component: 'InputNumber',
+    defaultValue: 96,
+    componentProps: {
+      min: 0,
+      max: 600,
+      step: 8
+    }
+  },
+  {
+    field: 'fileRequest.longImageAutoSplit.maxSegments',
+    label: '单张最大分片数',
+    bottomHelpMessage: '用于限制单张超长图片最多拆成多少片，避免请求数量被极端长图拉爆',
+    component: 'InputNumber',
+    defaultValue: 8,
+    componentProps: {
+      min: 1,
+      max: 12,
+      step: 1
+    }
+  },
+  {
+    component: 'Divider',
     label: '群聊总结',
     componentProps: {
       orientation: 'left',

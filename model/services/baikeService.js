@@ -123,6 +123,57 @@ class BaikeService {
     return names.length > limit ? `${visible} 等${names.length}个文件` : visible
   }
 
+  flushOrderedSummaryParts(parts = [], orderedTexts = []) {
+    if (!Array.isArray(parts) || parts.length === 0) {
+      return
+    }
+
+    const text = parts.join(' ').trim()
+    if (text) {
+      orderedTexts.push(text)
+    }
+    parts.length = 0
+  }
+
+  buildSummaryDisplayText(result = '', notices = []) {
+    const actualResult = String(result || '').trim()
+    const actualNotices = Array.isArray(notices) ? notices.filter(Boolean) : []
+
+    if (actualNotices.length === 0) {
+      return actualResult
+    }
+
+    return [
+      actualResult,
+      '【处理提示】',
+      ...actualNotices.map((item, index) => `${index + 1}. ${item}`)
+    ].filter(Boolean).join('\n\n')
+  }
+
+  buildImageOverflowNotices(summaryMeta = {}, options = {}) {
+    const notices = []
+    const skippedSourceCount = Math.max(0, Number(summaryMeta?.skippedSourceCount) || 0)
+    const skippedSegmentCount = Math.max(0, Number(summaryMeta?.skippedSegmentCount) || 0)
+    const processedCount = Math.max(0, Number(options.processedCount) || 0)
+    const totalLimit = Math.max(0, Number(options.totalLimit) || 0)
+
+    if (skippedSourceCount > 0 || skippedSegmentCount > 0) {
+      const detailParts = []
+      if (skippedSourceCount > 0) {
+        detailParts.push(`${skippedSourceCount} 张原始图片未送入模型`)
+      }
+      if (skippedSegmentCount > 0) {
+        detailParts.push(`${skippedSegmentCount} 个长图片段被截断`)
+      }
+
+      notices.push(
+        `图片数量超过处理上限，本次仅分析前 ${processedCount} 张${totalLimit > 0 ? `（上限 ${totalLimit} 张）` : ''}；${detailParts.join('，')}。`
+      )
+    }
+
+    return notices
+  }
+
   async summarizeOtherFiles(otherFiles = [], maxCount = 5, options = {}) {
     const actualLimit = Math.max(0, Number(maxCount) || 0)
     if (actualLimit <= 0 || otherFiles.length === 0) {
@@ -613,12 +664,14 @@ class BaikeService {
 
     if (cached?.result) {
       const result = cached.result
-      const html = generateHutaoHTML('内容总结', result)
+      const notices = Array.isArray(cached.notices) ? cached.notices : []
+      const displayText = this.buildSummaryDisplayText(result, notices)
+      const html = generateHutaoHTML('内容总结', result, null, notices)
       const userInfo = this.messageService.getUserInfo(e)
       await this.sendResult(
         e,
-        [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${result}` }] }],
-        `内容总结：\n\n${result}`,
+        [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${displayText}` }] }],
+        `内容总结：\n\n${displayText}`,
         html,
         'contentSummary'
       )
@@ -628,7 +681,8 @@ class BaikeService {
     await e.reply('正在分析内容，请稍候...')
 
     try {
-      const allTexts = []
+      const orderedContextTexts = []
+      const extraExtractedTexts = []
       const allImages = [...directImages]
       const allVideos = [...directVideos]
       const allAudios = [...directVoices]
@@ -655,12 +709,20 @@ class BaikeService {
           const resId = replyMessage.res_id || replyMessage.id || replySegment.id
           if (resId) {
             const forwardContent = await this.messageService.parseForwardMessage(e, { id: resId, res_id: resId })
-            allTexts.push(...forwardContent.texts)
+            orderedContextTexts.push(...(forwardContent.orderedTexts?.length ? forwardContent.orderedTexts : forwardContent.texts))
             allImages.push(...forwardContent.images)
             allVideos.push(...forwardContent.videos)
+            allAudios.push(...(forwardContent.audios || []))
+            this.appendExtractedFiles(forwardContent.files || [], {
+              images: allImages,
+              videos: allVideos,
+              audios: allAudios,
+              others: allOtherFiles
+            })
           }
         }
 
+        const replyOrderedParts = []
         for (const segmentItem of replyList) {
           const data = this.messageService.getSegmentData(segmentItem)
           const type = segmentItem?.type || data?.type || data?._type || ''
@@ -668,14 +730,26 @@ class BaikeService {
           if (type === 'text') {
             const text = data.text || segmentItem?.text || ''
             if (text.trim()) {
-              allTexts.push(text.trim())
+              replyOrderedParts.push(text.trim())
             }
           } else if (type === 'image') {
-            allImages.push(...await this.messageService.extractImages(e, [segmentItem]))
+            const images = await this.messageService.extractImages(e, [segmentItem])
+            allImages.push(...images)
+            if (images.length > 0) {
+              replyOrderedParts.push(...images.map(() => this.messageService.getSummaryPlaceholderByMediaType('image')))
+            }
           } else if (type === 'video') {
-            allVideos.push(...await this.messageService.extractVideos(e, [segmentItem]))
+            const videos = await this.messageService.extractVideos(e, [segmentItem])
+            allVideos.push(...videos)
+            if (videos.length > 0) {
+              replyOrderedParts.push(...videos.map(() => this.messageService.getSummaryPlaceholderByMediaType('video')))
+            }
           } else if (type === 'record') {
-            allAudios.push(...await this.messageService.extractVoices(e, [segmentItem]))
+            const audios = await this.messageService.extractVoices(e, [segmentItem])
+            allAudios.push(...audios)
+            if (audios.length > 0) {
+              replyOrderedParts.push(...audios.map(() => this.messageService.getSummaryPlaceholderByMediaType('audio')))
+            }
           } else if (type === 'file') {
             const files = await this.messageService.extractFiles(e, [segmentItem])
             this.appendExtractedFiles(files, {
@@ -684,11 +758,14 @@ class BaikeService {
               audios: allAudios,
               others: allOtherFiles
             })
+            replyOrderedParts.push(...this.messageService.getSummaryPlaceholdersFromFiles(files))
           } else if (type === 'forward') {
+            this.flushOrderedSummaryParts(replyOrderedParts, orderedContextTexts)
             const forwardContent = await this.messageService.parseForwardMessage(e, segmentItem)
-            allTexts.push(...forwardContent.texts)
+            orderedContextTexts.push(...(forwardContent.orderedTexts?.length ? forwardContent.orderedTexts : forwardContent.texts))
             allImages.push(...forwardContent.images)
             allVideos.push(...forwardContent.videos)
+            allAudios.push(...(forwardContent.audios || []))
             this.appendExtractedFiles(forwardContent.files || [], {
               images: allImages,
               videos: allVideos,
@@ -701,10 +778,12 @@ class BaikeService {
               const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
               const resId = parsed?.meta?.detail?.resid
               if (resId) {
+                this.flushOrderedSummaryParts(replyOrderedParts, orderedContextTexts)
                 const forwardContent = await this.messageService.parseForwardMessage(e, { id: resId, res_id: resId })
-                allTexts.push(...forwardContent.texts)
+                orderedContextTexts.push(...(forwardContent.orderedTexts?.length ? forwardContent.orderedTexts : forwardContent.texts))
                 allImages.push(...forwardContent.images)
                 allVideos.push(...forwardContent.videos)
+                allAudios.push(...(forwardContent.audios || []))
                 this.appendExtractedFiles(forwardContent.files || [], {
                   images: allImages,
                   videos: allVideos,
@@ -715,9 +794,11 @@ class BaikeService {
             } catch {}
           }
         }
+
+        this.flushOrderedSummaryParts(replyOrderedParts, orderedContextTexts)
       }
 
-      if (allTexts.length === 0 && allImages.length === 0 && allVideos.length === 0 && allAudios.length === 0 && allOtherFiles.length === 0) {
+      if (orderedContextTexts.length === 0 && allImages.length === 0 && allVideos.length === 0 && allAudios.length === 0 && allOtherFiles.length === 0) {
         await e.reply('未能从消息中提取到可分析内容')
         return true
       }
@@ -746,7 +827,7 @@ class BaikeService {
           const mp3Path = await this.mediaService.convertAudioToMp3(audio.localPath)
           const audioResult = mp3Path ? await this.apiService.callAudioAPI(mp3Path) : null
           if (audioResult) {
-            allTexts.push(`【语音内容】${audioResult}`)
+            extraExtractedTexts.push(`【语音内容】${audioResult}`)
           }
           this.mediaService.cleanupFile(mp3Path)
         }
@@ -755,15 +836,24 @@ class BaikeService {
 
       const otherFileTexts = await this.summarizeOtherFiles(allOtherFiles, fileLimits.totalOtherLimit)
       if (otherFileTexts.length > 0) {
-        allTexts.push(...otherFileTexts)
+        extraExtractedTexts.push(...otherFileTexts)
       }
 
       const botProfile = await this.messageService.getBotProfileForPrompt(e)
-      const prompt = allTexts.length > 0
+      const promptSections = []
+      if (orderedContextTexts.length > 0) {
+        promptSections.push('以下内容已尽量按原消息顺序整理；文中的[图片]、[视频]、[语音]、[附件]占位与后续上传媒体的顺序一致。若某张长图被自动裁剪，其片段也会按原图顺序连续排列。请结合上下文理解，不要打乱对应关系。')
+        promptSections.push(orderedContextTexts.join('\n'))
+      }
+      if (extraExtractedTexts.length > 0) {
+        promptSections.push(extraExtractedTexts.join('\n\n'))
+      }
+
+      const prompt = promptSections.length > 0
         ? [
             '请对以下内容进行全面分析和总结。',
             botProfile.promptText ? `机器人身份说明：\n${botProfile.promptText}` : '',
-            allTexts.join('\n\n')
+            promptSections.join('\n\n')
           ].filter(Boolean).join('\n\n')
         : [
             '请分析这些媒体内容，描述你看到的内容并进行总结。',
@@ -772,19 +862,24 @@ class BaikeService {
 
       const result = await this.apiService.callSummaryAPI(prompt, mediaFiles)
       this.mediaService.cleanupFiles(mediaFiles)
+      const summaryNotices = this.buildImageOverflowNotices(imageFiles.summaryMeta, {
+        processedCount: imageFiles.length,
+        totalLimit: fileLimits.totalImageLimit
+      })
 
       if (!result) {
         await e.reply('总结失败，请稍后重试')
         return true
       }
 
-      this.setCache(cacheKey, { result })
-      const html = generateHutaoHTML('内容总结', result)
+      this.setCache(cacheKey, { result, notices: summaryNotices })
+      const displayText = this.buildSummaryDisplayText(result, summaryNotices)
+      const html = generateHutaoHTML('内容总结', result, null, summaryNotices)
       const userInfo = this.messageService.getUserInfo(e)
       await this.sendResult(
         e,
-        [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${result}` }] }],
-        `内容总结：\n\n${result}`,
+        [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${displayText}` }] }],
+        `内容总结：\n\n${displayText}`,
         html,
         'contentSummary'
       )
