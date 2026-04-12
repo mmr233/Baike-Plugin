@@ -1387,7 +1387,9 @@ class MessageService {
     }
 
     const nearbyMessages = this.selectMessagesAroundAnchor(
-      this.dedupeAndSortMessages(candidates),
+      this.dedupeAndSortMessages(candidates, {
+        excludeMessageIds: options.excludeMessageIds || []
+      }),
       anchorMessage,
       actualCount
     )
@@ -1431,7 +1433,7 @@ class MessageService {
 
       if (replyMessage && replyNearbyCount > 0) {
         replyNearbyMessages = await this.getNearbyMessagesForContext(e, replyMessage, replyNearbyCount, {
-          excludeMessageIds: [replyId]
+          excludeMessageIds: [replyId, e.message_id]
         })
 
         for (const item of replyNearbyMessages) {

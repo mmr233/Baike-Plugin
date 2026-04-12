@@ -341,6 +341,298 @@ function truncatePromptText(text = '', maxLength = 320) {
     : normalized
 }
 
+function escapeRegExp(text = '') {
+  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function cleanIntentText(value = '') {
+  return String(value || '')
+    .replace(/^["'`“”‘’]+|["'`“”‘’]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeIntentBoolean(value) {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+
+  if (['true', '1', 'yes', 'y', '是', '已使用', '使用了', '使用'].includes(normalized)) {
+    return true
+  }
+
+  if (['false', '0', 'no', 'n', '否', '未使用', '没有使用', '未用'].includes(normalized)) {
+    return false
+  }
+
+  return false
+}
+
+function extractLooseFieldValue(text = '', keys = []) {
+  const lines = String(text || '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.replace(/^\s*>\s?/, '').replace(/^\s*[-*]\s*/, '').trim())
+    .filter(Boolean)
+
+  for (const line of lines) {
+    for (const key of keys) {
+      const pattern = new RegExp(`^${escapeRegExp(key)}\\s*[:：]\\s*(.+)$`, 'i')
+      const match = line.match(pattern)
+      if (match?.[1]) {
+        return cleanIntentText(match[1])
+      }
+    }
+  }
+
+  return ''
+}
+
+function parseLooseSearchIntentContent(text = '') {
+  const normalized = String(text || '').replace(/\r/g, '').trim()
+  if (!normalized) {
+    return null
+  }
+
+  const cleaned = normalized.replace(/^\s*>\s?/gm, '').trim()
+  const jsonParsed = parseJsonContent(cleaned, null)
+  if (jsonParsed && typeof jsonParsed === 'object' && !Array.isArray(jsonParsed)) {
+    return jsonParsed
+  }
+
+  const query = extractLooseFieldValue(cleaned, ['query', '搜索查询', '搜索词', '查询词', '查询'])
+  const displayKeyword = extractLooseFieldValue(cleaned, ['displayKeyword', 'displaykeyword', 'keyword', 'display', '关键词', '关键字', '核心对象', '核心主题'])
+  const useContextRaw = extractLooseFieldValue(cleaned, ['useContext', 'usecontext', 'usedContext', 'usedcontext', '是否使用上下文', '使用上下文'])
+
+  if (!query && !displayKeyword && !useContextRaw) {
+    return null
+  }
+
+  return {
+    ...(query ? { query } : {}),
+    ...(displayKeyword ? { displayKeyword } : {}),
+    ...(useContextRaw ? { useContext: normalizeIntentBoolean(useContextRaw) } : {})
+  }
+}
+
+function stripSearchContextNoise(text = '') {
+  return String(text || '')
+    .replace(/\[(?:图片|视频|语音|表情|群文件|文件:[^\]]+|文档:[^\]]+|转发消息[^\]]*)\]/g, ' ')
+    .replace(/@\d{5,12}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function looksLikeJsonPayload(text = '') {
+  const normalized = String(text || '').trim()
+  if (!normalized) {
+    return false
+  }
+
+  return /^[{\[]/.test(normalized) && /"\w+"\s*:/.test(normalized)
+}
+
+function isAmbiguousSearchText(text = '') {
+  const normalized = cleanIntentText(text)
+    .replace(/[\s,.!?;:，。！？；：、"'`“”‘’（）()【】\[\]<>《》]/g, '')
+    .toLowerCase()
+
+  if (!normalized) {
+    return true
+  }
+
+  if (normalized.length > 24) {
+    return false
+  }
+
+  let stripped = normalized
+  const fillerPatterns = [
+    /这又是啥/g,
+    /这又是谁/g,
+    /这又是什么/g,
+    /这是什么东西/g,
+    /那是什么东西/g,
+    /这个东西/g,
+    /那个东西/g,
+    /这东西/g,
+    /那东西/g,
+    /这个人/g,
+    /那个人/g,
+    /这张图/g,
+    /那张图/g,
+    /这个图/g,
+    /那个图/g,
+    /这个角色/g,
+    /那个角色/g,
+    /这个人物/g,
+    /那个人物/g,
+    /上面这个/g,
+    /上面那个/g,
+    /前面那个/g,
+    /刚才那个/g,
+    /引用消息/g,
+    /回复消息/g,
+    /这个/g,
+    /那个/g,
+    /这是/g,
+    /那是/g,
+    /这又/g,
+    /那又/g,
+    /什么东西/g,
+    /是什么/g,
+    /是啥/g,
+    /是谁/g,
+    /什么/g,
+    /谁/g,
+    /啥/g,
+    /图片/g,
+    /照片/g,
+    /图/g,
+    /视频/g,
+    /语音/g,
+    /消息/g,
+    /回复/g,
+    /引用/g,
+    /这个玩意儿/g,
+    /那个玩意儿/g,
+    /玩意儿/g,
+    /玩意/g,
+    /这位/g,
+    /那位/g,
+    /他/g,
+    /她/g,
+    /它/g,
+    /ta/g,
+    /又/g,
+    /这/g,
+    /那/g
+  ]
+
+  for (const pattern of fillerPatterns) {
+    stripped = stripped.replace(pattern, '')
+  }
+
+  return stripped.length === 0
+}
+
+function extractMediaSupplementCandidates(text = '') {
+  const candidates = []
+  const lines = String(text || '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+
+  for (const line of lines) {
+    const match = line.match(/(?:\[[^\]]*媒体补充\]\s*)?(?:图片内容|视频内容|语音内容|媒体内容)\s*[：:]\s*(.+)$/)
+    const candidate = cleanIntentText(match?.[1] || '')
+    if (!candidate || looksLikeJsonPayload(candidate)) {
+      continue
+    }
+    candidates.push(candidate)
+  }
+
+  return candidates
+}
+
+function extractContextBodyCandidate(text = '') {
+  const lines = String(text || '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+
+  const bodyLines = []
+
+  for (let index = 0; index < lines.length; index += 1) {
+    let line = lines[index]
+    if (index === 0) {
+      line = line.replace(/^\[[^\]]+\]\s*/, '').trim()
+    }
+
+    if (!line) {
+      continue
+    }
+    if (/^\[[^\]]*媒体补充\]/.test(line)) {
+      continue
+    }
+    if (/^(?:图片内容|视频内容|语音内容|媒体内容)\s*[：:]/.test(line)) {
+      continue
+    }
+    if (looksLikeJsonPayload(line)) {
+      continue
+    }
+
+    bodyLines.push(line)
+  }
+
+  const candidate = cleanIntentText(stripSearchContextNoise(bodyLines.join(' ')))
+  if (!candidate || looksLikeJsonPayload(candidate) || isAmbiguousSearchText(candidate)) {
+    return ''
+  }
+
+  return candidate
+}
+
+function pickDisplayKeywordFromCandidate(text = '') {
+  const cleaned = cleanIntentText(stripSearchContextNoise(text))
+  if (!cleaned) {
+    return ''
+  }
+
+  const segments = cleaned
+    .split(/[，,、/；;|。]/)
+    .map(item => cleanIntentText(item))
+    .filter(Boolean)
+
+  const genericPattern = /^(?:图片|视频|语音|角色|人物|动漫人物|游戏截图|截图|界面|消息|文本|内容|场景|主体|台词|字幕|附件|文件)$/
+  const preferred = segments.find(item => item.length >= 2 && !genericPattern.test(item))
+    || segments[0]
+    || cleaned
+
+  return preferred.slice(0, 40)
+}
+
+function buildSearchIntentFallback(question = '', context = {}) {
+  const currentQuestion = cleanIntentText(question)
+  const sources = [
+    String(context?.replyText || '').trim(),
+    ...(Array.isArray(context?.replyNearbyTexts) ? context.replyNearbyTexts : []),
+    ...(Array.isArray(context?.historyTexts) ? context.historyTexts : [])
+  ].filter(Boolean)
+
+  const candidates = []
+  for (const source of sources) {
+    candidates.push(...extractMediaSupplementCandidates(source))
+
+    const bodyCandidate = extractContextBodyCandidate(source)
+    if (bodyCandidate) {
+      candidates.push(bodyCandidate)
+    }
+  }
+
+  const uniqueCandidates = dedupeStrings(candidates).filter(item => !isAmbiguousSearchText(item))
+  if (uniqueCandidates.length === 0) {
+    return null
+  }
+
+  const query = uniqueCandidates[0]
+  const displayKeyword = pickDisplayKeywordFromCandidate(query) || extractKeyword(query) || currentQuestion || query
+  return {
+    query,
+    displayKeyword,
+    useContext: true,
+    fallbackSource: query === uniqueCandidates[0] && extractMediaSupplementCandidates(String(context?.replyText || '')).includes(query)
+      ? 'replyMedia'
+      : 'contextText'
+  }
+}
+
 function buildSearchSummaryContextPrompt(context = {}, question = '') {
   const replyText = truncatePromptText(context?.replyText || '', 360)
   const replyNearbyTexts = (Array.isArray(context?.replyNearbyTexts) ? context.replyNearbyTexts : [])
@@ -818,15 +1110,34 @@ class ApiService {
     })
 
     const content = extractResponseText(json)
-    const parsed = parseJsonContent(content, {})
-    const query = String(parsed?.query || '').trim() || currentQuestion
-    const displayKeyword = String(parsed?.displayKeyword || '').trim() || extractKeyword(query) || query
-    const usedContext = Boolean(parsed?.useContext)
+    const parsed = parseLooseSearchIntentContent(content) || {}
+    let query = cleanIntentText(parsed?.query) || currentQuestion
+    let displayKeyword = cleanIntentText(parsed?.displayKeyword) || extractKeyword(query) || query
+    let usedContext = normalizeIntentBoolean(parsed?.useContext)
+    const fallback = buildSearchIntentFallback(currentQuestion, {
+      replyText,
+      replyNearbyTexts,
+      historyTexts
+    })
+    const rawKeyword = extractKeyword(currentQuestion) || currentQuestion
+    const fallbackUsed = Boolean(fallback) && (
+      isAmbiguousSearchText(query)
+      || isAmbiguousSearchText(displayKeyword)
+      || (!usedContext && isAmbiguousSearchText(rawKeyword))
+    )
+
+    if (fallbackUsed && fallback) {
+      query = fallback.query
+      displayKeyword = fallback.displayKeyword || extractKeyword(query) || query
+      usedContext = true
+    }
 
     debugLog('search.intent', '搜索意图解析完成', {
       query: truncateDebugText(query, 160),
       displayKeyword: truncateDebugText(displayKeyword, 80),
       usedContext,
+      fallbackUsed,
+      fallbackSource: fallbackUsed ? fallback?.fallbackSource : '',
       modelOutputPreview: truncateDebugText(content, 200)
     })
 
