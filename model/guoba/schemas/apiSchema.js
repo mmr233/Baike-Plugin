@@ -51,6 +51,19 @@ const apiSchemaRaw = [
     component: 'InputPassword'
   },
   {
+    field: 'api.search.requestMode',
+    label: '搜索请求方式',
+    bottomHelpMessage: '流式请求会持续接收模型输出分片，适合 grok 这类长输出场景；若接口不支持流式，再切回等待一次性输出',
+    component: 'Select',
+    defaultValue: 'response',
+    componentProps: {
+      options: [
+        { label: '流式请求', value: 'stream' },
+        { label: '等待一次性输出', value: 'response' }
+      ]
+    }
+  },
+  {
     field: 'api.search.timeoutMs',
     label: '搜索请求超时（毫秒）',
     bottomHelpMessage: '该类型模型所有搜索相关请求默认共用此超时',
@@ -103,6 +116,19 @@ const apiSchemaRaw = [
     component: 'InputPassword'
   },
   {
+    field: 'api.image.requestMode',
+    label: '图片请求方式',
+    bottomHelpMessage: '图片理解支持流式返回，可降低等待完整输出导致的超时风险；若识图接口不支持流式，可改回等待一次性输出',
+    component: 'Select',
+    defaultValue: 'response',
+    componentProps: {
+      options: [
+        { label: '流式请求', value: 'stream' },
+        { label: '等待一次性输出', value: 'response' }
+      ]
+    }
+  },
+  {
     field: 'api.image.timeoutMs',
     label: '图片请求超时（毫秒）',
     bottomHelpMessage: '图片理解、长图切片理解等请求默认共用此超时',
@@ -145,6 +171,19 @@ const apiSchemaRaw = [
     label: '总结接口密钥',
     bottomHelpMessage: '留空则使用主接口密钥',
     component: 'InputPassword'
+  },
+  {
+    field: 'api.summary.requestMode',
+    label: '总结请求方式',
+    bottomHelpMessage: '群聊总结、内容总结、搜索整理等长文本场景更适合流式请求，可减少长时间无输出导致的超时',
+    component: 'Select',
+    defaultValue: 'response',
+    componentProps: {
+      options: [
+        { label: '流式请求', value: 'stream' },
+        { label: '等待一次性输出', value: 'response' }
+      ]
+    }
   },
   {
     field: 'api.summary.timeoutMs',
@@ -190,6 +229,19 @@ const apiSchemaRaw = [
     component: 'InputPassword'
   },
   {
+    field: 'api.video.requestMode',
+    label: '视频请求方式',
+    bottomHelpMessage: '视频分析通常更耗时，若你的接口支持流式返回，建议开启流式请求',
+    component: 'Select',
+    defaultValue: 'response',
+    componentProps: {
+      options: [
+        { label: '流式请求', value: 'stream' },
+        { label: '等待一次性输出', value: 'response' }
+      ]
+    }
+  },
+  {
     field: 'api.video.timeoutMs',
     label: '视频请求超时（毫秒）',
     component: 'InputNumber',
@@ -233,6 +285,19 @@ const apiSchemaRaw = [
     component: 'InputPassword'
   },
   {
+    field: 'api.audio.requestMode',
+    label: '音频请求方式',
+    bottomHelpMessage: '语音转写也可切到流式请求；若接口只支持一次性返回，请保持默认',
+    component: 'Select',
+    defaultValue: 'response',
+    componentProps: {
+      options: [
+        { label: '流式请求', value: 'stream' },
+        { label: '等待一次性输出', value: 'response' }
+      ]
+    }
+  },
+  {
     field: 'api.audio.timeoutMs',
     label: '音频请求超时（毫秒）',
     component: 'InputNumber',
@@ -262,14 +327,19 @@ const apiRecommendationMap = {
   'api.primaryApiKey': '按需填写',
   'api.search.baseUrl': '留空使用主接口地址',
   'api.search.apiKey': '留空使用主接口密钥',
+  'api.search.requestMode': '流式请求',
   'api.image.baseUrl': '留空使用主接口地址',
   'api.image.apiKey': '留空使用主接口密钥',
+  'api.image.requestMode': '流式请求',
   'api.summary.baseUrl': '留空使用主接口地址',
   'api.summary.apiKey': '留空使用主接口密钥',
+  'api.summary.requestMode': '流式请求',
   'api.video.baseUrl': '留空使用主接口地址',
   'api.video.apiKey': '留空使用主接口密钥',
+  'api.video.requestMode': '流式请求',
   'api.audio.baseUrl': '留空使用主接口地址',
-  'api.audio.apiKey': '留空使用主接口密钥'
+  'api.audio.apiKey': '留空使用主接口密钥',
+  'api.audio.requestMode': '流式请求'
 }
 
 export const apiSchema = enhanceSchemas(apiSchemaRaw, {

@@ -145,6 +145,47 @@ function dedupeStrings(items = []) {
   return [...new Set(items.map(item => String(item || '').trim()).filter(Boolean))]
 }
 
+function pushSequentialTextParts(value, parts, depth = 0) {
+  if (depth > 8 || value === undefined || value === null) {
+    return
+  }
+
+  if (typeof value === 'string') {
+    parts.push(value)
+    return
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      pushSequentialTextParts(item, parts, depth + 1)
+    }
+    return
+  }
+
+  if (typeof value !== 'object') {
+    return
+  }
+
+  for (const field of ['text', 'output_text']) {
+    if (typeof value[field] === 'string') {
+      parts.push(value[field])
+    }
+  }
+
+  if (value.message) {
+    pushSequentialTextParts(value.message.content ?? value.message, parts, depth + 1)
+  }
+
+  for (const field of ['content', 'output', 'parts', 'items']) {
+    const nested = value[field]
+    if (nested !== undefined && typeof nested !== 'string') {
+      pushSequentialTextParts(nested, parts, depth + 1)
+    } else if (typeof nested === 'string') {
+      parts.push(nested)
+    }
+  }
+}
+
 function extractResponseText(json = {}) {
   const parts = []
   const candidates = [
@@ -216,6 +257,94 @@ function extractResponseCitations(json = {}, text = '') {
   }
 
   return dedupeStrings(urls)
+}
+
+function extractSseEventPayload(rawEvent = '') {
+  const lines = String(rawEvent || '').split(/\r?\n/)
+  const payloadLines = []
+
+  for (const line of lines) {
+    if (!line || line.startsWith(':')) {
+      continue
+    }
+
+    if (line.startsWith('data:')) {
+      payloadLines.push(line.slice(5).trimStart())
+    }
+  }
+
+  return payloadLines.join('\n').trim()
+}
+
+function extractStreamDeltaText(chunk = {}) {
+  const parts = []
+  const choices = Array.isArray(chunk?.choices) ? chunk.choices : []
+
+  for (const choice of choices) {
+    pushSequentialTextParts(choice?.delta?.content, parts)
+    pushSequentialTextParts(choice?.delta?.text, parts)
+  }
+
+  if (parts.length === 0 && Array.isArray(chunk?.output)) {
+    for (const item of chunk.output) {
+      if (!/delta/i.test(String(item?.type || ''))) {
+        continue
+      }
+
+      pushSequentialTextParts(item?.delta, parts)
+      pushSequentialTextParts(item?.content, parts)
+      pushSequentialTextParts(item?.text, parts)
+    }
+  }
+
+  return parts.join('')
+}
+
+function extractStreamSnapshotText(chunk = {}) {
+  const parts = []
+  const choices = Array.isArray(chunk?.choices) ? chunk.choices : []
+
+  for (const choice of choices) {
+    pushSequentialTextParts(choice?.message?.content, parts)
+    pushSequentialTextParts(choice?.message, parts)
+  }
+
+  if (parts.length === 0) {
+    pushSequentialTextParts(chunk?.output_text, parts)
+    pushSequentialTextParts(chunk?.content, parts)
+  }
+
+  return parts.join('')
+}
+
+function buildStreamResponseJson(state = {}) {
+  const content = state.contentParts?.join('')
+    || state.snapshotText
+    || dedupeStrings(state.rawTextParts || []).join('\n')
+  const citations = dedupeStrings(state.citations || [])
+  const message = {
+    role: 'assistant',
+    content
+  }
+
+  if (citations.length > 0) {
+    message.citations = citations
+  }
+
+  return {
+    id: state.lastChunk?.id || '',
+    object: state.lastChunk?.object || 'chat.completion',
+    created: state.lastChunk?.created || Math.floor(Date.now() / 1000),
+    model: state.lastChunk?.model || '',
+    choices: [
+      {
+        index: 0,
+        message,
+        finish_reason: state.lastChunk?.choices?.[0]?.finish_reason || (state.done ? 'stop' : null)
+      }
+    ],
+    output: state.events || []
+  }
 }
 
 function normalizeSearchResultObject(parsed, rawText = '') {
@@ -683,6 +812,11 @@ class ApiService {
     return /grok-(3|4)/i.test(String(model || ''))
   }
 
+  normalizeRequestMode(value, fallback = 'response') {
+    const normalized = String(value || '').trim().toLowerCase()
+    return ['response', 'stream'].includes(normalized) ? normalized : fallback
+  }
+
   normalizeTimeoutMs(value, fallback = 120000) {
     const timeoutMs = Number(value)
     if (Number.isFinite(timeoutMs) && timeoutMs >= 1000) {
@@ -707,6 +841,7 @@ class ApiService {
       baseUrl: (modelConfig.baseUrl || apiConfig.primaryBaseUrl || '').replace(/\/$/, ''),
       apiKey: modelConfig.apiKey || apiConfig.primaryApiKey || '',
       model: modelConfig.model || '',
+      requestMode: this.normalizeRequestMode(modelConfig.requestMode, 'response'),
       timeoutMs: this.normalizeTimeoutMs(modelConfig.timeoutMs, 120000),
       retryCount: this.normalizeRetryCount(modelConfig.retryCount, 0)
     }
@@ -736,11 +871,137 @@ class ApiService {
     return Math.min(5000, 1200 * (attempt + 1))
   }
 
+  createAbortTimer(controller, timeoutMs) {
+    let timeoutId = null
+    const reset = () => {
+      clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    }
+
+    const clear = () => {
+      clearTimeout(timeoutId)
+    }
+
+    reset()
+    return { reset, clear }
+  }
+
+  async readStreamedChatCompletion(response, modelType, onActivity = null) {
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase()
+    if (!contentType.includes('text/event-stream')) {
+      const text = await response.text()
+      return {
+        text,
+        json: parseJson(text, `${modelType} 响应`)
+      }
+    }
+
+    const reader = response.body?.getReader?.()
+    if (!reader) {
+      const text = await response.text()
+      return {
+        text,
+        json: parseJson(text, `${modelType} 响应`)
+      }
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    const state = {
+      contentParts: [],
+      snapshotText: '',
+      rawTextParts: [],
+      citations: [],
+      events: [],
+      lastChunk: null,
+      done: false
+    }
+
+    const processEvent = rawEvent => {
+      const payload = extractSseEventPayload(rawEvent)
+      if (!payload) {
+        return
+      }
+
+      if (payload === '[DONE]') {
+        state.done = true
+        return
+      }
+
+      const chunk = parseJsonContent(payload, null)
+      if (!chunk || typeof chunk !== 'object') {
+        state.rawTextParts.push(payload)
+        return
+      }
+
+      if (chunk.error) {
+        throw new Error(
+          typeof chunk.error === 'string'
+            ? chunk.error
+            : (chunk.error?.message || JSON.stringify(chunk.error))
+        )
+      }
+
+      state.events.push(chunk)
+      state.lastChunk = chunk
+      pushCitationUrls(chunk, state.citations)
+
+      const deltaText = extractStreamDeltaText(chunk)
+      if (deltaText) {
+        state.contentParts.push(deltaText)
+        return
+      }
+
+      const snapshotText = extractStreamSnapshotText(chunk)
+      if (snapshotText) {
+        state.snapshotText = snapshotText
+      }
+    }
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+
+      if (typeof onActivity === 'function') {
+        onActivity()
+      }
+
+      buffer += decoder.decode(value, { stream: true })
+      let match = buffer.match(/\r?\n\r?\n/)
+      while (match) {
+        const boundaryIndex = match.index ?? -1
+        const separatorLength = match[0].length
+        if (boundaryIndex < 0) {
+          break
+        }
+
+        const rawEvent = buffer.slice(0, boundaryIndex)
+        buffer = buffer.slice(boundaryIndex + separatorLength)
+        processEvent(rawEvent)
+        match = buffer.match(/\r?\n\r?\n/)
+      }
+    }
+
+    buffer += decoder.decode()
+    if (buffer.trim()) {
+      processEvent(buffer)
+    }
+
+    const json = buildStreamResponseJson(state)
+    return {
+      text: extractResponseText(json) || dedupeStrings(state.rawTextParts || []).join('\n'),
+      json
+    }
+  }
+
   async requestChatCompletion(modelType, messages, options = {}) {
     const {
       baseUrl,
       apiKey,
       model,
+      requestMode,
       timeoutMs,
       retryCount
     } = this.getModelConfig(modelType)
@@ -751,15 +1012,17 @@ class ApiService {
 
     const requestTimeout = this.normalizeTimeoutMs(options.timeoutMs ?? options.timeout, timeoutMs)
     const maxRetries = this.normalizeRetryCount(options.retryCount, retryCount)
+    const actualRequestMode = this.normalizeRequestMode(options.requestMode, requestMode)
 
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), requestTimeout)
+      const timer = this.createAbortTimer(controller, requestTimeout)
 
       try {
         debugLog('api.request', `准备请求 ${modelType}`, {
           baseUrl,
           model,
+          requestMode: actualRequestMode,
           timeout: requestTimeout,
           retryCount: maxRetries,
           attempt: attempt + 1,
@@ -770,7 +1033,7 @@ class ApiService {
           model,
           group: 'default',
           messages,
-          stream: false,
+          stream: actualRequestMode === 'stream',
           temperature: options.temperature ?? 0.3,
           top_p: options.topP ?? 1
         }
@@ -790,24 +1053,41 @@ class ApiService {
           signal: controller.signal
         })
 
-        const text = await response.text()
-        debugLog('api.response', `${modelType} 响应`, {
-          ok: response.ok,
-          status: response.status,
-          attempt: attempt + 1,
-          preview: text.slice(0, 200)
-        })
         if (!response.ok) {
+          const text = await response.text()
+          debugLog('api.response', `${modelType} 响应`, {
+            ok: response.ok,
+            status: response.status,
+            requestMode: actualRequestMode,
+            attempt: attempt + 1,
+            preview: text.slice(0, 200)
+          })
           const error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
           error.status = response.status
           error.retryable = this.isRetryableStatus(response.status)
           throw error
         }
 
-        return {
-          text,
-          json: parseJson(text, `${modelType} 响应`)
+        const result = actualRequestMode === 'stream'
+          ? await this.readStreamedChatCompletion(response, modelType, () => timer.reset())
+          : {
+              text: await response.text(),
+              json: null
+            }
+
+        if (!result.json) {
+          result.json = parseJson(result.text, `${modelType} 响应`)
         }
+
+        debugLog('api.response', `${modelType} 响应`, {
+          ok: response.ok,
+          status: response.status,
+          requestMode: actualRequestMode,
+          attempt: attempt + 1,
+          preview: String(result.text || '').slice(0, 200)
+        })
+
+        return result
       } catch (error) {
         const shouldRetry = attempt < maxRetries && this.isRetryableError(error)
         if (!shouldRetry) {
@@ -820,7 +1100,7 @@ class ApiService {
         )
         await sleep(delayMs)
       } finally {
-        clearTimeout(timeoutId)
+        timer.clear()
       }
     }
 

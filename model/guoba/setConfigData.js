@@ -14,6 +14,11 @@ function clampInteger(value, min, max, fallback) {
   return Math.min(max, Math.max(min, Math.floor(numeric)))
 }
 
+function normalizeRequestMode(value, fallback = 'response') {
+  const normalized = String(value || '').trim().toLowerCase()
+  return ['response', 'stream'].includes(normalized) ? normalized : fallback
+}
+
 async function refreshPluginTasks() {
   try {
     if (!globalThis.Bot?.stat && !global.Bot?.stat) {
@@ -76,6 +81,7 @@ export async function setConfigData(data, { Result }) {
     for (const modelType of ['search', 'image', 'summary', 'video', 'audio']) {
       nextConfig.api[modelType] = {
         ...(nextConfig.api?.[modelType] || {}),
+        requestMode: normalizeRequestMode(nextConfig.api?.[modelType]?.requestMode, 'response'),
         retryCount: clampInteger(nextConfig.api?.[modelType]?.retryCount, 0, 5, 1)
       }
     }

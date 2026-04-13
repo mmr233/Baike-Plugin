@@ -128,6 +128,7 @@ const DEFAULT_CONFIG = {
       baseUrl: '',
       apiKey: '',
       model: 'perplexity-search',
+      requestMode: 'response',
       timeoutMs: 100000,
       retryCount: 1
     },
@@ -135,6 +136,7 @@ const DEFAULT_CONFIG = {
       baseUrl: '',
       apiKey: '',
       model: 'gemini-flash-latest',
+      requestMode: 'response',
       timeoutMs: 120000,
       retryCount: 1
     },
@@ -142,6 +144,7 @@ const DEFAULT_CONFIG = {
       baseUrl: '',
       apiKey: '',
       model: 'gemini-flash-latest',
+      requestMode: 'response',
       timeoutMs: 120000,
       retryCount: 1
     },
@@ -149,6 +152,7 @@ const DEFAULT_CONFIG = {
       baseUrl: '',
       apiKey: '',
       model: 'qwen3-vl-plus',
+      requestMode: 'response',
       timeoutMs: 180000,
       retryCount: 1
     },
@@ -156,6 +160,7 @@ const DEFAULT_CONFIG = {
       baseUrl: '',
       apiKey: '',
       model: 'grok-4.1-fast',
+      requestMode: 'response',
       timeoutMs: 60000,
       retryCount: 1
     }

@@ -14,6 +14,10 @@ function formatDailyTime(config = {}) {
   return `${formatTimePart(config.hour ?? 22)}:${formatTimePart(config.minute ?? 0)}:${formatTimePart(config.second ?? 0)}`
 }
 
+function formatRequestMode(mode = '') {
+  return String(mode || '').toLowerCase() === 'stream' ? '流式' : '等待完整输出'
+}
+
 function processHelpList(helpList) {
   return helpList.map(group => ({
     ...group,
@@ -126,9 +130,9 @@ export default class BaikeHelp extends plugin {
         group: '配置',
         desc: '模型、缓存、发送模式和自动群总结都可以通过锅巴面板调整。',
         list: [
-          { icon: 31, title: '搜索模型', desc: config.api.search.model || '未配置' },
-          { icon: 32, title: '图片模型', desc: config.api.image?.model || config.api.summary.model || '未配置' },
-          { icon: 33, title: '总结模型', desc: config.api.summary.model || '未配置' },
+          { icon: 31, title: '搜索模型', desc: `${config.api.search.model || '未配置'} / ${formatRequestMode(config.api.search.requestMode)}` },
+          { icon: 32, title: '图片模型', desc: `${config.api.image?.model || config.api.summary.model || '未配置'} / ${formatRequestMode(config.api.image?.requestMode)}` },
+          { icon: 33, title: '总结模型', desc: `${config.api.summary.model || '未配置'} / ${formatRequestMode(config.api.summary.requestMode)}` },
           { icon: 34, title: '发送优先级', desc: `${config.send.primaryMode} -> 自动降级 ${config.send.autoFallback ? '已开启' : '已关闭'}` }
         ]
       }
