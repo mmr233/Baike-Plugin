@@ -19,6 +19,26 @@ function normalizeRequestMode(value, fallback = 'response') {
   return ['response', 'stream'].includes(normalized) ? normalized : fallback
 }
 
+function normalizeFallbackRequestMode(value, fallback = 'inherit') {
+  const normalized = String(value || '').trim().toLowerCase()
+  return ['inherit', 'response', 'stream'].includes(normalized) ? normalized : fallback
+}
+
+function normalizeFallbackModels(value = []) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map(item => ({
+      model: String(item?.model || '').trim(),
+      baseUrl: String(item?.baseUrl || '').trim(),
+      apiKey: String(item?.apiKey || '').trim(),
+      requestMode: normalizeFallbackRequestMode(item?.requestMode, 'inherit')
+    }))
+    .filter(item => item.model || item.baseUrl || item.apiKey)
+}
+
 async function refreshPluginTasks() {
   try {
     if (!globalThis.Bot?.stat && !global.Bot?.stat) {
@@ -82,6 +102,7 @@ export async function setConfigData(data, { Result }) {
       nextConfig.api[modelType] = {
         ...(nextConfig.api?.[modelType] || {}),
         requestMode: normalizeRequestMode(nextConfig.api?.[modelType]?.requestMode, 'response'),
+        fallbackModels: normalizeFallbackModels(nextConfig.api?.[modelType]?.fallbackModels),
         retryCount: clampInteger(nextConfig.api?.[modelType]?.retryCount, 0, 5, 1)
       }
     }

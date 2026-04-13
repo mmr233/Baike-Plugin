@@ -812,6 +812,11 @@ class ApiService {
     return /grok-(3|4)/i.test(String(model || ''))
   }
 
+  normalizeFallbackRequestMode(value, fallback = 'inherit') {
+    const normalized = String(value || '').trim().toLowerCase()
+    return ['inherit', 'response', 'stream'].includes(normalized) ? normalized : fallback
+  }
+
   normalizeRequestMode(value, fallback = 'response') {
     const normalized = String(value || '').trim().toLowerCase()
     return ['response', 'stream'].includes(normalized) ? normalized : fallback
@@ -833,18 +838,69 @@ class ApiService {
     return fallback
   }
 
-  getModelConfig(modelType) {
+  normalizeFallbackModels(value = []) {
+    if (!Array.isArray(value)) {
+      return []
+    }
+
+    return value
+      .map(item => ({
+        model: String(item?.model || '').trim(),
+        baseUrl: String(item?.baseUrl || '').trim(),
+        apiKey: String(item?.apiKey || '').trim(),
+        requestMode: this.normalizeFallbackRequestMode(item?.requestMode, 'inherit')
+      }))
+      .filter(item => item.model || item.baseUrl || item.apiKey)
+  }
+
+  getModelConfigCandidates(modelType, options = {}) {
     const apiConfig = Config.get('api', {})
     const modelConfig = apiConfig?.[modelType] || {}
+    const requestTimeout = this.normalizeTimeoutMs(options.timeoutMs ?? options.timeout, this.normalizeTimeoutMs(modelConfig.timeoutMs, 120000))
+    const maxRetries = this.normalizeRetryCount(options.retryCount, this.normalizeRetryCount(modelConfig.retryCount, 0))
+    const primaryRequestMode = this.normalizeRequestMode(options.requestMode, modelConfig.requestMode || 'response')
+    const inheritedBaseUrl = (modelConfig.baseUrl || apiConfig.primaryBaseUrl || '').replace(/\/$/, '')
+    const inheritedApiKey = modelConfig.apiKey || apiConfig.primaryApiKey || ''
 
-    return {
-      baseUrl: (modelConfig.baseUrl || apiConfig.primaryBaseUrl || '').replace(/\/$/, ''),
-      apiKey: modelConfig.apiKey || apiConfig.primaryApiKey || '',
-      model: modelConfig.model || '',
-      requestMode: this.normalizeRequestMode(modelConfig.requestMode, 'response'),
-      timeoutMs: this.normalizeTimeoutMs(modelConfig.timeoutMs, 120000),
-      retryCount: this.normalizeRetryCount(modelConfig.retryCount, 0)
-    }
+    const rawCandidates = [
+      {
+        label: '主模型',
+        source: 'primary',
+        model: String(modelConfig.model || '').trim(),
+        baseUrl: String(modelConfig.baseUrl || '').trim(),
+        apiKey: String(modelConfig.apiKey || '').trim(),
+        requestMode: primaryRequestMode
+      },
+      ...this.normalizeFallbackModels(modelConfig.fallbackModels).map((item, index) => ({
+        ...item,
+        label: `下级模型${index + 1}`,
+        source: 'fallback',
+        order: index + 1
+      }))
+    ]
+
+    return rawCandidates.map((candidate, index) => {
+      const requestMode = candidate.source === 'fallback' && candidate.requestMode === 'inherit'
+        ? primaryRequestMode
+        : this.normalizeRequestMode(candidate.requestMode, primaryRequestMode)
+      const baseUrl = (candidate.baseUrl || inheritedBaseUrl).replace(/\/$/, '')
+      const apiKey = candidate.apiKey || inheritedApiKey
+      const model = String(candidate.model || '').trim()
+      const valid = Boolean(baseUrl && apiKey && model)
+
+      return {
+        ...candidate,
+        index,
+        total: rawCandidates.length,
+        model,
+        baseUrl,
+        apiKey,
+        requestMode,
+        timeoutMs: requestTimeout,
+        retryCount: maxRetries,
+        valid
+      }
+    })
   }
 
   isRetryableStatus(status) {
@@ -997,114 +1053,146 @@ class ApiService {
   }
 
   async requestChatCompletion(modelType, messages, options = {}) {
-    const {
-      baseUrl,
-      apiKey,
-      model,
-      requestMode,
-      timeoutMs,
-      retryCount
-    } = this.getModelConfig(modelType)
+    const candidates = this.getModelConfigCandidates(modelType, options)
+    const validCandidates = candidates.filter(item => item.valid)
 
-    if (!baseUrl || !apiKey || !model) {
+    for (const skipped of candidates.filter(item => !item.valid)) {
+      logger.warn(
+        `[${pluginName}] ${modelType} ${skipped.label}配置不完整，已跳过降级候选：model=${skipped.model || '未填写'}`
+      )
+    }
+
+    if (validCandidates.length === 0) {
       throw new Error(`${modelType} 模型配置不完整，请检查锅巴面板或配置文件`)
     }
 
-    const requestTimeout = this.normalizeTimeoutMs(options.timeoutMs ?? options.timeout, timeoutMs)
-    const maxRetries = this.normalizeRetryCount(options.retryCount, retryCount)
-    const actualRequestMode = this.normalizeRequestMode(options.requestMode, requestMode)
+    let lastError = null
 
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      const controller = new AbortController()
-      const timer = this.createAbortTimer(controller, requestTimeout)
+    for (let candidateIndex = 0; candidateIndex < validCandidates.length; candidateIndex += 1) {
+      const candidate = validCandidates[candidateIndex]
+      const requestTimeout = candidate.timeoutMs
+      const maxRetries = candidate.retryCount
+      const actualRequestMode = this.normalizeRequestMode(candidate.requestMode, 'response')
 
-      try {
-        debugLog('api.request', `准备请求 ${modelType}`, {
-          baseUrl,
-          model,
-          requestMode: actualRequestMode,
-          timeout: requestTimeout,
-          retryCount: maxRetries,
-          attempt: attempt + 1,
-          messageCount: Array.isArray(messages) ? messages.length : 0
-        })
+      for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+        const controller = new AbortController()
+        const timer = this.createAbortTimer(controller, requestTimeout)
 
-        const payload = {
-          model,
-          group: 'default',
-          messages,
-          stream: actualRequestMode === 'stream',
-          temperature: options.temperature ?? 0.3,
-          top_p: options.topP ?? 1
-        }
+        try {
+          debugLog('api.request', `准备请求 ${modelType}`, {
+            baseUrl: candidate.baseUrl,
+            model: candidate.model,
+            requestMode: actualRequestMode,
+            timeout: requestTimeout,
+            retryCount: maxRetries,
+            attempt: attempt + 1,
+            candidateIndex: candidateIndex + 1,
+            candidateCount: validCandidates.length,
+            candidateLabel: candidate.label,
+            messageCount: Array.isArray(messages) ? messages.length : 0
+          })
 
-        if (!this.isPenaltyUnsupportedModel(model)) {
-          payload.frequency_penalty = options.frequencyPenalty ?? 0
-          payload.presence_penalty = options.presencePenalty ?? 0
-        }
+          const payload = {
+            model: candidate.model,
+            group: 'default',
+            messages,
+            stream: actualRequestMode === 'stream',
+            temperature: options.temperature ?? 0.3,
+            top_p: options.topP ?? 1
+          }
 
-        const response = await fetch(`${baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        })
+          if (!this.isPenaltyUnsupportedModel(candidate.model)) {
+            payload.frequency_penalty = options.frequencyPenalty ?? 0
+            payload.presence_penalty = options.presencePenalty ?? 0
+          }
 
-        if (!response.ok) {
-          const text = await response.text()
+          const response = await fetch(`${candidate.baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${candidate.apiKey}`
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          })
+
+          if (!response.ok) {
+            const text = await response.text()
+            debugLog('api.response', `${modelType} 响应`, {
+              ok: response.ok,
+              status: response.status,
+              requestMode: actualRequestMode,
+              attempt: attempt + 1,
+              candidateIndex: candidateIndex + 1,
+              candidateCount: validCandidates.length,
+              candidateLabel: candidate.label,
+              preview: text.slice(0, 200)
+            })
+            const error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
+            error.status = response.status
+            error.retryable = this.isRetryableStatus(response.status)
+            throw error
+          }
+
+          const result = actualRequestMode === 'stream'
+            ? await this.readStreamedChatCompletion(response, modelType, () => timer.reset())
+            : {
+                text: await response.text(),
+                json: null
+              }
+
+          if (!result.json) {
+            result.json = parseJson(result.text, `${modelType} 响应`)
+          }
+
           debugLog('api.response', `${modelType} 响应`, {
             ok: response.ok,
             status: response.status,
             requestMode: actualRequestMode,
             attempt: attempt + 1,
-            preview: text.slice(0, 200)
+            candidateIndex: candidateIndex + 1,
+            candidateCount: validCandidates.length,
+            candidateLabel: candidate.label,
+            preview: String(result.text || '').slice(0, 200)
           })
-          const error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
-          error.status = response.status
-          error.retryable = this.isRetryableStatus(response.status)
-          throw error
-        }
 
-        const result = actualRequestMode === 'stream'
-          ? await this.readStreamedChatCompletion(response, modelType, () => timer.reset())
-          : {
-              text: await response.text(),
-              json: null
+          return {
+            ...result,
+            candidate: {
+              index: candidateIndex + 1,
+              total: validCandidates.length,
+              label: candidate.label,
+              model: candidate.model,
+              requestMode: actualRequestMode,
+              isFallback: candidate.source === 'fallback'
             }
+          }
+        } catch (error) {
+          lastError = error
+          const shouldRetry = attempt < maxRetries && this.isRetryableError(error)
+          if (!shouldRetry) {
+            break
+          }
 
-        if (!result.json) {
-          result.json = parseJson(result.text, `${modelType} 响应`)
+          const delayMs = this.getRetryDelayMs(attempt)
+          logger.warn(
+            `[${pluginName}] ${modelType} ${candidate.label}(${candidate.model}) 请求失败，${delayMs}ms 后进行第 ${attempt + 2} 次尝试：${error.message}`
+          )
+          await sleep(delayMs)
+        } finally {
+          timer.clear()
         }
+      }
 
-        debugLog('api.response', `${modelType} 响应`, {
-          ok: response.ok,
-          status: response.status,
-          requestMode: actualRequestMode,
-          attempt: attempt + 1,
-          preview: String(result.text || '').slice(0, 200)
-        })
-
-        return result
-      } catch (error) {
-        const shouldRetry = attempt < maxRetries && this.isRetryableError(error)
-        if (!shouldRetry) {
-          throw error
-        }
-
-        const delayMs = this.getRetryDelayMs(attempt)
+      const nextCandidate = validCandidates[candidateIndex + 1]
+      if (nextCandidate) {
         logger.warn(
-          `[${pluginName}] ${modelType} 请求失败，${delayMs}ms 后进行第 ${attempt + 2} 次尝试：${error.message}`
+          `[${pluginName}] ${modelType} ${candidate.label}(${candidate.model}) 请求失败，自动降级到 ${nextCandidate.label}(${nextCandidate.model})：${lastError?.message || '未知错误'}`
         )
-        await sleep(delayMs)
-      } finally {
-        timer.clear()
       }
     }
 
-    throw new Error(`${modelType} 请求失败：超过最大重试次数`)
+    throw lastError || new Error(`${modelType} 请求失败：所有模型候选均不可用`)
   }
 
   async callAudioAPI(audioPath) {

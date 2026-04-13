@@ -1,5 +1,71 @@
 import { enhanceSchemas } from './schemaHelpers.js'
 
+const fallbackModelItemSchemas = [
+  {
+    field: 'model',
+    label: '模型名',
+    bottomHelpMessage: '降级时要切换到的模型名',
+    component: 'Input',
+    componentProps: {
+      placeholder: '例如：grok-4.2'
+    }
+  },
+  {
+    field: 'baseUrl',
+    label: '接口地址',
+    bottomHelpMessage: '留空则继承当前类型配置的接口地址，再留空则继续回退到主接口地址',
+    component: 'Input',
+    componentProps: {
+      placeholder: '例如：https://example.com/v1'
+    }
+  },
+  {
+    field: 'apiKey',
+    label: '接口密钥',
+    bottomHelpMessage: '留空则继承当前类型配置的接口密钥，再留空则继续回退到主接口密钥',
+    component: 'InputPassword',
+    componentProps: {
+      placeholder: '留空继承当前配置'
+    }
+  },
+  {
+    field: 'requestMode',
+    label: '请求方式',
+    bottomHelpMessage: '默认继承当前类型主配置；如果下级模型所在接口不支持流式，可单独改成等待一次性输出',
+    component: 'Select',
+    defaultValue: 'inherit',
+    componentProps: {
+      options: [
+        { label: '继承主配置', value: 'inherit' },
+        { label: '流式请求', value: 'stream' },
+        { label: '等待一次性输出', value: 'response' }
+      ]
+    }
+  }
+]
+
+function createFallbackModelsSchema(modelType, label) {
+  return {
+    field: `api.${modelType}.fallbackModels`,
+    label: `${label}下级模型`,
+    bottomHelpMessage: `当${label}主模型在当前重试次数内仍然失败时，会自动按顺序降级到这里配置的下级模型，保证服务可用性`,
+    component: 'GSubForm',
+    defaultValue: [],
+    componentProps: {
+      multiple: true,
+      showAdd: true,
+      showRemove: true,
+      schemas: fallbackModelItemSchemas,
+      removeConfirm: {
+        title: '确认删除',
+        content: '确定要删除这条下级模型配置吗？',
+        okText: '确定',
+        cancelText: '取消'
+      }
+    }
+  }
+}
+
 const apiSchemaRaw = [
   {
     component: 'SOFT_GROUP_BEGIN',
@@ -87,6 +153,7 @@ const apiSchemaRaw = [
       step: 1
     }
   },
+  createFallbackModelsSchema('search', '搜索'),
   {
     component: 'Divider',
     label: '图片 / 总结 / 视频 / 音频模型',
@@ -152,6 +219,7 @@ const apiSchemaRaw = [
       step: 1
     }
   },
+  createFallbackModelsSchema('image', '图片'),
   {
     field: 'api.summary.model',
     label: '总结模型名',
@@ -208,6 +276,7 @@ const apiSchemaRaw = [
       step: 1
     }
   },
+  createFallbackModelsSchema('summary', '总结'),
   {
     field: 'api.video.model',
     label: '视频模型名',
@@ -264,6 +333,7 @@ const apiSchemaRaw = [
       step: 1
     }
   },
+  createFallbackModelsSchema('video', '视频'),
   {
     field: 'api.audio.model',
     label: '音频模型名',
@@ -319,7 +389,8 @@ const apiSchemaRaw = [
       max: 5,
       step: 1
     }
-  }
+  },
+  createFallbackModelsSchema('audio', '音频')
 ]
 
 const apiRecommendationMap = {
@@ -328,18 +399,23 @@ const apiRecommendationMap = {
   'api.search.baseUrl': '留空使用主接口地址',
   'api.search.apiKey': '留空使用主接口密钥',
   'api.search.requestMode': '流式请求',
+  'api.search.fallbackModels': '按需添加 1-3 个备用搜索模型',
   'api.image.baseUrl': '留空使用主接口地址',
   'api.image.apiKey': '留空使用主接口密钥',
   'api.image.requestMode': '流式请求',
+  'api.image.fallbackModels': '按需添加 1-3 个备用图片模型',
   'api.summary.baseUrl': '留空使用主接口地址',
   'api.summary.apiKey': '留空使用主接口密钥',
   'api.summary.requestMode': '流式请求',
+  'api.summary.fallbackModels': '按需添加 1-3 个备用总结模型',
   'api.video.baseUrl': '留空使用主接口地址',
   'api.video.apiKey': '留空使用主接口密钥',
   'api.video.requestMode': '流式请求',
+  'api.video.fallbackModels': '按需添加 1-2 个备用视频模型',
   'api.audio.baseUrl': '留空使用主接口地址',
   'api.audio.apiKey': '留空使用主接口密钥',
-  'api.audio.requestMode': '流式请求'
+  'api.audio.requestMode': '流式请求',
+  'api.audio.fallbackModels': '按需添加 1-2 个备用音频模型'
 }
 
 export const apiSchema = enhanceSchemas(apiSchemaRaw, {
