@@ -1,5 +1,124 @@
 import { enhanceSchemas } from './schemaHelpers.js'
 
+const requestModeOptions = [
+  { label: '流式请求', value: 'stream' },
+  { label: '等待一次性输出', value: 'response' }
+]
+
+const fallbackRequestModeOptions = [
+  { label: '继承主配置', value: 'inherit' },
+  ...requestModeOptions
+]
+
+function createSingleConfigForm(field, label, bottomHelpMessage, schemas) {
+  return {
+    field,
+    label,
+    bottomHelpMessage,
+    component: 'GSubForm',
+    defaultValue: [{}],
+    componentProps: {
+      multiple: true,
+      showAdd: false,
+      showRemove: false,
+      schemas
+    }
+  }
+}
+
+function createModelConfigSchemas({
+  modelLabel,
+  modelPlaceholder,
+  timeoutLabel,
+  timeoutHelp,
+  timeoutDefault,
+  retryLabel,
+  retryHelp
+}) {
+  return [
+    {
+      field: 'model',
+      label: modelLabel,
+      component: 'Input',
+      componentProps: {
+        placeholder: modelPlaceholder
+      }
+    },
+    {
+      field: 'baseUrl',
+      label: `${modelLabel.replace('模型名', '')}接口地址`,
+      bottomHelpMessage: '留空则使用主接口地址',
+      component: 'Input',
+      componentProps: {
+        placeholder: 'https://example.com/v1'
+      }
+    },
+    {
+      field: 'apiKey',
+      label: `${modelLabel.replace('模型名', '')}接口密钥`,
+      bottomHelpMessage: '留空则使用主接口密钥',
+      component: 'InputPassword',
+      componentProps: {
+        placeholder: '留空使用主接口密钥'
+      }
+    },
+    {
+      field: 'requestMode',
+      label: `${modelLabel.replace('模型名', '')}请求方式`,
+      bottomHelpMessage: '建议优先使用流式请求，避免长输出无返回导致超时',
+      component: 'Select',
+      defaultValue: 'response',
+      componentProps: {
+        options: requestModeOptions
+      }
+    },
+    {
+      field: 'timeoutMs',
+      label: timeoutLabel,
+      bottomHelpMessage: timeoutHelp,
+      component: 'InputNumber',
+      defaultValue: timeoutDefault,
+      componentProps: {
+        min: 1000,
+        max: 600000,
+        step: 1000
+      }
+    },
+    {
+      field: 'retryCount',
+      label: retryLabel,
+      bottomHelpMessage: retryHelp,
+      component: 'InputNumber',
+      defaultValue: 1,
+      componentProps: {
+        min: 0,
+        max: 5,
+        step: 1
+      }
+    }
+  ]
+}
+
+const primaryApiSchemas = [
+  {
+    field: 'primaryBaseUrl',
+    label: '主接口地址',
+    bottomHelpMessage: '搜索/图片/总结/视频/音频未单独配置地址时都会回退到这里',
+    component: 'Input',
+    componentProps: {
+      placeholder: 'https://example.com/v1'
+    }
+  },
+  {
+    field: 'primaryApiKey',
+    label: '主接口密钥',
+    component: 'InputPassword',
+    componentProps: {
+      placeholder: '请输入主接口密钥'
+    }
+  }
+]
+
 const fallbackModelItemSchemas = [
   {
     field: 'model',
@@ -35,11 +154,7 @@ const fallbackModelItemSchemas = [
     component: 'Select',
     defaultValue: 'inherit',
     componentProps: {
-      options: [
-        { label: '继承主配置', value: 'inherit' },
-        { label: '流式请求', value: 'stream' },
-        { label: '等待一次性输出', value: 'response' }
-      ]
+      options: fallbackRequestModeOptions
     }
   }
 ]
@@ -72,22 +187,19 @@ const apiSchemaRaw = [
     label: '接口配置'
   },
   {
-    field: 'api.primaryBaseUrl',
-    label: '主接口地址',
-    bottomHelpMessage: '搜索/图片/总结/视频/音频未单独配置地址时都会回退到这里',
-    component: 'Input',
+    component: 'Divider',
+    label: '主接口',
     componentProps: {
-      placeholder: 'https://example.com/v1'
+      orientation: 'left',
+      plain: true
     }
   },
-  {
-    field: 'api.primaryApiKey',
-    label: '主接口密钥',
-    component: 'InputPassword',
-    componentProps: {
-      placeholder: '请输入主接口密钥'
-    }
-  },
+  createSingleConfigForm(
+    '_apiPrimaryConfig',
+    '主接口配置',
+    '点击行内编辑按钮打开弹窗，统一配置主接口地址和主接口密钥',
+    primaryApiSchemas
+  ),
   {
     component: 'Divider',
     label: '搜索模型',
@@ -96,325 +208,120 @@ const apiSchemaRaw = [
       plain: true
     }
   },
-  {
-    field: 'api.search.model',
-    label: '搜索模型名',
-    component: 'Input',
-    componentProps: {
-      placeholder: 'perplexity-search'
-    }
-  },
-  {
-    field: 'api.search.baseUrl',
-    label: '搜索接口地址',
-    bottomHelpMessage: '留空则使用主接口地址',
-    component: 'Input'
-  },
-  {
-    field: 'api.search.apiKey',
-    label: '搜索接口密钥',
-    bottomHelpMessage: '留空则使用主接口密钥',
-    component: 'InputPassword'
-  },
-  {
-    field: 'api.search.requestMode',
-    label: '搜索请求方式',
-    bottomHelpMessage: '流式请求会持续接收模型输出分片，适合 grok 这类长输出场景；若接口不支持流式，再切回等待一次性输出',
-    component: 'Select',
-    defaultValue: 'response',
-    componentProps: {
-      options: [
-        { label: '流式请求', value: 'stream' },
-        { label: '等待一次性输出', value: 'response' }
-      ]
-    }
-  },
-  {
-    field: 'api.search.timeoutMs',
-    label: '搜索请求超时（毫秒）',
-    bottomHelpMessage: '该类型模型所有搜索相关请求默认共用此超时',
-    component: 'InputNumber',
-    defaultValue: 100000,
-    componentProps: {
-      min: 1000,
-      max: 600000,
-      step: 1000
-    }
-  },
-  {
-    field: 'api.search.retryCount',
-    label: '搜索重试次数',
-    bottomHelpMessage: '失败后额外重试几次；建议 0-2 次，避免重复扣费',
-    component: 'InputNumber',
-    defaultValue: 1,
-    componentProps: {
-      min: 0,
-      max: 5,
-      step: 1
-    }
-  },
+  createSingleConfigForm(
+    '_apiSearchConfig',
+    '搜索主模型配置',
+    '点击行内编辑按钮打开弹窗，统一编辑搜索模型、地址、密钥、请求方式、超时和重试',
+    createModelConfigSchemas({
+      modelLabel: '搜索模型名',
+      modelPlaceholder: 'perplexity-search',
+      timeoutLabel: '搜索请求超时（毫秒）',
+      timeoutHelp: '该类型模型所有搜索相关请求默认共用此超时',
+      timeoutDefault: 100000,
+      retryLabel: '搜索重试次数',
+      retryHelp: '失败后额外重试几次；建议 0-2 次，避免重复扣费'
+    })
+  ),
   createFallbackModelsSchema('search', '搜索'),
   {
     component: 'Divider',
-    label: '图片 / 总结 / 视频 / 音频模型',
+    label: '图片模型',
     componentProps: {
       orientation: 'left',
       plain: true
     }
   },
-  {
-    field: 'api.image.model',
-    label: '图片模型名',
-    component: 'Input',
-    componentProps: {
-      placeholder: 'gemini-flash-latest'
-    }
-  },
-  {
-    field: 'api.image.baseUrl',
-    label: '图片接口地址',
-    bottomHelpMessage: '留空则使用主接口地址',
-    component: 'Input'
-  },
-  {
-    field: 'api.image.apiKey',
-    label: '图片接口密钥',
-    bottomHelpMessage: '留空则使用主接口密钥',
-    component: 'InputPassword'
-  },
-  {
-    field: 'api.image.requestMode',
-    label: '图片请求方式',
-    bottomHelpMessage: '图片理解支持流式返回，可降低等待完整输出导致的超时风险；若识图接口不支持流式，可改回等待一次性输出',
-    component: 'Select',
-    defaultValue: 'response',
-    componentProps: {
-      options: [
-        { label: '流式请求', value: 'stream' },
-        { label: '等待一次性输出', value: 'response' }
-      ]
-    }
-  },
-  {
-    field: 'api.image.timeoutMs',
-    label: '图片请求超时（毫秒）',
-    bottomHelpMessage: '图片理解、长图切片理解等请求默认共用此超时',
-    component: 'InputNumber',
-    defaultValue: 120000,
-    componentProps: {
-      min: 1000,
-      max: 600000,
-      step: 1000
-    }
-  },
-  {
-    field: 'api.image.retryCount',
-    label: '图片重试次数',
-    bottomHelpMessage: '图片理解失败后的额外重试次数',
-    component: 'InputNumber',
-    defaultValue: 1,
-    componentProps: {
-      min: 0,
-      max: 5,
-      step: 1
-    }
-  },
+  createSingleConfigForm(
+    '_apiImageConfig',
+    '图片主模型配置',
+    '点击行内编辑按钮打开弹窗，统一编辑图片模型、地址、密钥、请求方式、超时和重试',
+    createModelConfigSchemas({
+      modelLabel: '图片模型名',
+      modelPlaceholder: 'gemini-flash-latest',
+      timeoutLabel: '图片请求超时（毫秒）',
+      timeoutHelp: '图片理解、长图切片理解等请求默认共用此超时',
+      timeoutDefault: 120000,
+      retryLabel: '图片重试次数',
+      retryHelp: '图片理解失败后的额外重试次数'
+    })
+  ),
   createFallbackModelsSchema('image', '图片'),
   {
-    field: 'api.summary.model',
-    label: '总结模型名',
-    component: 'Input',
+    component: 'Divider',
+    label: '总结模型',
     componentProps: {
-      placeholder: 'gemini-flash-latest'
+      orientation: 'left',
+      plain: true
     }
   },
-  {
-    field: 'api.summary.baseUrl',
-    label: '总结接口地址',
-    bottomHelpMessage: '留空则使用主接口地址',
-    component: 'Input'
-  },
-  {
-    field: 'api.summary.apiKey',
-    label: '总结接口密钥',
-    bottomHelpMessage: '留空则使用主接口密钥',
-    component: 'InputPassword'
-  },
-  {
-    field: 'api.summary.requestMode',
-    label: '总结请求方式',
-    bottomHelpMessage: '群聊总结、内容总结、搜索整理等长文本场景更适合流式请求，可减少长时间无输出导致的超时',
-    component: 'Select',
-    defaultValue: 'response',
-    componentProps: {
-      options: [
-        { label: '流式请求', value: 'stream' },
-        { label: '等待一次性输出', value: 'response' }
-      ]
-    }
-  },
-  {
-    field: 'api.summary.timeoutMs',
-    label: '总结请求超时（毫秒）',
-    component: 'InputNumber',
-    defaultValue: 120000,
-    componentProps: {
-      min: 1000,
-      max: 600000,
-      step: 1000
-    }
-  },
-  {
-    field: 'api.summary.retryCount',
-    label: '总结重试次数',
-    bottomHelpMessage: '群聊总结、内容总结、搜索结果整理等总结模型请求共用该重试次数',
-    component: 'InputNumber',
-    defaultValue: 1,
-    componentProps: {
-      min: 0,
-      max: 5,
-      step: 1
-    }
-  },
+  createSingleConfigForm(
+    '_apiSummaryConfig',
+    '总结主模型配置',
+    '点击行内编辑按钮打开弹窗，统一编辑总结模型、地址、密钥、请求方式、超时和重试',
+    createModelConfigSchemas({
+      modelLabel: '总结模型名',
+      modelPlaceholder: 'gemini-flash-latest',
+      timeoutLabel: '总结请求超时（毫秒）',
+      timeoutHelp: '群聊总结、内容总结、搜索整理等请求默认共用此超时',
+      timeoutDefault: 120000,
+      retryLabel: '总结重试次数',
+      retryHelp: '群聊总结、内容总结、搜索结果整理等总结模型请求共用该重试次数'
+    })
+  ),
   createFallbackModelsSchema('summary', '总结'),
   {
-    field: 'api.video.model',
-    label: '视频模型名',
-    component: 'Input',
+    component: 'Divider',
+    label: '视频模型',
     componentProps: {
-      placeholder: 'qwen3-vl-plus'
+      orientation: 'left',
+      plain: true
     }
   },
-  {
-    field: 'api.video.baseUrl',
-    label: '视频接口地址',
-    bottomHelpMessage: '留空则使用主接口地址',
-    component: 'Input'
-  },
-  {
-    field: 'api.video.apiKey',
-    label: '视频接口密钥',
-    bottomHelpMessage: '留空则使用主接口密钥',
-    component: 'InputPassword'
-  },
-  {
-    field: 'api.video.requestMode',
-    label: '视频请求方式',
-    bottomHelpMessage: '视频分析通常更耗时，若你的接口支持流式返回，建议开启流式请求',
-    component: 'Select',
-    defaultValue: 'response',
-    componentProps: {
-      options: [
-        { label: '流式请求', value: 'stream' },
-        { label: '等待一次性输出', value: 'response' }
-      ]
-    }
-  },
-  {
-    field: 'api.video.timeoutMs',
-    label: '视频请求超时（毫秒）',
-    component: 'InputNumber',
-    defaultValue: 180000,
-    componentProps: {
-      min: 1000,
-      max: 600000,
-      step: 1000
-    }
-  },
-  {
-    field: 'api.video.retryCount',
-    label: '视频重试次数',
-    bottomHelpMessage: '视频分析失败后的额外重试次数',
-    component: 'InputNumber',
-    defaultValue: 1,
-    componentProps: {
-      min: 0,
-      max: 5,
-      step: 1
-    }
-  },
+  createSingleConfigForm(
+    '_apiVideoConfig',
+    '视频主模型配置',
+    '点击行内编辑按钮打开弹窗，统一编辑视频模型、地址、密钥、请求方式、超时和重试',
+    createModelConfigSchemas({
+      modelLabel: '视频模型名',
+      modelPlaceholder: 'qwen3-vl-plus',
+      timeoutLabel: '视频请求超时（毫秒）',
+      timeoutHelp: '视频分析通常更耗时，建议结合流式请求一起配置',
+      timeoutDefault: 180000,
+      retryLabel: '视频重试次数',
+      retryHelp: '视频分析失败后的额外重试次数'
+    })
+  ),
   createFallbackModelsSchema('video', '视频'),
   {
-    field: 'api.audio.model',
-    label: '音频模型名',
-    component: 'Input',
+    component: 'Divider',
+    label: '音频模型',
     componentProps: {
-      placeholder: 'grok-4.1-fast'
+      orientation: 'left',
+      plain: true
     }
   },
-  {
-    field: 'api.audio.baseUrl',
-    label: '音频接口地址',
-    bottomHelpMessage: '留空则使用主接口地址',
-    component: 'Input'
-  },
-  {
-    field: 'api.audio.apiKey',
-    label: '音频接口密钥',
-    bottomHelpMessage: '留空则使用主接口密钥',
-    component: 'InputPassword'
-  },
-  {
-    field: 'api.audio.requestMode',
-    label: '音频请求方式',
-    bottomHelpMessage: '语音转写也可切到流式请求；若接口只支持一次性返回，请保持默认',
-    component: 'Select',
-    defaultValue: 'response',
-    componentProps: {
-      options: [
-        { label: '流式请求', value: 'stream' },
-        { label: '等待一次性输出', value: 'response' }
-      ]
-    }
-  },
-  {
-    field: 'api.audio.timeoutMs',
-    label: '音频请求超时（毫秒）',
-    component: 'InputNumber',
-    defaultValue: 60000,
-    componentProps: {
-      min: 1000,
-      max: 600000,
-      step: 1000
-    }
-  },
-  {
-    field: 'api.audio.retryCount',
-    label: '音频重试次数',
-    bottomHelpMessage: '语音转写失败后的额外重试次数',
-    component: 'InputNumber',
-    defaultValue: 1,
-    componentProps: {
-      min: 0,
-      max: 5,
-      step: 1
-    }
-  },
+  createSingleConfigForm(
+    '_apiAudioConfig',
+    '音频主模型配置',
+    '点击行内编辑按钮打开弹窗，统一编辑音频模型、地址、密钥、请求方式、超时和重试',
+    createModelConfigSchemas({
+      modelLabel: '音频模型名',
+      modelPlaceholder: 'grok-4.1-fast',
+      timeoutLabel: '音频请求超时（毫秒）',
+      timeoutHelp: '语音转写建议结合流式请求一起配置',
+      timeoutDefault: 60000,
+      retryLabel: '音频重试次数',
+      retryHelp: '语音转写失败后的额外重试次数'
+    })
+  ),
   createFallbackModelsSchema('audio', '音频')
 ]
 
 const apiRecommendationMap = {
-  'api.primaryBaseUrl': 'https://your-api.example.com/v1',
-  'api.primaryApiKey': '按需填写',
-  'api.search.baseUrl': '留空使用主接口地址',
-  'api.search.apiKey': '留空使用主接口密钥',
-  'api.search.requestMode': '流式请求',
   'api.search.fallbackModels': '按需添加 1-3 个备用搜索模型',
-  'api.image.baseUrl': '留空使用主接口地址',
-  'api.image.apiKey': '留空使用主接口密钥',
-  'api.image.requestMode': '流式请求',
   'api.image.fallbackModels': '按需添加 1-3 个备用图片模型',
-  'api.summary.baseUrl': '留空使用主接口地址',
-  'api.summary.apiKey': '留空使用主接口密钥',
-  'api.summary.requestMode': '流式请求',
   'api.summary.fallbackModels': '按需添加 1-3 个备用总结模型',
-  'api.video.baseUrl': '留空使用主接口地址',
-  'api.video.apiKey': '留空使用主接口密钥',
-  'api.video.requestMode': '流式请求',
   'api.video.fallbackModels': '按需添加 1-2 个备用视频模型',
-  'api.audio.baseUrl': '留空使用主接口地址',
-  'api.audio.apiKey': '留空使用主接口密钥',
-  'api.audio.requestMode': '流式请求',
   'api.audio.fallbackModels': '按需添加 1-2 个备用音频模型'
 }
 
