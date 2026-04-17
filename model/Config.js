@@ -274,6 +274,14 @@ const DEFAULT_CONFIG = {
       chunkHeight: 2800,
       overlap: 96,
       maxSegments: 8
+    },
+    videoPreprocess: {
+      enabled: true,
+      compressTriggerSizeMb: 18,
+      compressTargetSizeMb: 12,
+      splitTriggerDurationSeconds: 90,
+      segmentDurationSeconds: 45,
+      maxSegments: 6
     }
   },
   chatSummary: {

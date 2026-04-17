@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { exec as execCallback } from 'node:child_process'
+import { exec as execCallback, execFile as execFileCallback } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer'
@@ -9,7 +9,9 @@ import { pluginName } from '../constant.js'
 import { debugLog } from '../debug.js'
 
 const exec = promisify(execCallback)
+const execFile = promisify(execFileCallback)
 const PUPPETEER_ARGS = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+const RAW_VIDEO_SIZE_LIMIT_BYTES = 50 * 1024 * 1024
 const JPEG_SOF_MARKERS = new Set([
   0xC0, 0xC1, 0xC2, 0xC3,
   0xC5, 0xC6, 0xC7,
@@ -33,6 +35,14 @@ function readUInt24LE(buffer, offset) {
 class MediaService {
   constructor() {
     this.tempDir = path.join(process.cwd(), 'temp', pluginName)
+  }
+
+  createTempMediaPath(prefix = 'media', ext = '.tmp') {
+    this.ensureTempDir()
+    return path.join(
+      this.tempDir,
+      `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`
+    )
   }
 
   ensureTempDir() {
@@ -76,6 +86,519 @@ class MediaService {
 
   escapeShellArg(value = '') {
     return String(value).replace(/"/g, '\\"')
+  }
+
+  parseDurationSeconds(value, fallback = 0) {
+    const durationSeconds = Number(value)
+    if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+      return durationSeconds
+    }
+
+    return fallback
+  }
+
+  formatFfmpegSeconds(value = 0) {
+    return Math.max(0, Number(value) || 0).toFixed(3)
+  }
+
+  getVideoPreprocessConfig() {
+    const config = Config.get('fileRequest.videoPreprocess', {})
+    const compressTriggerSizeMb = clampNumber(config?.compressTriggerSizeMb, 5, 200, 18)
+    const compressTargetSizeMb = clampNumber(
+      config?.compressTargetSizeMb,
+      4,
+      compressTriggerSizeMb,
+      Math.min(12, compressTriggerSizeMb)
+    )
+    const splitTriggerDurationSeconds = clampNumber(
+      config?.splitTriggerDurationSeconds,
+      15,
+      7200,
+      90
+    )
+    const segmentDurationSeconds = clampNumber(
+      config?.segmentDurationSeconds,
+      10,
+      splitTriggerDurationSeconds,
+      Math.min(45, splitTriggerDurationSeconds)
+    )
+    const maxSegments = clampNumber(config?.maxSegments, 1, 24, 6)
+
+    return {
+      enabled: config?.enabled !== false,
+      compressTriggerSizeMb,
+      compressTargetSizeMb,
+      splitTriggerDurationSeconds,
+      segmentDurationSeconds,
+      maxSegments,
+      maxOutputWidth: 1280,
+      audioBitrateKbps: 96,
+      minVideoBitrateKbps: 320,
+      maxVideoBitrateKbps: 2800,
+      ffprobeTimeoutMs: 30000,
+      ffmpegTimeoutMs: 8 * 60 * 1000,
+      maxPreparedSizeBytes: Math.max(
+        24 * 1024 * 1024,
+        Math.round(compressTargetSizeMb * 1024 * 1024 * 2)
+      )
+    }
+  }
+
+  async execTool(command, args = [], options = {}) {
+    return execFile(command, args, {
+      windowsHide: true,
+      maxBuffer: 10 * 1024 * 1024,
+      ...options
+    })
+  }
+
+  async probeVideo(localPath = '') {
+    if (!localPath || !fs.existsSync(localPath)) {
+      return null
+    }
+
+    const fallbackStats = fs.statSync(localPath)
+
+    try {
+      const preprocessConfig = this.getVideoPreprocessConfig()
+      const { stdout } = await this.execTool('ffprobe', [
+        '-v', 'error',
+        '-print_format', 'json',
+        '-show_format',
+        '-show_streams',
+        localPath
+      ], {
+        timeout: preprocessConfig.ffprobeTimeoutMs
+      })
+
+      const parsed = JSON.parse(stdout || '{}')
+      const streams = Array.isArray(parsed?.streams) ? parsed.streams : []
+      const videoStream = streams.find(item => item?.codec_type === 'video') || {}
+      const audioStream = streams.find(item => item?.codec_type === 'audio') || {}
+
+      return {
+        durationSeconds: this.parseDurationSeconds(
+          parsed?.format?.duration,
+          this.parseDurationSeconds(videoStream?.duration, this.parseDurationSeconds(audioStream?.duration, 0))
+        ),
+        sizeBytes: Number(parsed?.format?.size) || fallbackStats.size,
+        bitRate: Number(parsed?.format?.bit_rate) || Number(videoStream?.bit_rate) || 0,
+        audioBitRate: Number(audioStream?.bit_rate) || 0,
+        width: Number(videoStream?.width) || 0,
+        height: Number(videoStream?.height) || 0,
+        codecName: String(videoStream?.codec_name || '').trim(),
+        hasAudio: Boolean(audioStream?.codec_name)
+      }
+    } catch (error) {
+      logger.warn(`[${pluginName}] 视频信息探测失败：${error.message}`)
+      return {
+        durationSeconds: 0,
+        sizeBytes: fallbackStats.size,
+        bitRate: 0,
+        audioBitRate: 0,
+        width: 0,
+        height: 0,
+        codecName: '',
+        hasAudio: true
+      }
+    }
+  }
+
+  calculateTargetVideoBitrateKbps(durationSeconds, options = {}) {
+    const config = {
+      targetSizeMb: 12,
+      audioBitrateKbps: 96,
+      minVideoBitrateKbps: 320,
+      maxVideoBitrateKbps: 2800,
+      ...options
+    }
+
+    if (!durationSeconds || durationSeconds <= 0) {
+      return Math.min(config.maxVideoBitrateKbps, Math.max(config.minVideoBitrateKbps, 1200))
+    }
+
+    const totalBitrateKbps = Math.floor((config.targetSizeMb * 8192) / Math.max(durationSeconds, 1))
+    const videoBitrateKbps = totalBitrateKbps - Math.max(48, Number(config.audioBitrateKbps) || 96) - 32
+
+    return clampNumber(
+      videoBitrateKbps,
+      config.minVideoBitrateKbps,
+      config.maxVideoBitrateKbps,
+      config.minVideoBitrateKbps
+    )
+  }
+
+  shouldSplitVideo(videoMeta = {}, config = this.getVideoPreprocessConfig()) {
+    if (!config.enabled) {
+      return false
+    }
+
+    return this.parseDurationSeconds(videoMeta?.durationSeconds, 0) > config.splitTriggerDurationSeconds
+  }
+
+  shouldCompressVideo(videoMeta = {}, config = this.getVideoPreprocessConfig()) {
+    if (!config.enabled) {
+      return false
+    }
+
+    const sizeBytes = Number(videoMeta?.sizeBytes) || 0
+    const width = Number(videoMeta?.width) || 0
+    return sizeBytes > config.compressTriggerSizeMb * 1024 * 1024 || width > config.maxOutputWidth
+  }
+
+  async extractVideoSegment(inputPath, outputPath, startSeconds, durationSeconds, timeoutMs) {
+    const start = this.formatFfmpegSeconds(startSeconds)
+    const duration = this.formatFfmpegSeconds(durationSeconds)
+
+    try {
+      await this.execTool('ffmpeg', [
+        '-v', 'error',
+        '-ss', start,
+        '-t', duration,
+        '-i', inputPath,
+        '-map', '0:v:0?',
+        '-map', '0:a:0?',
+        '-c', 'copy',
+        '-reset_timestamps', '1',
+        '-avoid_negative_ts', 'make_zero',
+        '-movflags', '+faststart',
+        '-y',
+        outputPath
+      ], {
+        timeout: timeoutMs
+      })
+
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+        return outputPath
+      }
+    } catch {}
+
+    this.cleanupFile(outputPath)
+
+    await this.execTool('ffmpeg', [
+      '-v', 'error',
+      '-ss', start,
+      '-t', duration,
+      '-i', inputPath,
+      '-map', '0:v:0?',
+      '-map', '0:a:0?',
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '30',
+      '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac',
+      '-b:a', '96k',
+      '-movflags', '+faststart',
+      '-y',
+      outputPath
+    ], {
+      timeout: timeoutMs
+    })
+
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+      return outputPath
+    }
+
+    throw new Error('视频分段输出为空')
+  }
+
+  async splitVideoIntoSegments(localPath, sourceMeta = {}, options = {}) {
+    const config = {
+      ...this.getVideoPreprocessConfig(),
+      ...(options || {})
+    }
+    const durationSeconds = this.parseDurationSeconds(sourceMeta?.durationSeconds, 0)
+
+    if (!this.shouldSplitVideo({ durationSeconds }, config)) {
+      return [{
+        localPath,
+        startSeconds: 0,
+        endSeconds: durationSeconds,
+        durationSeconds,
+        segmentIndex: 1,
+        totalSegments: 1
+      }]
+    }
+
+    const desiredSegments = Math.ceil(durationSeconds / Math.max(10, config.segmentDurationSeconds))
+    const totalSegments = Math.max(2, Math.min(config.maxSegments, desiredSegments))
+    const segmentSpan = durationSeconds / totalSegments
+    const segmentPaths = []
+    const segments = []
+
+    try {
+      for (let index = 0; index < totalSegments; index += 1) {
+        const startSeconds = Number((index * segmentSpan).toFixed(3))
+        const endSeconds = index === totalSegments - 1
+          ? durationSeconds
+          : Number(Math.min(durationSeconds, ((index + 1) * segmentSpan)).toFixed(3))
+        const currentDurationSeconds = Math.max(0.3, Number((endSeconds - startSeconds).toFixed(3)))
+        const segmentPath = this.createTempMediaPath(
+          `${options.prefix || 'video'}_part_${index + 1}`,
+          '.mp4'
+        )
+
+        await this.extractVideoSegment(
+          localPath,
+          segmentPath,
+          startSeconds,
+          currentDurationSeconds,
+          config.ffmpegTimeoutMs
+        )
+
+        segmentPaths.push(segmentPath)
+        segments.push({
+          localPath: segmentPath,
+          startSeconds,
+          endSeconds,
+          durationSeconds: currentDurationSeconds,
+          segmentIndex: index + 1,
+          totalSegments
+        })
+      }
+
+      debugLog('media.videoSplit', '视频已自动切分', {
+        source: path.basename(localPath),
+        durationSeconds: Number(durationSeconds.toFixed(3)),
+        segmentDurationSeconds: config.segmentDurationSeconds,
+        totalSegments
+      })
+
+      return segments
+    } catch (error) {
+      logger.warn(`[${pluginName}] 视频切分失败，已回退原视频：${error.message}`)
+      this.cleanupFiles(segmentPaths)
+      return [{
+        localPath,
+        startSeconds: 0,
+        endSeconds: durationSeconds,
+        durationSeconds,
+        segmentIndex: 1,
+        totalSegments: 1
+      }]
+    }
+  }
+
+  async compressVideo(inputPath, videoMeta = {}, options = {}) {
+    if (!inputPath || !fs.existsSync(inputPath)) {
+      return null
+    }
+
+    const config = {
+      ...this.getVideoPreprocessConfig(),
+      ...(options || {})
+    }
+    const outputPath = this.createTempMediaPath(
+      `${path.basename(inputPath, path.extname(inputPath))}_compressed`,
+      '.mp4'
+    )
+    const durationSeconds = this.parseDurationSeconds(videoMeta?.durationSeconds, 0)
+    const audioBitrateKbps = videoMeta?.hasAudio === false ? 0 : clampNumber(
+      Math.round((Number(videoMeta?.audioBitRate) || 0) / 1000) || config.audioBitrateKbps,
+      64,
+      192,
+      config.audioBitrateKbps
+    )
+    const videoBitrateKbps = this.calculateTargetVideoBitrateKbps(durationSeconds, {
+      targetSizeMb: config.compressTargetSizeMb,
+      audioBitrateKbps,
+      minVideoBitrateKbps: config.minVideoBitrateKbps,
+      maxVideoBitrateKbps: config.maxVideoBitrateKbps
+    })
+    const maxRateKbps = Math.max(videoBitrateKbps, Math.round(videoBitrateKbps * 1.25))
+    const bufferSizeKbps = Math.max(videoBitrateKbps * 2, 1024)
+    const args = [
+      '-v', 'error',
+      '-i', inputPath,
+      '-vf', `scale='min(iw,${config.maxOutputWidth})':-2:force_original_aspect_ratio=decrease`,
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-b:v', `${videoBitrateKbps}k`,
+      '-maxrate', `${maxRateKbps}k`,
+      '-bufsize', `${bufferSizeKbps}k`,
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart'
+    ]
+
+    if (videoMeta?.hasAudio === false) {
+      args.push('-an')
+    } else {
+      args.push('-c:a', 'aac', '-b:a', `${audioBitrateKbps}k`)
+    }
+
+    args.push('-y', outputPath)
+
+    try {
+      await this.execTool('ffmpeg', args, {
+        timeout: config.ffmpegTimeoutMs
+      })
+
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+        return outputPath
+      }
+    } catch (error) {
+      logger.warn(`[${pluginName}] 视频压缩失败：${error.message}`)
+    }
+
+    this.cleanupFile(outputPath)
+    return null
+  }
+
+  async prepareVideoForLLM(localPath, videoMeta = {}, options = {}) {
+    if (!localPath || !fs.existsSync(localPath)) {
+      return []
+    }
+
+    const config = {
+      ...this.getVideoPreprocessConfig(),
+      ...(options || {})
+    }
+    const sourceProbe = await this.probeVideo(localPath)
+    const sourceSizeBytes = Number(sourceProbe?.sizeBytes) || fs.statSync(localPath).size
+    const sourceMeta = {
+      durationSeconds: this.parseDurationSeconds(sourceProbe?.durationSeconds, 0),
+      sizeBytes: sourceSizeBytes,
+      bitRate: Number(sourceProbe?.bitRate) || 0,
+      audioBitRate: Number(sourceProbe?.audioBitRate) || 0,
+      width: Number(sourceProbe?.width) || 0,
+      height: Number(sourceProbe?.height) || 0,
+      hasAudio: sourceProbe?.hasAudio !== false
+    }
+    const sourceKey = `${videoMeta.url || localPath}:${sourceMeta.durationSeconds || 0}:${sourceMeta.sizeBytes || 0}`
+
+    if (!config.enabled) {
+      if (sourceMeta.sizeBytes > RAW_VIDEO_SIZE_LIMIT_BYTES) {
+        this.cleanupFile(localPath)
+        logger.warn(`[${pluginName}] 视频文件过大，已跳过：${videoMeta.url || localPath}`)
+        return []
+      }
+
+      return [{
+        ...videoMeta,
+        type: 'video',
+        localPath,
+        url: videoMeta.url,
+        videoProcessMeta: {
+          sourceKey,
+          segmentIndex: 1,
+          totalSegments: 1,
+          startSeconds: 0,
+          endSeconds: sourceMeta.durationSeconds,
+          durationSeconds: sourceMeta.durationSeconds,
+          wasSplit: false,
+          wasCompressed: false,
+          sourceDurationSeconds: sourceMeta.durationSeconds,
+          sourceSizeBytes: sourceMeta.sizeBytes,
+          preparedSizeBytes: sourceMeta.sizeBytes,
+          width: sourceMeta.width,
+          height: sourceMeta.height
+        }
+      }]
+    }
+
+    const splitSegments = await this.splitVideoIntoSegments(localPath, sourceMeta, {
+      ...config,
+      prefix: options.prefix || 'video'
+    })
+    const shouldCleanupOriginal = splitSegments.some(item => item.localPath !== localPath)
+    const preparedFiles = []
+    let compressedCount = 0
+
+    for (const segment of splitSegments) {
+      let workingPath = segment.localPath
+      let currentProbe = await this.probeVideo(workingPath)
+      let currentMeta = {
+        durationSeconds: this.parseDurationSeconds(currentProbe?.durationSeconds, segment.durationSeconds || sourceMeta.durationSeconds),
+        sizeBytes: Number(currentProbe?.sizeBytes) || fs.statSync(workingPath).size,
+        bitRate: Number(currentProbe?.bitRate) || 0,
+        audioBitRate: Number(currentProbe?.audioBitRate) || sourceMeta.audioBitRate,
+        width: Number(currentProbe?.width) || sourceMeta.width,
+        height: Number(currentProbe?.height) || sourceMeta.height,
+        hasAudio: currentProbe?.hasAudio !== false
+      }
+      let wasCompressed = false
+
+      if (this.shouldCompressVideo(currentMeta, config)) {
+        const previousPath = workingPath
+        const compressedPath = await this.compressVideo(workingPath, currentMeta, config)
+        if (compressedPath && fs.existsSync(compressedPath)) {
+          const compressedProbe = await this.probeVideo(compressedPath)
+          const compressedMeta = {
+            durationSeconds: this.parseDurationSeconds(compressedProbe?.durationSeconds, currentMeta.durationSeconds),
+            sizeBytes: Number(compressedProbe?.sizeBytes) || fs.statSync(compressedPath).size,
+            bitRate: Number(compressedProbe?.bitRate) || 0,
+            audioBitRate: Number(compressedProbe?.audioBitRate) || currentMeta.audioBitRate,
+            width: Number(compressedProbe?.width) || currentMeta.width,
+            height: Number(compressedProbe?.height) || currentMeta.height,
+            hasAudio: compressedProbe?.hasAudio !== false
+          }
+
+          if (compressedPath !== previousPath) {
+            this.cleanupFile(previousPath)
+          }
+
+          workingPath = compressedPath
+          currentMeta = compressedMeta
+          wasCompressed = true
+          compressedCount += 1
+        } else if (currentMeta.sizeBytes > RAW_VIDEO_SIZE_LIMIT_BYTES) {
+          if (workingPath !== localPath) {
+            this.cleanupFile(workingPath)
+          }
+          logger.warn(`[${pluginName}] 视频压缩失败且片段仍过大，已跳过：${videoMeta.url || localPath}`)
+          continue
+        }
+      }
+
+      if (currentMeta.sizeBytes > config.maxPreparedSizeBytes) {
+        if (workingPath !== localPath) {
+          this.cleanupFile(workingPath)
+        }
+        logger.warn(
+          `[${pluginName}] 视频片段仍然过大，已跳过：${videoMeta.url || localPath} (${Math.round(currentMeta.sizeBytes / 1024 / 1024)}MB)`
+        )
+        continue
+      }
+
+      preparedFiles.push({
+        ...videoMeta,
+        type: 'video',
+        localPath: workingPath,
+        url: videoMeta.url,
+        videoProcessMeta: {
+          sourceKey,
+          segmentIndex: segment.segmentIndex,
+          totalSegments: segment.totalSegments,
+          startSeconds: segment.startSeconds,
+          endSeconds: segment.endSeconds,
+          durationSeconds: currentMeta.durationSeconds,
+          wasSplit: segment.totalSegments > 1,
+          wasCompressed,
+          sourceDurationSeconds: sourceMeta.durationSeconds,
+          sourceSizeBytes: sourceMeta.sizeBytes,
+          preparedSizeBytes: currentMeta.sizeBytes,
+          width: currentMeta.width,
+          height: currentMeta.height
+        }
+      })
+    }
+
+    if (shouldCleanupOriginal) {
+      this.cleanupFile(localPath)
+    }
+
+    if (preparedFiles.length > 0 && (compressedCount > 0 || splitSegments.length > 1)) {
+      debugLog('media.videoPrepare', '视频预处理完成', {
+        source: videoMeta.url || path.basename(localPath),
+        sourceDurationSeconds: Number(sourceMeta.durationSeconds.toFixed(3)),
+        sourceSizeMb: Number((sourceMeta.sizeBytes / 1024 / 1024).toFixed(2)),
+        outputCount: preparedFiles.length,
+        splitCount: splitSegments.length,
+        compressedCount
+      })
+    }
+
+    return preparedFiles
   }
 
   normalizeLocalPath(source = '') {
@@ -728,9 +1251,28 @@ class MediaService {
     const files = []
     const targets = (videos || []).slice(0, maxCount)
     const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 60000)
+    const maxPreparedCount = Number.isFinite(Number(options.maxPreparedCount))
+      ? Math.max(0, Math.floor(Number(options.maxPreparedCount)))
+      : Number.POSITIVE_INFINITY
+    const meta = {
+      requestedSourceCount: targets.length,
+      processedSourceCount: 0,
+      skippedSourceCount: 0,
+      skippedSegmentCount: 0,
+      splitSourceCount: 0,
+      compressedSegmentCount: 0,
+      limited: false
+    }
 
     for (let index = 0; index < targets.length; index += 1) {
+      if (files.length >= maxPreparedCount) {
+        meta.skippedSourceCount += targets.length - index
+        meta.limited = true
+        break
+      }
+
       const video = targets[index]
+      meta.processedSourceCount = index + 1
       const localPath = await this.downloadFile(video.url, `${prefix}_${Date.now()}_${index}.mp4`, {
         timeoutMs
       })
@@ -738,15 +1280,37 @@ class MediaService {
         continue
       }
 
-      const stats = fs.statSync(localPath)
-      if (stats.size > 50 * 1024 * 1024) {
-        this.cleanupFile(localPath)
-        logger.warn(`[${pluginName}] 视频文件过大，已跳过：${video.url}`)
-        continue
+      const preparedFiles = await this.prepareVideoForLLM(localPath, {
+        type: 'video',
+        url: video.url,
+        name: video.name || ''
+      }, {
+        prefix
+      })
+
+      if (preparedFiles.some(item => item?.videoProcessMeta?.totalSegments > 1)) {
+        meta.splitSourceCount += 1
+      }
+      meta.compressedSegmentCount += preparedFiles.filter(item => item?.videoProcessMeta?.wasCompressed).length
+
+      const remainingSlots = maxPreparedCount - files.length
+      if (preparedFiles.length > remainingSlots) {
+        this.cleanupFiles(preparedFiles.slice(remainingSlots))
+        meta.skippedSegmentCount += preparedFiles.length - remainingSlots
+        meta.limited = true
+        logger.warn(
+          `[${pluginName}] 视频预处理后片段数量超过上限，已截断剩余 ${preparedFiles.length - remainingSlots} 段：${video.url}`
+        )
       }
 
-      files.push({ type: 'video', localPath, url: video.url })
+      files.push(...preparedFiles.slice(0, remainingSlots))
     }
+
+    Object.defineProperty(files, 'summaryMeta', {
+      value: meta,
+      enumerable: false,
+      configurable: true
+    })
 
     return files
   }

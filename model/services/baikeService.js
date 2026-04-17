@@ -566,13 +566,17 @@ class BaikeService {
 
       if (mediaLimits.videoMaxPerRequest > 0) {
         const videoHint = this.getMediaNameHints(allVideos)
+        const fileLimits = this.getSummaryFileLimits()
 
         try {
           videoFiles = await this.mediaService.downloadVideos(
             allVideos,
             'ctx_vid',
             mediaLimits.videoMaxPerRequest,
-            { timeoutMs: 15000 }
+            {
+              timeoutMs: 15000,
+              maxPreparedCount: Math.max(mediaLimits.videoMaxPerRequest, fileLimits.totalVideoLimit)
+            }
           )
 
           if (videoFiles.length > 0) {
@@ -989,7 +993,14 @@ class BaikeService {
 
       const fileLimits = this.getSummaryFileLimits()
       const imageFiles = await this.mediaService.downloadImages(allImages, 'sum_img', fileLimits.totalImageLimit)
-      const videoFiles = await this.mediaService.downloadVideos(allVideos, 'sum_vid', fileLimits.totalVideoLimit)
+      const videoFiles = await this.mediaService.downloadVideos(
+        allVideos,
+        'sum_vid',
+        allVideos.length,
+        {
+          maxPreparedCount: fileLimits.totalVideoLimit
+        }
+      )
       const audioFiles = await this.mediaService.downloadAudios(allAudios, 'sum_audio', fileLimits.totalAudioLimit)
       const mediaFiles = [...imageFiles, ...videoFiles]
 

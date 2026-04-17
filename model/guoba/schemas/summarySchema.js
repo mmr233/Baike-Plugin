@@ -163,6 +163,81 @@ const summarySchemaRaw = [
   },
   {
     component: 'Divider',
+    label: '视频自动预处理',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'fileRequest.videoPreprocess.enabled',
+    label: '启用视频自动预处理',
+    bottomHelpMessage: '在视频送入 LLM 前自动探测、压缩和切分长视频，避免单次请求体积过大或长时间无响应',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'fileRequest.videoPreprocess.compressTriggerSizeMb',
+    label: '视频压缩触发大小（MB）',
+    bottomHelpMessage: '当单个视频或单个视频片段超过这个大小时，先压缩再请求模型；适合控制大文件直接把接口跑爆',
+    component: 'InputNumber',
+    defaultValue: 18,
+    componentProps: {
+      min: 5,
+      max: 200,
+      step: 1
+    }
+  },
+  {
+    field: 'fileRequest.videoPreprocess.compressTargetSizeMb',
+    label: '视频压缩目标大小（MB）',
+    bottomHelpMessage: '压缩时会尽量把单个视频片段压到这个体积附近，数值越小越省流量，但画质也会更激进',
+    component: 'InputNumber',
+    defaultValue: 12,
+    componentProps: {
+      min: 4,
+      max: 100,
+      step: 1
+    }
+  },
+  {
+    field: 'fileRequest.videoPreprocess.splitTriggerDurationSeconds',
+    label: '长视频切分触发时长（秒）',
+    bottomHelpMessage: '当视频时长超过这个值时，会先切成多段再分批请求模型，降低单次超时和上下文压力',
+    component: 'InputNumber',
+    defaultValue: 90,
+    componentProps: {
+      min: 15,
+      max: 7200,
+      step: 5
+    }
+  },
+  {
+    field: 'fileRequest.videoPreprocess.segmentDurationSeconds',
+    label: '单段目标时长（秒）',
+    bottomHelpMessage: '长视频切分后每段的大致时长；插件会根据总时长和最大分段数做微调，保证分段数量不会失控',
+    component: 'InputNumber',
+    defaultValue: 45,
+    componentProps: {
+      min: 10,
+      max: 3600,
+      step: 5
+    }
+  },
+  {
+    field: 'fileRequest.videoPreprocess.maxSegments',
+    label: '单视频最大分段数',
+    bottomHelpMessage: '用于限制单个超长视频最多切成多少段，避免一次任务产生过多视频请求',
+    component: 'InputNumber',
+    defaultValue: 6,
+    componentProps: {
+      min: 1,
+      max: 24,
+      step: 1
+    }
+  },
+  {
+    component: 'Divider',
     label: '群聊总结',
     componentProps: {
       orientation: 'left',
@@ -266,4 +341,15 @@ const summarySchemaRaw = [
   }
 ]
 
-export const summarySchema = enhanceSchemas(summarySchemaRaw)
+const summaryRecommendationMap = {
+  'fileRequest.videoPreprocess.enabled': true,
+  'fileRequest.videoPreprocess.compressTriggerSizeMb': 18,
+  'fileRequest.videoPreprocess.compressTargetSizeMb': 12,
+  'fileRequest.videoPreprocess.splitTriggerDurationSeconds': 90,
+  'fileRequest.videoPreprocess.segmentDurationSeconds': 45,
+  'fileRequest.videoPreprocess.maxSegments': 6
+}
+
+export const summarySchema = enhanceSchemas(summarySchemaRaw, {
+  recommendationMap: summaryRecommendationMap
+})

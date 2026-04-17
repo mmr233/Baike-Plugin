@@ -455,6 +455,138 @@ function buildSplitImageHint(splitMetas = []) {
   return `补充说明：其中 ${sourceKeys.size} 张超长图片已自动拆成 ${splitMetas.length} 个连续片段，片段顺序与原图一致并按从上到下排列，相邻片段可能有少量重叠。请把同一长图的相邻片段连续理解，不要当作互不相关的多张图片。`
 }
 
+function formatVideoTimePoint(seconds = 0) {
+  const safeSeconds = Math.max(0, Number(seconds) || 0)
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const remainSeconds = Math.floor(safeSeconds % 60)
+
+  return hours > 0
+    ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainSeconds).padStart(2, '0')}`
+    : `${String(minutes).padStart(2, '0')}:${String(remainSeconds).padStart(2, '0')}`
+}
+
+function buildVideoSegmentLabel(media = {}, index = 0) {
+  const meta = media?.videoProcessMeta || {}
+  const totalSegments = Number(meta?.totalSegments) || 1
+  if (totalSegments <= 1) {
+    return `视频${index}`
+  }
+
+  const startSeconds = Number(meta?.startSeconds) || 0
+  const endSeconds = Math.max(startSeconds, Number(meta?.endSeconds) || startSeconds)
+  return `视频${index}：同一原视频的第 ${Number(meta?.segmentIndex) || 1}/${totalSegments} 段，时间范围 ${formatVideoTimePoint(startSeconds)}-${formatVideoTimePoint(endSeconds)}`
+}
+
+function buildSplitVideoHint(videoFiles = []) {
+  const groups = new Map()
+
+  for (const media of videoFiles) {
+    const meta = media?.videoProcessMeta || {}
+    const totalSegments = Number(meta?.totalSegments) || 1
+    if (totalSegments <= 1) {
+      continue
+    }
+
+    const sourceKey = String(meta?.sourceKey || media?.url || media?.localPath || '')
+    if (!sourceKey) {
+      continue
+    }
+
+    if (!groups.has(sourceKey)) {
+      groups.set(sourceKey, {
+        totalSegments,
+        segments: []
+      })
+    }
+
+    groups.get(sourceKey).segments.push(Number(meta?.segmentIndex) || 1)
+  }
+
+  if (groups.size === 0) {
+    return ''
+  }
+
+  const descriptions = []
+  let groupIndex = 0
+
+  for (const group of groups.values()) {
+    groupIndex += 1
+    const segmentText = [...new Set(group.segments)]
+      .sort((left, right) => left - right)
+      .join('、')
+    descriptions.push(
+      `原视频${groupIndex}已被拆成 ${group.totalSegments} 段，当前批次包含第 ${segmentText} 段`
+    )
+  }
+
+  return `补充说明：${descriptions.join('；')}。请把同一原视频的多个分段按顺序连续理解，不要当成互不相关的独立视频。`
+}
+
+function getVideoSourceKey(media = {}, fallbackIndex = 0) {
+  return String(
+    media?.videoProcessMeta?.sourceKey
+    || media?.url
+    || media?.localPath
+    || `video-${fallbackIndex}`
+  )
+}
+
+function buildVideoBatches(videoFiles = [], batchLimit = 3) {
+  const actualBatchLimit = Math.max(1, Number(batchLimit) || 1)
+  const usableFiles = (videoFiles || []).filter(
+    media => media?.type === 'video' && media?.localPath && fs.existsSync(media.localPath)
+  )
+
+  if (usableFiles.length === 0) {
+    return []
+  }
+
+  const groups = []
+  let previousKey = ''
+
+  for (let index = 0; index < usableFiles.length; index += 1) {
+    const media = usableFiles[index]
+    const sourceKey = getVideoSourceKey(media, index)
+    if (groups.length === 0 || sourceKey !== previousKey) {
+      groups.push([media])
+      previousKey = sourceKey
+      continue
+    }
+
+    groups[groups.length - 1].push(media)
+  }
+
+  const batches = []
+  let currentBatch = []
+
+  const pushCurrentBatch = () => {
+    if (currentBatch.length > 0) {
+      batches.push(currentBatch)
+      currentBatch = []
+    }
+  }
+
+  for (const group of groups) {
+    if (group.length > actualBatchLimit) {
+      pushCurrentBatch()
+      for (let offset = 0; offset < group.length; offset += actualBatchLimit) {
+        batches.push(group.slice(offset, offset + actualBatchLimit))
+      }
+      continue
+    }
+
+    if (currentBatch.length > 0 && currentBatch.length + group.length > actualBatchLimit) {
+      pushCurrentBatch()
+    }
+
+    currentBatch.push(...group)
+  }
+
+  pushCurrentBatch()
+  return batches
+}
+
 function truncatePromptText(text = '', maxLength = 320) {
   const normalized = String(text || '')
     .replace(/\r/g, '')
@@ -1294,12 +1426,62 @@ class ApiService {
     return this.callSummaryTextAPI(content, systemPromptOverride)
   }
 
-  async callVideoAPI(content, videoFiles = [], systemPromptOverride = null) {
+  async callVideoAPI(content, videoFiles = [], systemPromptOverride = null, options = {}) {
     const promptConfig = Config.get('prompt', {})
+    const fileConfig = Config.get('fileRequest', {})
+    const requestedBatchLimit = Number(options.batchLimit)
+    const batchLimit = requestedBatchLimit === 0
+      ? 0
+      : Math.max(1, requestedBatchLimit || Number(fileConfig.videoMaxPerRequest) || 1)
+    const loopLimit = Math.max(1, Number(options.loopLimit) || Number(fileConfig.maxRequestLoops) || 1)
+    const videoBatches = batchLimit > 0 ? buildVideoBatches(videoFiles, batchLimit) : []
+
+    if (batchLimit > 0 && videoBatches.length > 1) {
+      const actualBatches = Math.min(videoBatches.length, loopLimit)
+      const results = []
+
+      debugLog('api.videoBatch', '视频请求已自动分批', {
+        inputCount: (videoFiles || []).length,
+        batchLimit,
+        totalBatches: videoBatches.length,
+        actualBatches
+      })
+
+      for (let batch = 0; batch < actualBatches; batch += 1) {
+        const chunk = videoBatches[batch]
+        const batchPrompt = [
+          `这是第 ${batch + 1} / ${actualBatches} 批视频。`,
+          String(content || '').trim()
+        ].filter(Boolean).join('\n')
+
+        const result = await this.callVideoAPI(
+          batchPrompt,
+          chunk,
+          systemPromptOverride,
+          {
+            ...options,
+            batchLimit: 0,
+            loopLimit: 1
+          }
+        )
+
+        if (result) {
+          results.push(`【第${batch + 1}批视频分析】\n${result}`)
+        }
+      }
+
+      return results.join('\n\n')
+    }
+
     const userContent = []
 
     if (content) {
       userContent.push({ type: 'text', text: content })
+    }
+
+    const splitHint = buildSplitVideoHint(videoFiles)
+    if (splitHint) {
+      userContent.push({ type: 'text', text: splitHint })
     }
 
     let videoCount = 0
@@ -1308,6 +1490,12 @@ class ApiService {
         continue
       }
 
+      videoCount += 1
+      userContent.push({
+        type: 'text',
+        text: buildVideoSegmentLabel(media, videoCount)
+      })
+
       const base64 = fs.readFileSync(media.localPath).toString('base64')
       userContent.push({
         type: 'video_url',
@@ -1315,10 +1503,9 @@ class ApiService {
           url: `data:video/mp4;base64,${base64}`
         }
       })
-      videoCount += 1
     }
 
-    if (videoCount === 0) {
+    if (videoCount === 0 || userContent.length === 0) {
       return null
     }
 
@@ -1363,19 +1550,24 @@ class ApiService {
     if (videoFiles.length > 0) {
       const videoLimit = fileConfig.videoMaxPerRequest || 3
       const loopLimit = fileConfig.maxRequestLoops || 1
-      const totalBatches = Math.ceil(videoFiles.length / videoLimit)
+      const videoBatches = buildVideoBatches(videoFiles, videoLimit)
+      const totalBatches = videoBatches.length
       const actualBatches = Math.min(totalBatches, loopLimit)
 
       for (let batch = 0; batch < actualBatches; batch += 1) {
-        const chunk = videoFiles.slice(batch * videoLimit, (batch + 1) * videoLimit)
+        const chunk = videoBatches[batch]
         const prompt = [
           actualBatches > 1 ? `这是第 ${batch + 1} / ${actualBatches} 批视频。` : '',
           '请分析这些视频，提取后续统一总结所需的关键信息。',
           '优先描述主题、人物、场景、字幕、关键动作和关键台词。',
+          '如果同一原视频被拆成多段，请按顺序连续理解。',
           '直接输出纯文本，不要使用 markdown，不要编造。'
         ].filter(Boolean).join('\n')
 
-        const result = await this.callVideoAPI(prompt, chunk)
+        const result = await this.callVideoAPI(prompt, chunk, null, {
+          batchLimit: 0,
+          loopLimit: 1
+        })
         if (result) {
           mediaSections.push(actualBatches > 1 ? `【第${batch + 1}批视频分析】\n${result}` : `【视频分析】\n${result}`)
         }
