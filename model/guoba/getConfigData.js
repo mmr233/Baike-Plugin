@@ -10,11 +10,11 @@ const MODEL_FORM_FIELD_MAP = {
 }
 
 const MODEL_DEFAULTS = {
-  search: { model: 'perplexity-search', timeoutMs: 100000, retryCount: 1, requestMode: 'response' },
-  image: { model: 'gemini-flash-latest', timeoutMs: 120000, retryCount: 1, requestMode: 'response' },
-  summary: { model: 'gemini-flash-latest', timeoutMs: 120000, retryCount: 1, requestMode: 'response' },
-  video: { model: 'qwen3-vl-plus', timeoutMs: 180000, retryCount: 1, requestMode: 'response' },
-  audio: { model: 'grok-4.1-fast', timeoutMs: 60000, retryCount: 1, requestMode: 'response' }
+  search: { model: 'perplexity-search', timeoutMs: 100000, connectTimeoutMs: 30000, retryCount: 1, requestMode: 'response' },
+  image: { model: 'gemini-flash-latest', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1, requestMode: 'response' },
+  summary: { model: 'gemini-flash-latest', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1, requestMode: 'response' },
+  video: { model: 'qwen3-vl-plus', timeoutMs: 180000, connectTimeoutMs: 30000, retryCount: 1, requestMode: 'response' },
+  audio: { model: 'grok-4.1-fast', timeoutMs: 60000, connectTimeoutMs: 30000, retryCount: 1, requestMode: 'response' }
 }
 
 function normalizeRequestMode(value, fallback = 'response') {
@@ -70,6 +70,7 @@ export async function getConfigData() {
       ...modelConfig,
       requestMode: normalizeRequestMode(modelConfig.requestMode, defaults.requestMode),
       timeoutMs: normalizeTimeoutMs(modelConfig.timeoutMs, defaults.timeoutMs),
+      connectTimeoutMs: normalizeTimeoutMs(modelConfig.connectTimeoutMs, defaults.connectTimeoutMs),
       retryCount: normalizeRetryCount(modelConfig.retryCount, defaults.retryCount),
       fallbackModels: normalizeFallbackModels(modelConfig.fallbackModels)
     }
@@ -80,6 +81,7 @@ export async function getConfigData() {
       apiKey: String(api[modelType].apiKey || '').trim(),
       requestMode: api[modelType].requestMode,
       timeoutMs: api[modelType].timeoutMs,
+      connectTimeoutMs: api[modelType].connectTimeoutMs,
       retryCount: api[modelType].retryCount
     }]
   }

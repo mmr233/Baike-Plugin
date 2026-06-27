@@ -85,6 +85,18 @@ function createModelConfigSchemas({
       }
     },
     {
+      field: 'connectTimeoutMs',
+      label: `${modelLabel.replace('模型名', '')}连接超时（毫秒）`,
+      bottomHelpMessage: '只控制建立连接阶段的等待时间；流式输出期间仍由请求超时控制',
+      component: 'InputNumber',
+      defaultValue: 30000,
+      componentProps: {
+        min: 1000,
+        max: 600000,
+        step: 1000
+      }
+    },
+    {
       field: 'retryCount',
       label: retryLabel,
       bottomHelpMessage: retryHelp,

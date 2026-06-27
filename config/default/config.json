@@ -9,6 +9,7 @@
       "requestMode": "response",
       "fallbackModels": [],
       "timeoutMs": 100000,
+      "connectTimeoutMs": 30000,
       "retryCount": 1
     },
     "summary": {
@@ -18,6 +19,7 @@
       "requestMode": "response",
       "fallbackModels": [],
       "timeoutMs": 120000,
+      "connectTimeoutMs": 30000,
       "retryCount": 1
     },
     "image": {
@@ -27,6 +29,7 @@
       "requestMode": "response",
       "fallbackModels": [],
       "timeoutMs": 120000,
+      "connectTimeoutMs": 30000,
       "retryCount": 1
     },
     "video": {
@@ -36,6 +39,7 @@
       "requestMode": "response",
       "fallbackModels": [],
       "timeoutMs": 180000,
+      "connectTimeoutMs": 30000,
       "retryCount": 1
     },
     "audio": {
@@ -45,6 +49,7 @@
       "requestMode": "response",
       "fallbackModels": [],
       "timeoutMs": 60000,
+      "connectTimeoutMs": 30000,
       "retryCount": 1
     }
   },

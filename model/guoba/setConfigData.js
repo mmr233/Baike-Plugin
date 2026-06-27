@@ -7,11 +7,11 @@ import {
 } from '../services/taskService.js'
 
 const MODEL_DEFAULTS = {
-  search: { model: 'perplexity-search', requestMode: 'response', timeoutMs: 100000, retryCount: 1 },
-  image: { model: 'gemini-flash-latest', requestMode: 'response', timeoutMs: 120000, retryCount: 1 },
-  summary: { model: 'gemini-flash-latest', requestMode: 'response', timeoutMs: 120000, retryCount: 1 },
-  video: { model: 'qwen3-vl-plus', requestMode: 'response', timeoutMs: 180000, retryCount: 1 },
-  audio: { model: 'grok-4.1-fast', requestMode: 'response', timeoutMs: 60000, retryCount: 1 }
+  search: { model: 'perplexity-search', requestMode: 'response', timeoutMs: 100000, connectTimeoutMs: 30000, retryCount: 1 },
+  image: { model: 'gemini-flash-latest', requestMode: 'response', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1 },
+  summary: { model: 'gemini-flash-latest', requestMode: 'response', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1 },
+  video: { model: 'qwen3-vl-plus', requestMode: 'response', timeoutMs: 180000, connectTimeoutMs: 30000, retryCount: 1 },
+  audio: { model: 'grok-4.1-fast', requestMode: 'response', timeoutMs: 60000, connectTimeoutMs: 30000, retryCount: 1 }
 }
 
 const MODEL_FORM_FIELD_MAP = {
@@ -130,6 +130,7 @@ export async function setConfigData(data, { Result }) {
           apiKey: String(item.apiKey ?? current.apiKey ?? '').trim(),
           requestMode: normalizeRequestMode(item.requestMode ?? current.requestMode ?? meta.requestMode, meta.requestMode),
           timeoutMs: clampInteger(item.timeoutMs ?? current.timeoutMs, 1000, 600000, meta.timeoutMs),
+          connectTimeoutMs: clampInteger(item.connectTimeoutMs ?? current.connectTimeoutMs, 1000, 600000, meta.connectTimeoutMs),
           retryCount: clampInteger(item.retryCount ?? current.retryCount, 0, 5, meta.retryCount)
         }
         continue
@@ -160,6 +161,7 @@ export async function setConfigData(data, { Result }) {
         apiKey: String(current.apiKey || '').trim(),
         requestMode: normalizeRequestMode(current.requestMode, defaults.requestMode),
         timeoutMs: clampInteger(current.timeoutMs, 1000, 600000, defaults.timeoutMs),
+        connectTimeoutMs: clampInteger(current.connectTimeoutMs, 1000, 600000, defaults.connectTimeoutMs),
         fallbackModels: normalizeFallbackModels(current.fallbackModels),
         retryCount: clampInteger(current.retryCount, 0, 5, defaults.retryCount)
       }

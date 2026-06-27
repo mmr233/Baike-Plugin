@@ -5,6 +5,11 @@ import { debugLog } from '../debug.js'
 import { beautifyText, extractKeyword } from '../../utils/text.js'
 import { sleep } from '../../utils/common.js'
 
+const DEFAULT_CONNECT_TIMEOUT_MS = 30000
+const fetchDispatcherCache = new Map()
+let undiciAgentPromise = null
+let undiciUnavailableWarned = false
+
 function parseJson(text, context = '接口响应') {
   try {
     return JSON.parse(text)
@@ -939,6 +944,16 @@ function hasUsableImageFiles(imageFiles = []) {
   )
 }
 
+async function loadUndiciAgent() {
+  if (!undiciAgentPromise) {
+    undiciAgentPromise = import('undici')
+      .then(mod => mod.Agent)
+      .catch(() => null)
+  }
+
+  return undiciAgentPromise
+}
+
 class ApiService {
   isPenaltyUnsupportedModel(model = '') {
     return /grok-(3|4)/i.test(String(model || ''))
@@ -957,7 +972,15 @@ class ApiService {
   normalizeTimeoutMs(value, fallback = 120000) {
     const timeoutMs = Number(value)
     if (Number.isFinite(timeoutMs) && timeoutMs >= 1000) {
-      return timeoutMs
+      return Math.min(600000, Math.floor(timeoutMs))
+    }
+    return fallback
+  }
+
+  normalizeConnectTimeoutMs(value, fallback = DEFAULT_CONNECT_TIMEOUT_MS) {
+    const timeoutMs = Number(value)
+    if (Number.isFinite(timeoutMs) && timeoutMs >= 1000) {
+      return Math.min(600000, Math.floor(timeoutMs))
     }
     return fallback
   }
@@ -989,6 +1012,10 @@ class ApiService {
     const apiConfig = Config.get('api', {})
     const modelConfig = apiConfig?.[modelType] || {}
     const requestTimeout = this.normalizeTimeoutMs(options.timeoutMs ?? options.timeout, this.normalizeTimeoutMs(modelConfig.timeoutMs, 120000))
+    const connectTimeout = this.normalizeConnectTimeoutMs(
+      options.connectTimeoutMs,
+      this.normalizeConnectTimeoutMs(modelConfig.connectTimeoutMs, DEFAULT_CONNECT_TIMEOUT_MS)
+    )
     const maxRetries = this.normalizeRetryCount(options.retryCount, this.normalizeRetryCount(modelConfig.retryCount, 0))
     const primaryRequestMode = this.normalizeRequestMode(options.requestMode, modelConfig.requestMode || 'response')
     const inheritedBaseUrl = (modelConfig.baseUrl || apiConfig.primaryBaseUrl || '').replace(/\/$/, '')
@@ -1029,6 +1056,7 @@ class ApiService {
         apiKey,
         requestMode,
         timeoutMs: requestTimeout,
+        connectTimeoutMs: connectTimeout,
         retryCount: maxRetries,
         valid
       }
@@ -1057,6 +1085,28 @@ class ApiService {
 
   getRetryDelayMs(attempt) {
     return Math.min(5000, 1200 * (attempt + 1))
+  }
+
+  async getFetchDispatcher(connectTimeoutMs) {
+    const Agent = await loadUndiciAgent()
+    if (!Agent) {
+      if (!undiciUnavailableWarned) {
+        logger.warn(`[${pluginName}] 未找到 undici 依赖，连接阶段超时将使用 Node fetch 默认值`)
+        undiciUnavailableWarned = true
+      }
+      return null
+    }
+
+    const normalizedTimeout = this.normalizeConnectTimeoutMs(connectTimeoutMs, DEFAULT_CONNECT_TIMEOUT_MS)
+    if (!fetchDispatcherCache.has(normalizedTimeout)) {
+      fetchDispatcherCache.set(normalizedTimeout, new Agent({
+        connect: {
+          timeout: normalizedTimeout
+        }
+      }))
+    }
+
+    return fetchDispatcherCache.get(normalizedTimeout)
   }
 
   createAbortTimer(controller, timeoutMs) {
@@ -1203,6 +1253,7 @@ class ApiService {
     for (let candidateIndex = 0; candidateIndex < validCandidates.length; candidateIndex += 1) {
       const candidate = validCandidates[candidateIndex]
       const requestTimeout = candidate.timeoutMs
+      const connectTimeout = candidate.connectTimeoutMs
       const maxRetries = candidate.retryCount
       const actualRequestMode = this.normalizeRequestMode(candidate.requestMode, 'response')
 
@@ -1216,6 +1267,7 @@ class ApiService {
             model: candidate.model,
             requestMode: actualRequestMode,
             timeout: requestTimeout,
+            connectTimeout,
             retryCount: maxRetries,
             attempt: attempt + 1,
             candidateIndex: candidateIndex + 1,
@@ -1238,7 +1290,7 @@ class ApiService {
             payload.presence_penalty = options.presencePenalty ?? 0
           }
 
-          const response = await fetch(`${candidate.baseUrl}/chat/completions`, {
+          const fetchOptions = {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1246,7 +1298,13 @@ class ApiService {
             },
             body: JSON.stringify(payload),
             signal: controller.signal
-          })
+          }
+          const dispatcher = await this.getFetchDispatcher(connectTimeout)
+          if (dispatcher) {
+            fetchOptions.dispatcher = dispatcher
+          }
+
+          const response = await fetch(`${candidate.baseUrl}/chat/completions`, fetchOptions)
 
           if (!response.ok) {
             const text = await response.text()

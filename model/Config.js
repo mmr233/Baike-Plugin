@@ -131,6 +131,7 @@ const DEFAULT_CONFIG = {
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 100000,
+      connectTimeoutMs: 30000,
       retryCount: 1
     },
     summary: {
@@ -140,6 +141,7 @@ const DEFAULT_CONFIG = {
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 120000,
+      connectTimeoutMs: 30000,
       retryCount: 1
     },
     image: {
@@ -149,6 +151,7 @@ const DEFAULT_CONFIG = {
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 120000,
+      connectTimeoutMs: 30000,
       retryCount: 1
     },
     video: {
@@ -158,6 +161,7 @@ const DEFAULT_CONFIG = {
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 180000,
+      connectTimeoutMs: 30000,
       retryCount: 1
     },
     audio: {
@@ -167,6 +171,7 @@ const DEFAULT_CONFIG = {
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 60000,
+      connectTimeoutMs: 30000,
       retryCount: 1
     }
   },
