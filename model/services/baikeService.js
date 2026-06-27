@@ -645,9 +645,18 @@ class BaikeService {
 
     for (let batch = 0; batch < actualBatches; batch += 1) {
       const chunk = imageFiles.slice(batch * actualBatchLimit, (batch + 1) * actualBatchLimit)
-      const result = await this.apiService.callImageAPI(prompt, chunk)
-      if (result) {
-        results.push(actualBatches > 1 ? `【第${batch + 1}批${label}】\n${result}` : result)
+      try {
+        const result = await this.apiService.callImageAPI(prompt, chunk)
+        if (result) {
+          results.push(actualBatches > 1 ? `【第${batch + 1}批${label}】\n${result}` : result)
+        }
+      } catch (error) {
+        logger.warn(`[${pluginName}] 第 ${batch + 1} 批${label}分析失败，已继续处理其他内容：${error.message}`)
+        results.push(
+          actualBatches > 1
+            ? `【第${batch + 1}批${label}处理说明】该批${label}分析失败：${error.message}`
+            : `【${label}处理说明】${label}分析失败：${error.message}`
+        )
       }
     }
 

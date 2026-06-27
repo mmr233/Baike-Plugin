@@ -1129,6 +1129,32 @@ class ApiService {
     return [408, 409, 425, 429].includes(status) || status >= 500
   }
 
+  getErrorSignalText(error) {
+    const parts = []
+    const seen = new Set()
+    let current = error
+
+    while (current && typeof current === 'object' && !seen.has(current)) {
+      seen.add(current)
+      parts.push(current.name, current.code, current.message)
+      current = current.cause
+    }
+
+    return parts.filter(Boolean).join(' ')
+  }
+
+  formatErrorWithCause(error) {
+    const message = String(error?.message || error || '未知错误')
+    const cause = error?.cause
+    if (!cause) {
+      return message
+    }
+
+    const causeCode = cause.code ? `${cause.code}: ` : ''
+    const causeMessage = String(cause.message || cause || '').trim()
+    return causeMessage ? `${message}（cause: ${causeCode}${causeMessage}）` : message
+  }
+
   isRetryableError(error) {
     if (!error) {
       return false
@@ -1142,7 +1168,8 @@ class ApiService {
       return true
     }
 
-    return /timeout|timed out|econnreset|econnrefused|enotfound|eai_again|socket hang up/i.test(String(error.message || ''))
+    const signalText = this.getErrorSignalText(error)
+    return /fetch failed|timeout|timed out|econnreset|econnrefused|enotfound|eai_again|etimedout|econnaborted|epipe|socket hang up|network socket disconnected|und_err_connect_timeout|und_err_socket/i.test(signalText)
   }
 
   getRetryDelayMs(attempt) {
@@ -1638,7 +1665,7 @@ class ApiService {
 
           const delayMs = this.getRetryDelayMs(attempt)
           logger.warn(
-            `[${pluginName}] ${modelType} ${candidate.label}(${candidate.model}) 请求失败，${delayMs}ms 后进行第 ${attempt + 2} 次尝试：${error.message}`
+            `[${pluginName}] ${modelType} ${candidate.label}(${candidate.model}) 请求失败，${delayMs}ms 后进行第 ${attempt + 2} 次尝试：${this.formatErrorWithCause(error)}`
           )
           await sleep(delayMs)
         } finally {
@@ -1649,7 +1676,7 @@ class ApiService {
       const nextCandidate = validCandidates[candidateIndex + 1]
       if (nextCandidate) {
         logger.warn(
-          `[${pluginName}] ${modelType} ${candidate.label}(${candidate.model}) 请求失败，自动降级到 ${nextCandidate.label}(${nextCandidate.model})：${lastError?.message || '未知错误'}`
+          `[${pluginName}] ${modelType} ${candidate.label}(${candidate.model}) 请求失败，自动降级到 ${nextCandidate.label}(${nextCandidate.model})：${this.formatErrorWithCause(lastError)}`
         )
       }
     }
