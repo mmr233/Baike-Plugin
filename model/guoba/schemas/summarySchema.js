@@ -346,6 +346,25 @@ const summarySchemaRaw = [
     }
   },
   {
+    field: 'chatSummary.inflightDedup.enabled',
+    label: '等待同类总结完成',
+    bottomHelpMessage: '开启后，同群同范围的群聊总结正在生成时，后续触发会等待前一个结果并复用缓存，避免重复扣费和重复请求模型',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'chatSummary.inflightDedup.waitMs',
+    label: '同类总结等待时间（毫秒）',
+    bottomHelpMessage: '默认 120000 毫秒，即 2 分钟；超过后会转为独立处理',
+    component: 'InputNumber',
+    defaultValue: 120000,
+    componentProps: {
+      min: 0,
+      max: 600000,
+      step: 1000
+    }
+  },
+  {
     component: 'Divider',
     label: '自然语言搜索',
     componentProps: {

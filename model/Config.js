@@ -318,7 +318,11 @@ const DEFAULT_CONFIG = {
     atMemberMessageCount: 200,
     maxMessageCount: 500,
     docMaxChars: 2000,
-    historyHoursLimit: 24
+    historyHoursLimit: 24,
+    inflightDedup: {
+      enabled: true,
+      waitMs: 120000
+    }
   },
   searchContext: {
     historyMessageCount: 5,

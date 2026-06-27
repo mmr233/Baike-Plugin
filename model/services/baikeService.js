@@ -12,6 +12,7 @@ import { beautifyText, extractKeyword, formatDetailValue, parseSummaryContent } 
 import { generateGroupSummaryHTML, generateHutaoHTML, generateSearchHTML } from '../../utils/html.js'
 
 const SEND_MODE_PRIORITY = ['html', 'forward', 'text']
+const DEFAULT_GROUP_SUMMARY_INFLIGHT_WAIT_MS = 120000
 
 function getSendErrorText(error = {}) {
   return [
@@ -49,6 +50,7 @@ class BaikeService {
     this.messageService = new MessageService()
     this.documentService = new DocumentService(this.mediaService, this.messageService)
     this.summaryBillingService = new SummaryBillingService()
+    this.groupSummaryInflight = new Map()
     this.summaryBillingService.ensureRegistered()
       .catch(error => logger.warn(`[${pluginName}] 总结计费商品预注册失败：${error.message}`))
   }
@@ -76,6 +78,184 @@ class BaikeService {
 
   setCache(key, value) {
     resultCache.set(key, value, Config.get('cache', {}))
+  }
+
+  getGroupSummaryInflightConfig() {
+    const chatConfig = Config.get('chatSummary', {})
+    const inflight = chatConfig.inflightDedup || chatConfig.pendingDedup || {}
+    const waitMs = Number(inflight.waitMs)
+    const waitMinutes = Number(inflight.waitMinutes)
+    const waitSeconds = Number(inflight.waitSeconds)
+    const resolvedWaitMs = Number.isFinite(waitMs) && waitMs >= 0
+      ? waitMs
+      : Number.isFinite(waitMinutes) && waitMinutes >= 0
+        ? waitMinutes * 60 * 1000
+        : Number.isFinite(waitSeconds) && waitSeconds >= 0
+          ? waitSeconds * 1000
+          : DEFAULT_GROUP_SUMMARY_INFLIGHT_WAIT_MS
+
+    return {
+      enabled: inflight.enabled !== false,
+      waitMs: Math.max(0, Math.floor(resolvedWaitMs))
+    }
+  }
+
+  waitForPromiseWithTimeout(promise, timeoutMs) {
+    if (!promise || timeoutMs <= 0) {
+      return Promise.resolve({ timedOut: true })
+    }
+
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        resolve({ timedOut: true })
+      }, timeoutMs)
+
+      promise
+        .then(value => {
+          clearTimeout(timer)
+          resolve({ timedOut: false, value })
+        })
+        .catch(error => {
+          clearTimeout(timer)
+          resolve({ timedOut: false, error })
+        })
+    })
+  }
+
+  createDeferred() {
+    let resolve
+    const promise = new Promise(innerResolve => {
+      resolve = innerResolve
+    })
+    return { promise, resolve }
+  }
+
+  registerGroupSummaryInflight(cacheKey, meta = {}) {
+    const config = this.getGroupSummaryInflightConfig()
+    if (!config.enabled || config.waitMs <= 0) {
+      return null
+    }
+
+    const deferred = this.createDeferred()
+    const entry = {
+      ...deferred,
+      cacheKey,
+      createdAt: Date.now(),
+      waitMs: config.waitMs,
+      meta
+    }
+    this.groupSummaryInflight.set(cacheKey, entry)
+    return entry
+  }
+
+  finishGroupSummaryInflight(cacheKey, entry, result = {}) {
+    if (!entry) {
+      return
+    }
+
+    if (this.groupSummaryInflight.get(cacheKey) === entry) {
+      this.groupSummaryInflight.delete(cacheKey)
+    }
+
+    entry.resolve(result)
+  }
+
+  getActiveGroupSummaryInflight(cacheKey) {
+    const config = this.getGroupSummaryInflightConfig()
+    if (!config.enabled || config.waitMs <= 0) {
+      return null
+    }
+
+    const entry = this.groupSummaryInflight.get(cacheKey)
+    if (!entry) {
+      return null
+    }
+
+    const ageMs = Date.now() - Number(entry.createdAt || 0)
+    if (ageMs > config.waitMs) {
+      this.groupSummaryInflight.delete(cacheKey)
+      return null
+    }
+
+    return entry
+  }
+
+  async sendCachedGroupSummary(e, cached, options = {}) {
+    const chargeResult = await this.chargeSummaryUsage(e, {
+      feature: cached.isMemberMode ? 'memberSummary' : 'groupChatSummary',
+      cacheHit: true,
+      skipBilling: options.skipBilling
+    })
+    if (!chargeResult) {
+      return true
+    }
+
+    const parsed = parseSummaryContent(cached.result)
+    const userInfo = this.messageService.getUserInfo(e)
+    try {
+      await this.sendResult(
+        e,
+        [{
+          ...userInfo,
+          message: [{
+            type: 'text',
+            text: `═══ ${cached.title} ═══\n\n📊 消息数量：${cached.statsData.messageCount}条\n👥 活跃成员：${cached.statsData.memberCount}人\n📈 发言排行：${cached.statsData.statsText}\n\n═══ 内容分析 ═══\n\n${cached.result}`
+          }]
+        }],
+        `${cached.title}：\n\n${cached.result}`,
+        generateGroupSummaryHTML(cached.title, parsed, {
+          ...cached.statsData,
+          isMemberMode: cached.isMemberMode
+        }),
+        cached.isMemberMode ? 'memberSummary' : 'groupChatSummary'
+      )
+      await this.completeSummaryUsage(chargeResult, options.completedReason || 'cached_group_summary_sent')
+    } catch (error) {
+      await this.refundSummaryUsage(chargeResult, options.failedReason || 'cached_group_summary_send_failed')
+      throw error
+    }
+
+    return true
+  }
+
+  async waitForGroupSummaryCache(e, cacheKey, moduleName, options = {}) {
+    const entry = this.getActiveGroupSummaryInflight(cacheKey)
+    if (!entry) {
+      return false
+    }
+
+    const waitMs = Math.max(0, Math.min(Number(entry.waitMs) || 0, this.getGroupSummaryInflightConfig().waitMs))
+    const waitResult = await this.waitForPromiseWithTimeout(entry.promise, waitMs)
+    if (waitResult.timedOut) {
+      debugLog('summary.groupInflight', '群聊总结在途等待超时，转为独立处理', {
+        cacheKey,
+        waitMs
+      })
+      return false
+    }
+
+    const cached = this.tryGetCache(cacheKey, moduleName)
+    if (cached?.result) {
+      debugLog('summary.groupInflight', '群聊总结等待完成，已复用缓存发送', {
+        cacheKey,
+        waitMs
+      })
+      await this.sendCachedGroupSummary(e, cached, {
+        ...options,
+        completedReason: 'waited_group_summary_cache_sent',
+        failedReason: 'waited_group_summary_cache_send_failed'
+      })
+      return true
+    }
+
+    if (waitResult.error) {
+      debugLog('summary.groupInflight', '群聊总结在途任务失败，转为独立处理', {
+        cacheKey,
+        error: waitResult.error.message
+      })
+    }
+
+    return false
   }
 
   async mapWithConcurrency(items = [], limit = 2, handler = async item => item) {
@@ -1527,42 +1707,33 @@ class BaikeService {
     const cached = this.tryGetCache(cacheKey, moduleName)
 
     if (cached?.result) {
-      const chargeResult = await this.chargeSummaryUsage(e, {
-        feature: actualMembers.length > 0 ? 'memberSummary' : 'groupChatSummary',
-        cacheHit: true,
+      return this.sendCachedGroupSummary(e, cached, {
         skipBilling: options.skipBilling
       })
-      if (!chargeResult) {
-        return true
-      }
+    }
 
-      const parsed = parseSummaryContent(cached.result)
-      const userInfo = this.messageService.getUserInfo(e)
-      try {
-        await this.sendResult(
-          e,
-          [{
-            ...userInfo,
-            message: [{
-              type: 'text',
-              text: `═══ ${cached.title} ═══\n\n📊 消息数量：${cached.statsData.messageCount}条\n👥 活跃成员：${cached.statsData.memberCount}人\n📈 发言排行：${cached.statsData.statsText}\n\n═══ 内容分析 ═══\n\n${cached.result}`
-            }]
-          }],
-          `${cached.title}：\n\n${cached.result}`,
-          generateGroupSummaryHTML(cached.title, parsed, {
-            ...cached.statsData,
-            isMemberMode: cached.isMemberMode
-          }),
-          cached.isMemberMode ? 'memberSummary' : 'groupChatSummary'
-        )
-        await this.completeSummaryUsage(chargeResult, 'cached_group_summary_sent')
-      } catch (error) {
-        await this.refundSummaryUsage(chargeResult, 'cached_group_summary_send_failed')
-        throw error
-      }
+    if (await this.waitForGroupSummaryCache(e, cacheKey, moduleName, {
+      skipBilling: options.skipBilling
+    })) {
       return true
     }
 
+    if (this.getActiveGroupSummaryInflight(cacheKey)) {
+      if (await this.waitForGroupSummaryCache(e, cacheKey, moduleName, {
+        skipBilling: options.skipBilling
+      })) {
+        return true
+      }
+    }
+
+    const inflightEntry = this.registerGroupSummaryInflight(cacheKey, {
+      moduleName,
+      groupId: e.group_id,
+      userId: e.user_id,
+      isMemberMode: actualMembers.length > 0,
+      messageCount,
+      timeRangeHours
+    })
     const targetText = actualMembers.length > 0 ? `被 @ 的 ${actualMembers.length} 位成员` : '群聊'
     await e.reply(
       timeRangeHours > 0
@@ -1575,12 +1746,20 @@ class BaikeService {
       const rawMessages = await this.messageService.getGroupHistoryMessages(e, Math.min(messageCount, chatConfig.maxMessageCount || 500))
       if (!rawMessages || rawMessages.length === 0) {
         await e.reply('无法获取群聊历史消息，请确认机器人权限')
+        this.finishGroupSummaryInflight(cacheKey, inflightEntry, {
+          ok: false,
+          reason: 'empty_history'
+        })
         return true
       }
 
       const messages = this.messageService.filterMessagesByTimeRange(rawMessages, timeRangeHours)
       if (messages.length === 0 && timeRangeHours > 0) {
         await e.reply(`最近 ${timeRangeHours} 小时内没有可分析的群消息`)
+        this.finishGroupSummaryInflight(cacheKey, inflightEntry, {
+          ok: false,
+          reason: 'empty_time_range'
+        })
         return true
       }
 
@@ -1600,6 +1779,10 @@ class BaikeService {
         } else {
           await e.reply(actualMembers.length > 0 ? '未找到被 @ 成员的有效消息' : '未能解析出有效群消息')
         }
+        this.finishGroupSummaryInflight(cacheKey, inflightEntry, {
+          ok: false,
+          reason: 'empty_formatted_messages'
+        })
         return true
       }
 
@@ -1608,6 +1791,10 @@ class BaikeService {
         skipBilling: options.skipBilling
       })
       if (!chargeResult) {
+        this.finishGroupSummaryInflight(cacheKey, inflightEntry, {
+          ok: false,
+          reason: 'billing_rejected'
+        })
         return true
       }
 
@@ -1749,10 +1936,18 @@ class BaikeService {
       if (!degraded) {
         await this.completeSummaryUsage(chargeResult, 'group_summary_sent')
       }
+      this.finishGroupSummaryInflight(cacheKey, inflightEntry, {
+        ok: !degraded,
+        cached: !degraded
+      })
     } catch (error) {
       await this.refundSummaryUsage(chargeResult, 'group_summary_failed')
       logger.error(`[${pluginName}] 群聊总结失败`, error)
       await e.reply('总结失败，请稍后重试')
+      this.finishGroupSummaryInflight(cacheKey, inflightEntry, {
+        ok: false,
+        error
+      })
     }
 
     return true
