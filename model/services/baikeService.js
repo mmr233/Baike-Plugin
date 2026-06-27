@@ -12,6 +12,35 @@ import { generateGroupSummaryHTML, generateHutaoHTML, generateSearchHTML } from 
 
 const SEND_MODE_PRIORITY = ['html', 'forward', 'text']
 
+function getSendErrorText(error = {}) {
+  return [
+    error?.message,
+    error?.wording,
+    error?.raw,
+    error?.error?.message,
+    error?.error?.wording,
+    error?.error?.raw,
+    error?.cause?.message
+  ].filter(Boolean).join('\n')
+}
+
+function getBriefSendError(error = {}) {
+  const text = getSendErrorText(error) || String(error || '')
+  return text.split('\n').find(Boolean) || '未知错误'
+}
+
+function isAmbiguousSendTimeoutError(error = {}) {
+  const text = getSendErrorText(error)
+  const retcode = Number(error?.retcode ?? error?.error?.retcode)
+  const action = String(error?.action || error?.error?.action || '')
+
+  return (
+    (action === 'send_msg' || /sendMsg|send_msg/i.test(text)) &&
+    (retcode === 1200 || /Timeout/i.test(text)) &&
+    /NodeIKernelMsgService\/sendMsg|onMsgInfoListUpdate|NTEvent/i.test(text)
+  )
+}
+
 class BaikeService {
   constructor() {
     this.apiService = new ApiService()
@@ -78,6 +107,20 @@ class BaikeService {
       return null
     }
     return SEND_MODE_PRIORITY[currentIndex + 1]
+  }
+
+  async replyResult(e, message, label = '结果') {
+    try {
+      await e.reply(message)
+      return true
+    } catch (error) {
+      if (isAmbiguousSendTimeoutError(error)) {
+        logger.warn(`[${pluginName}] ${label}发送回执超时，消息可能已成功送达，已停止自动降级：${getBriefSendError(error)}`)
+        return true
+      }
+
+      throw error
+    }
   }
 
   appendExtractedFiles(files, containers = {}) {
@@ -981,34 +1024,38 @@ class BaikeService {
 
     while (sendMode) {
       if (sendMode === 'html' && htmlContent) {
+        let imagePath = ''
         try {
-          const imagePath = await this.mediaService.renderHtmlToImage(htmlContent)
+          imagePath = await this.mediaService.renderHtmlToImage(htmlContent)
           if (imagePath && fs.existsSync(imagePath)) {
-            await e.reply({ type: 'image', file: imagePath })
-            this.mediaService.cleanupFile(imagePath, 5000)
+            await this.replyResult(e, { type: 'image', file: imagePath }, 'HTML 图片')
             return true
           }
         } catch (error) {
-          logger.warn(`[${pluginName}] HTML 发送失败：${error.message}`)
+          logger.warn(`[${pluginName}] HTML 发送失败：${getBriefSendError(error)}`)
+        } finally {
+          if (imagePath) {
+            this.mediaService.cleanupFile(imagePath, 5000)
+          }
         }
       } else if (sendMode === 'forward' && Array.isArray(forwardMsg) && forwardMsg.length > 0) {
         try {
           const forward = Bot?.makeForwardMsg ? await Bot.makeForwardMsg(forwardMsg) : null
           if (forward) {
-            await e.reply(forward)
+            await this.replyResult(e, forward, '合并转发')
             return true
           }
         } catch (error) {
-          logger.warn(`[${pluginName}] 合并转发失败：${error.message}`)
+          logger.warn(`[${pluginName}] 合并转发失败：${getBriefSendError(error)}`)
         }
       } else if (sendMode === 'text') {
         if (Array.isArray(forwardMsg) && forwardMsg.length > 0) {
           for (const item of forwardMsg) {
             for (const message of item.message || []) {
               if (message.type === 'text' && message.text) {
-                await e.reply(message.text)
+                await this.replyResult(e, message.text, '文本结果')
               } else if (message.type === 'image' && message.file) {
-                await e.reply({ type: 'image', file: message.file })
+                await this.replyResult(e, { type: 'image', file: message.file }, '图片结果')
               }
             }
           }
@@ -1016,7 +1063,7 @@ class BaikeService {
         }
 
         if (fallbackText) {
-          await e.reply(fallbackText)
+          await this.replyResult(e, fallbackText, '文本结果')
           return true
         }
       }
@@ -1029,7 +1076,7 @@ class BaikeService {
     }
 
     if (fallbackText) {
-      await e.reply(fallbackText)
+      await this.replyResult(e, fallbackText, '文本结果')
       return true
     }
 
