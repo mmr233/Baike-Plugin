@@ -3,3 +3,4 @@ temp/
 logs/
 .DS_Store
 config/config/config.json
+data/summary_billing_usage.json

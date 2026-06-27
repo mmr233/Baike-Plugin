@@ -113,7 +113,8 @@ export async function runScheduledSummary() {
       }
 
       await baikeService.summarizeGroupChat(mockEvent, [], {
-        messageCountOverride: latestConfig.messageCount
+        messageCountOverride: latestConfig.messageCount,
+        skipBilling: true
       })
     } catch (error) {
       logger.error(`[${pluginName}] 自动群总结执行失败`, error)

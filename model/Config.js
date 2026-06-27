@@ -180,6 +180,26 @@ const DEFAULT_CONFIG = {
     ttl: 10,
     maxSize: 100
   },
+  summaryBilling: {
+    enabled: true,
+    itemId: 'baike:summary_service',
+    itemName: '百科总结服务',
+    defaultCostFavor: 3,
+    exemptMaster: true,
+    chargeCached: false,
+    chargeFailed: false,
+    allowWhenUnavailable: false,
+    respectIrisBaseEnable: true,
+    limit: {
+      enabled: true,
+      maxUses: 20,
+      periodHours: 24,
+      scope: 'groupUser',
+      countCached: false,
+      countFailed: false,
+      countMaster: false
+    }
+  },
   debug: {
     enabled: false
   },

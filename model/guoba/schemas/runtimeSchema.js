@@ -41,6 +41,149 @@ const runtimeSchemaRaw = [
     }
   },
   {
+    component: 'Divider',
+    label: '总结计费',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'summaryBilling.enabled',
+    label: '启用总结计费',
+    bottomHelpMessage: '开启后，非缓存且成功完成的总结会通过 Iris-Sign-Plugin 好感度商城扣费',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'summaryBilling.itemId',
+    label: '计费商品 ID',
+    bottomHelpMessage: 'Baike 会向 Iris 商城注册同 ID 商品；如需统一改价，可在 Iris 商城配置里添加同 ID 商品覆盖默认价格',
+    component: 'Input',
+    defaultValue: 'baike:summary_service'
+  },
+  {
+    field: 'summaryBilling.itemName',
+    label: '计费商品名称',
+    component: 'Input',
+    defaultValue: '百科总结服务'
+  },
+  {
+    field: 'summaryBilling.defaultCostFavor',
+    label: '默认消耗好感度',
+    bottomHelpMessage: '仅在 Iris 商城没有同 ID 商品时使用；正式价格优先读取 Iris 商城配置',
+    component: 'InputNumber',
+    defaultValue: 3,
+    componentProps: {
+      min: 0,
+      max: 9999,
+      step: 1
+    }
+  },
+  {
+    field: 'summaryBilling.exemptMaster',
+    label: '主人免计费',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'summaryBilling.chargeCached',
+    label: '缓存命中也计费',
+    bottomHelpMessage: '默认关闭；关闭时命中缓存不会扣好感度',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'summaryBilling.chargeFailed',
+    label: '失败也计费',
+    bottomHelpMessage: '默认关闭；关闭时总结失败或模型降级为规则摘要会自动退回好感度',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'summaryBilling.allowWhenUnavailable',
+    label: '商城不可用时放行',
+    bottomHelpMessage: '默认关闭；关闭时 Iris 商城不可用会阻止非豁免用户使用总结',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'summaryBilling.respectIrisBaseEnable',
+    label: '遵守 Iris 总开关',
+    bottomHelpMessage: '开启后 Iris-Sign-Plugin 总开关关闭时会阻止计费总结',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    component: 'Divider',
+    label: '总结次数限制',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'summaryBilling.limit.enabled',
+    label: '启用次数限制',
+    bottomHelpMessage: '默认只统计成功完成、非缓存、非主人触发的总结',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'summaryBilling.limit.maxUses',
+    label: '周期内最多次数',
+    component: 'InputNumber',
+    defaultValue: 20,
+    componentProps: {
+      min: 0,
+      max: 9999,
+      step: 1
+    }
+  },
+  {
+    field: 'summaryBilling.limit.periodHours',
+    label: '统计周期（小时）',
+    component: 'InputNumber',
+    defaultValue: 24,
+    componentProps: {
+      min: 1,
+      max: 8760,
+      step: 1
+    }
+  },
+  {
+    field: 'summaryBilling.limit.scope',
+    label: '限制范围',
+    component: 'Select',
+    defaultValue: 'groupUser',
+    componentProps: {
+      options: [
+        { label: '每个群内用户', value: 'groupUser' },
+        { label: '每个用户', value: 'user' },
+        { label: '每个群', value: 'group' }
+      ]
+    }
+  },
+  {
+    field: 'summaryBilling.limit.countCached',
+    label: '缓存命中计入次数',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'summaryBilling.limit.countFailed',
+    label: '失败计入次数',
+    bottomHelpMessage: '默认关闭；关闭时模型失败、发送失败或规则摘要降级不会占用次数',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'summaryBilling.limit.countMaster',
+    label: '主人计入次数',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
     field: 'debug.enabled',
     label: '调试日志',
     bottomHelpMessage: '开启后会输出接口请求、上下文注入和文件解析等调试日志',

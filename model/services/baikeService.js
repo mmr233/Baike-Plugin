@@ -7,6 +7,7 @@ import ApiService from './apiService.js'
 import DocumentService from './documentService.js'
 import MediaService from './mediaService.js'
 import MessageService from './messageService.js'
+import SummaryBillingService from './summaryBillingService.js'
 import { beautifyText, extractKeyword, formatDetailValue, parseSummaryContent } from '../../utils/text.js'
 import { generateGroupSummaryHTML, generateHutaoHTML, generateSearchHTML } from '../../utils/html.js'
 
@@ -47,6 +48,9 @@ class BaikeService {
     this.mediaService = new MediaService()
     this.messageService = new MessageService()
     this.documentService = new DocumentService(this.mediaService, this.messageService)
+    this.summaryBillingService = new SummaryBillingService()
+    this.summaryBillingService.ensureRegistered()
+      .catch(error => logger.warn(`[${pluginName}] 总结计费商品预注册失败：${error.message}`))
   }
 
   getFormattedDate(timestamp) {
@@ -120,6 +124,32 @@ class BaikeService {
       }
 
       throw error
+    }
+  }
+
+  async chargeSummaryUsage(e, context = {}) {
+    const result = await this.summaryBillingService.charge(e, context)
+    if (!result.ok) {
+      await e.reply(result.message || '好感度不足，暂时无法使用总结功能')
+      return null
+    }
+
+    return result
+  }
+
+  async refundSummaryUsage(chargeResult, reason = 'summary_failed') {
+    try {
+      await this.summaryBillingService.refund(chargeResult, reason)
+    } catch (error) {
+      logger.warn(`[${pluginName}] 总结计费退款处理失败：${error.message}`)
+    }
+  }
+
+  async completeSummaryUsage(chargeResult, reason = 'summary_completed') {
+    try {
+      await this.summaryBillingService.complete(chargeResult, reason)
+    } catch (error) {
+      logger.warn(`[${pluginName}] 总结次数记录完成处理失败：${error.message}`)
     }
   }
 
@@ -1155,23 +1185,36 @@ class BaikeService {
     const cached = this.tryGetCache(cacheKey, '内容总结')
 
     if (cached?.result) {
+      const chargeResult = await this.chargeSummaryUsage(e, {
+        feature: 'contentSummary',
+        cacheHit: true
+      })
+      if (!chargeResult) {
+        return true
+      }
+
       const result = cached.result
       const notices = Array.isArray(cached.notices) ? cached.notices : []
       const displayText = this.buildSummaryDisplayText(result, notices)
       const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, notices)
       const userInfo = this.messageService.getUserInfo(e)
-      await this.sendResult(
-        e,
-        [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${displayText}` }] }],
-        `内容总结：\n\n${displayText}`,
-        html,
-        'contentSummary'
-      )
+      try {
+        await this.sendResult(
+          e,
+          [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${displayText}` }] }],
+          `内容总结：\n\n${displayText}`,
+          html,
+          'contentSummary'
+        )
+        await this.completeSummaryUsage(chargeResult, 'cached_content_summary_sent')
+      } catch (error) {
+        await this.refundSummaryUsage(chargeResult, 'cached_summary_send_failed')
+        throw error
+      }
       return true
     }
 
-    await e.reply('正在分析内容，请稍候...')
-
+    let chargeResult = null
     try {
       let orderedContextTexts = []
       const extraExtractedTexts = []
@@ -1300,6 +1343,15 @@ class BaikeService {
         await e.reply('未能从消息中提取到可分析内容')
         return true
       }
+
+      chargeResult = await this.chargeSummaryUsage(e, {
+        feature: 'contentSummary'
+      })
+      if (!chargeResult) {
+        return true
+      }
+
+      await e.reply('正在分析内容，请稍候...')
 
       this.assignSummaryMediaLabels({
         images: allImages,
@@ -1431,6 +1483,7 @@ class BaikeService {
       })
 
       if (!result) {
+        await this.refundSummaryUsage(chargeResult, 'empty_content_summary')
         await e.reply('总结失败，请稍后重试')
         return true
       }
@@ -1446,7 +1499,9 @@ class BaikeService {
         html,
         'contentSummary'
       )
+      await this.completeSummaryUsage(chargeResult, 'content_summary_sent')
     } catch (error) {
+      await this.refundSummaryUsage(chargeResult, 'content_summary_failed')
       logger.error(`[${pluginName}] 内容总结失败`, error)
       await e.reply('总结失败，请稍后重试')
     }
@@ -1472,24 +1527,39 @@ class BaikeService {
     const cached = this.tryGetCache(cacheKey, moduleName)
 
     if (cached?.result) {
+      const chargeResult = await this.chargeSummaryUsage(e, {
+        feature: actualMembers.length > 0 ? 'memberSummary' : 'groupChatSummary',
+        cacheHit: true,
+        skipBilling: options.skipBilling
+      })
+      if (!chargeResult) {
+        return true
+      }
+
       const parsed = parseSummaryContent(cached.result)
       const userInfo = this.messageService.getUserInfo(e)
-      await this.sendResult(
-        e,
-        [{
-          ...userInfo,
-          message: [{
-            type: 'text',
-            text: `═══ ${cached.title} ═══\n\n📊 消息数量：${cached.statsData.messageCount}条\n👥 活跃成员：${cached.statsData.memberCount}人\n📈 发言排行：${cached.statsData.statsText}\n\n═══ 内容分析 ═══\n\n${cached.result}`
-          }]
-        }],
-        `${cached.title}：\n\n${cached.result}`,
-        generateGroupSummaryHTML(cached.title, parsed, {
-          ...cached.statsData,
-          isMemberMode: cached.isMemberMode
-        }),
-        cached.isMemberMode ? 'memberSummary' : 'groupChatSummary'
-      )
+      try {
+        await this.sendResult(
+          e,
+          [{
+            ...userInfo,
+            message: [{
+              type: 'text',
+              text: `═══ ${cached.title} ═══\n\n📊 消息数量：${cached.statsData.messageCount}条\n👥 活跃成员：${cached.statsData.memberCount}人\n📈 发言排行：${cached.statsData.statsText}\n\n═══ 内容分析 ═══\n\n${cached.result}`
+            }]
+          }],
+          `${cached.title}：\n\n${cached.result}`,
+          generateGroupSummaryHTML(cached.title, parsed, {
+            ...cached.statsData,
+            isMemberMode: cached.isMemberMode
+          }),
+          cached.isMemberMode ? 'memberSummary' : 'groupChatSummary'
+        )
+        await this.completeSummaryUsage(chargeResult, 'cached_group_summary_sent')
+      } catch (error) {
+        await this.refundSummaryUsage(chargeResult, 'cached_group_summary_send_failed')
+        throw error
+      }
       return true
     }
 
@@ -1500,6 +1570,7 @@ class BaikeService {
         : `正在获取${targetText}最近 ${messageCount} 条消息进行分析...`
     )
 
+    let chargeResult = null
     try {
       const rawMessages = await this.messageService.getGroupHistoryMessages(e, Math.min(messageCount, chatConfig.maxMessageCount || 500))
       if (!rawMessages || rawMessages.length === 0) {
@@ -1529,6 +1600,14 @@ class BaikeService {
         } else {
           await e.reply(actualMembers.length > 0 ? '未找到被 @ 成员的有效消息' : '未能解析出有效群消息')
         }
+        return true
+      }
+
+      chargeResult = await this.chargeSummaryUsage(e, {
+        feature: actualMembers.length > 0 ? 'memberSummary' : 'groupChatSummary',
+        skipBilling: options.skipBilling
+      })
+      if (!chargeResult) {
         return true
       }
 
@@ -1648,6 +1727,8 @@ class BaikeService {
           title,
           isMemberMode
         })
+      } else {
+        await this.refundSummaryUsage(chargeResult, 'group_summary_degraded')
       }
 
       const parsed = parseSummaryContent(result)
@@ -1665,7 +1746,11 @@ class BaikeService {
         generateGroupSummaryHTML(title, parsed, { ...statsData, isMemberMode }),
         isMemberMode ? 'memberSummary' : 'groupChatSummary'
       )
+      if (!degraded) {
+        await this.completeSummaryUsage(chargeResult, 'group_summary_sent')
+      }
     } catch (error) {
+      await this.refundSummaryUsage(chargeResult, 'group_summary_failed')
       logger.error(`[${pluginName}] 群聊总结失败`, error)
       await e.reply('总结失败，请稍后重试')
     }
