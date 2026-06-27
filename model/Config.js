@@ -265,7 +265,7 @@ const DEFAULT_CONFIG = {
 {messageTexts}`
   },
   fileRequest: {
-    imageMaxPerRequest: 20,
+    imageMaxPerRequest: 10,
     videoMaxPerRequest: 3,
     audioMaxPerRequest: 5,
     otherMaxPerRequest: 5,

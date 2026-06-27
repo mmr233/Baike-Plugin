@@ -8,8 +8,9 @@ const summarySchemaRaw = [
   {
     field: 'fileRequest.imageMaxPerRequest',
     label: '单次图片上限',
+    bottomHelpMessage: '单批图片过多会让请求体变大，部分接口网关更容易 ECONNRESET；建议 6-10',
     component: 'InputNumber',
-    defaultValue: 20,
+    defaultValue: 10,
     componentProps: {
       min: 1,
       max: 50,
