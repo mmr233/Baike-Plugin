@@ -663,6 +663,65 @@ class BaikeService {
     return results.join('\n\n')
   }
 
+  buildRuleBasedGroupSummary(options = {}) {
+    const {
+      formattedMessages = [],
+      sortedMembers = [],
+      statsText = '',
+      imageSummary = '',
+      docTexts = '',
+      error = null,
+      isMemberMode = false
+    } = options
+    const topicLines = [
+      '模型接口当前连续连接失败，本次先给出基于群聊记录的规则摘要。',
+      `共读取到 ${formattedMessages.length} 条有效消息，活跃成员 ${sortedMembers.length} 人。`,
+      statsText ? `发言排行：${statsText}` : ''
+    ].filter(Boolean)
+
+    const extraContext = [imageSummary, docTexts].filter(Boolean).join('\n\n').trim()
+    if (extraContext) {
+      topicLines.push('媒体和附件内容已尽量提取，详见下方补充信息。')
+    }
+
+    const selectedMessages = formattedMessages
+      .filter(item => String(item?.text || '').trim())
+      .slice(-5)
+      .reverse()
+
+    const highlightText = selectedMessages.length > 0
+      ? selectedMessages.map(item => [
+          `【时间】${item.time || '未知时间'}`,
+          `【发送者】${item.nickname || item.user_id || '未知成员'}`,
+          `【内容】${String(item.text || '').slice(0, 180)}`,
+          '【吐槽】模型接口临时掉线，先按最近消息挑出来给你保底看。'
+        ].join('\n')).join('\n---\n')
+      : [
+          '【时间】无',
+          '【发送者】系统',
+          '【内容】未能提取到可展示的消息精选',
+          '【吐槽】这次接口和消息都不给面子，只能诚实摆烂。'
+        ].join('\n')
+
+    const failureReasonText = error
+      ? (this.apiService.formatErrorWithCause?.(error) || error.message || error)
+      : ''
+    const failureReason = failureReasonText
+      ? `\n\n【接口处理说明】最终${isMemberMode ? '成员' : '群聊'}总结模型请求失败，已降级为规则摘要：${failureReasonText}`
+      : ''
+    const extraSection = extraContext ? `\n\n${extraContext}` : ''
+
+    return [
+      '===话题总结===',
+      topicLines.join('\n'),
+      failureReason,
+      extraSection,
+      '',
+      '===消息精选===',
+      highlightText
+    ].join('\n').replace(/\n{3,}/g, '\n\n')
+  }
+
   messageLikelyContainsMedia(messageData) {
     if (!messageData) {
       return false
@@ -1495,12 +1554,6 @@ class BaikeService {
         .replace('{botProfile}', botProfile.promptText || '无')
         .replace('{messageTexts}', messageTexts)
 
-      const result = await this.apiService.callSummaryTextAPI(prompt)
-      if (!result) {
-        await e.reply('总结失败，请稍后重试')
-        return true
-      }
-
       const title = actualMembers.length > 0 ? '成员发言总结' : '群聊总结'
       const isMemberMode = actualMembers.length > 0
       const statsData = {
@@ -1510,13 +1563,45 @@ class BaikeService {
         hourlyActivity,
         statsText
       }
+      let result = ''
+      let degraded = false
 
-      this.setCache(cacheKey, {
-        result,
-        statsData,
-        title,
-        isMemberMode
-      })
+      try {
+        result = await this.apiService.callSummaryTextAPI(prompt)
+      } catch (error) {
+        degraded = true
+        logger.warn(`[${pluginName}] ${title}模型总结失败，已降级为规则摘要：${this.apiService.formatErrorWithCause?.(error) || error.message}`)
+        result = this.buildRuleBasedGroupSummary({
+          formattedMessages,
+          sortedMembers,
+          statsText,
+          imageSummary,
+          docTexts,
+          error,
+          isMemberMode
+        })
+      }
+
+      if (!result) {
+        degraded = true
+        result = this.buildRuleBasedGroupSummary({
+          formattedMessages,
+          sortedMembers,
+          statsText,
+          imageSummary,
+          docTexts,
+          isMemberMode
+        })
+      }
+
+      if (!degraded) {
+        this.setCache(cacheKey, {
+          result,
+          statsData,
+          title,
+          isMemberMode
+        })
+      }
 
       const parsed = parseSummaryContent(result)
       const userInfo = this.messageService.getUserInfo(e)

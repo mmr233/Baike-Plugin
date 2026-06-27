@@ -1172,8 +1172,27 @@ class ApiService {
     return /fetch failed|timeout|timed out|econnreset|econnrefused|enotfound|eai_again|etimedout|econnaborted|epipe|socket hang up|network socket disconnected|und_err_connect_timeout|und_err_socket/i.test(signalText)
   }
 
-  getRetryDelayMs(attempt) {
+  isConnectionResetError(error) {
+    return /econnreset|network socket disconnected|und_err_socket/i.test(this.getErrorSignalText(error))
+  }
+
+  getRetryDelayMs(attempt, error = null) {
+    if (this.isConnectionResetError(error)) {
+      return Math.min(15000, 3000 * (2 ** attempt))
+    }
+
     return Math.min(5000, 1200 * (attempt + 1))
+  }
+
+  resetFetchDispatcher(connectTimeoutMs) {
+    const normalizedTimeout = this.normalizeConnectTimeoutMs(connectTimeoutMs, DEFAULT_CONNECT_TIMEOUT_MS)
+    const dispatcher = fetchDispatcherCache.get(normalizedTimeout)
+    if (dispatcher) {
+      try {
+        dispatcher.destroy?.()
+      } catch {}
+      fetchDispatcherCache.delete(normalizedTimeout)
+    }
   }
 
   async getFetchDispatcher(connectTimeoutMs) {
@@ -1663,7 +1682,11 @@ class ApiService {
             break
           }
 
-          const delayMs = this.getRetryDelayMs(attempt)
+          if (this.isConnectionResetError(error)) {
+            this.resetFetchDispatcher(connectTimeout)
+          }
+
+          const delayMs = this.getRetryDelayMs(attempt, error)
           logger.warn(
             `[${pluginName}] ${modelType} ${candidate.label}(${candidate.model}) 请求失败，${delayMs}ms 后进行第 ${attempt + 2} 次尝试：${this.formatErrorWithCause(error)}`
           )
