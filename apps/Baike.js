@@ -3,6 +3,8 @@ import baikeService from '../model/services/baikeService.js'
 import { pluginTitle } from '#model'
 import { createScheduledSummaryTask } from '../model/services/taskService.js'
 
+const SUMMARY_COMMAND_REG = '^总结(?:\\s*(?:@\\S+|\\[CQ:(?:at|image|video|record|file),[^\\]]+\\]))*\\s*$'
+
 export default class BaikeApp extends plugin {
   constructor() {
     super({
@@ -16,7 +18,7 @@ export default class BaikeApp extends plugin {
           fnc: 'search'
         },
         {
-          reg: '^总结',
+          reg: SUMMARY_COMMAND_REG,
           fnc: 'summarize'
         },
         {
