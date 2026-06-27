@@ -192,6 +192,12 @@ class BaikeService {
 
     const parsed = parseSummaryContent(cached.result)
     const userInfo = this.messageService.getUserInfo(e)
+    const billingText = this.buildSummaryBillingText(chargeResult)
+    const fallbackText = this.appendSummaryBillingText(`${cached.title}：\n\n${cached.result}`, billingText)
+    const forwardText = this.appendSummaryBillingText(
+      `═══ ${cached.title} ═══\n\n📊 消息数量：${cached.statsData.messageCount}条\n👥 活跃成员：${cached.statsData.memberCount}人\n📈 发言排行：${cached.statsData.statsText}\n\n═══ 内容分析 ═══\n\n${cached.result}`,
+      billingText
+    )
     try {
       await this.sendResult(
         e,
@@ -199,13 +205,14 @@ class BaikeService {
           ...userInfo,
           message: [{
             type: 'text',
-            text: `═══ ${cached.title} ═══\n\n📊 消息数量：${cached.statsData.messageCount}条\n👥 活跃成员：${cached.statsData.memberCount}人\n📈 发言排行：${cached.statsData.statsText}\n\n═══ 内容分析 ═══\n\n${cached.result}`
+            text: forwardText
           }]
         }],
-        `${cached.title}：\n\n${cached.result}`,
+        fallbackText,
         generateGroupSummaryHTML(cached.title, parsed, {
           ...cached.statsData,
-          isMemberMode: cached.isMemberMode
+          isMemberMode: cached.isMemberMode,
+          billingText
         }),
         cached.isMemberMode ? 'memberSummary' : 'groupChatSummary'
       )
@@ -331,6 +338,57 @@ class BaikeService {
     } catch (error) {
       logger.warn(`[${pluginName}] 总结次数记录完成处理失败：${error.message}`)
     }
+  }
+
+  getBillingReasonText(reason = '') {
+    const reasonMap = {
+      cacheHit: '命中缓存',
+      master: '主人免计费',
+      skipBilling: '已跳过计费',
+      missingContext: '缺少群聊或用户上下文',
+      disabled: '计费未启用',
+      free: '商品价格为 0',
+      shop_unavailable: '商城不可用放行',
+      platform_disabled: 'Iris 总开关关闭放行',
+      item_disabled: '商品未开放放行'
+    }
+    return reasonMap[reason] || reason || '未扣费'
+  }
+
+  buildSummaryBillingText(chargeResult = null) {
+    if (!chargeResult) {
+      return ''
+    }
+
+    const itemName = chargeResult.item?.name || '百科总结服务'
+    if (chargeResult.charged) {
+      const parts = [`本次${itemName}已扣除 ${chargeResult.costFavor || 0} 点好感度。`]
+      if (chargeResult.beforeFavor !== undefined && chargeResult.favor !== undefined) {
+        parts.push(`扣费前：${chargeResult.beforeFavor}，扣费后：${chargeResult.favor}。`)
+      } else if (chargeResult.favor !== undefined) {
+        parts.push(`当前好感度：${chargeResult.favor}。`)
+      }
+      return parts.join('\n')
+    }
+
+    if (chargeResult.skipped || chargeResult.reason) {
+      return `本次未扣好感度：${this.getBillingReasonText(chargeResult.reason)}。`
+    }
+
+    return ''
+  }
+
+  appendSummaryBillingText(text = '', billingText = '') {
+    const actualText = String(text || '').trim()
+    const actualBillingText = String(billingText || '').trim()
+    if (!actualBillingText) {
+      return actualText
+    }
+
+    return [
+      actualText,
+      `【扣费信息】\n${actualBillingText}`
+    ].filter(Boolean).join('\n\n')
   }
 
   appendExtractedFiles(files, containers = {}) {
@@ -1376,13 +1434,15 @@ class BaikeService {
       const result = cached.result
       const notices = Array.isArray(cached.notices) ? cached.notices : []
       const displayText = this.buildSummaryDisplayText(result, notices)
-      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, notices)
+      const billingText = this.buildSummaryBillingText(chargeResult)
+      const finalDisplayText = this.appendSummaryBillingText(displayText, billingText)
+      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, notices, { billingText })
       const userInfo = this.messageService.getUserInfo(e)
       try {
         await this.sendResult(
           e,
-          [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${displayText}` }] }],
-          `内容总结：\n\n${displayText}`,
+          [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${finalDisplayText}` }] }],
+          `内容总结：\n\n${finalDisplayText}`,
           html,
           'contentSummary'
         )
@@ -1670,12 +1730,14 @@ class BaikeService {
 
       this.setCache(cacheKey, { result, notices: summaryNotices })
       const displayText = this.buildSummaryDisplayText(result, summaryNotices)
-      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, summaryNotices)
+      const billingText = this.buildSummaryBillingText(chargeResult)
+      const finalDisplayText = this.appendSummaryBillingText(displayText, billingText)
+      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, summaryNotices, { billingText })
       const userInfo = this.messageService.getUserInfo(e)
       await this.sendResult(
         e,
-        [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${displayText}` }] }],
-        `内容总结：\n\n${displayText}`,
+        [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${finalDisplayText}` }] }],
+        `内容总结：\n\n${finalDisplayText}`,
         html,
         'contentSummary'
       )
@@ -1920,17 +1982,23 @@ class BaikeService {
 
       const parsed = parseSummaryContent(result)
       const userInfo = this.messageService.getUserInfo(e)
+      const billingText = this.buildSummaryBillingText(chargeResult)
+      const fallbackText = this.appendSummaryBillingText(`${title}：\n\n${result}`, billingText)
+      const forwardText = this.appendSummaryBillingText(
+        `═══ ${title} ═══\n\n📊 消息数量：${statsData.messageCount}条\n👥 活跃成员：${statsData.memberCount}人\n📈 发言排行：${statsText}\n\n═══ 内容分析 ═══\n\n${result}`,
+        billingText
+      )
       await this.sendResult(
         e,
         [{
           ...userInfo,
           message: [{
             type: 'text',
-            text: `═══ ${title} ═══\n\n📊 消息数量：${statsData.messageCount}条\n👥 活跃成员：${statsData.memberCount}人\n📈 发言排行：${statsText}\n\n═══ 内容分析 ═══\n\n${result}`
+            text: forwardText
           }]
         }],
-        `${title}：\n\n${result}`,
-        generateGroupSummaryHTML(title, parsed, { ...statsData, isMemberMode }),
+        fallbackText,
+        generateGroupSummaryHTML(title, parsed, { ...statsData, isMemberMode, billingText }),
         isMemberMode ? 'memberSummary' : 'groupChatSummary'
       )
       if (!degraded) {

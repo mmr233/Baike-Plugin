@@ -184,6 +184,9 @@ function getJournalCSS() {
     .source-section {
       background: linear-gradient(135deg, rgba(244,250,255,0.95), rgba(255,252,247,0.96));
     }
+    .billing-section {
+      background: linear-gradient(135deg, rgba(248,255,239,0.96), rgba(255,252,247,0.96));
+    }
     .quote-section {
       background: linear-gradient(135deg, rgba(255,248,213,0.96), rgba(255,252,240,0.96));
     }
@@ -905,8 +908,23 @@ function renderSnapshotNote(text = '', kicker = '摘要快照') {
   `
 }
 
-export function generateHutaoHTML(title, content, stats = null, notices = []) {
+function renderBillingSection(text = '') {
+  const actualText = String(text || '').trim()
+  if (!actualText) {
+    return ''
+  }
+
+  return `
+    <div class="section billing-section">
+      <div class="section-title">扣费信息</div>
+      ${renderRichTextHtml(actualText)}
+    </div>
+  `
+}
+
+export function generateHutaoHTML(title, content, stats = null, notices = [], options = {}) {
   const actualNotices = Array.isArray(notices) ? notices.filter(Boolean) : []
+  const billingText = String(options?.billingText || '').trim()
   const sections = parseBracketSections(content)
   const previewText = getPreviewText(content)
   const contentHtml = content
@@ -936,6 +954,7 @@ export function generateHutaoHTML(title, content, stats = null, notices = []) {
       </div>
     `
     : ''
+  const billingHtml = renderBillingSection(billingText)
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
     <body><div class="journal journal-summary">
@@ -944,6 +963,7 @@ export function generateHutaoHTML(title, content, stats = null, notices = []) {
         ${renderSnapshotNote(previewText, '摘要快照')}
         ${contentHtml}
         ${noticeHtml}
+        ${billingHtml}
       </div>
       <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
     </div></body></html>`
@@ -1010,7 +1030,8 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
     memberCount = 0,
     sortedMembers = [],
     hourlyActivity = {},
-    isMemberMode = false
+    isMemberMode = false,
+    billingText = ''
   } = data
   const { topicSummary = '', highlights = [], extraSections = [] } = parsedContent || {}
   const displayTitle = isMemberMode ? '群友画像' : title
@@ -1097,6 +1118,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
       </div>
     `
     : ''
+  const billingHtml = renderBillingSection(billingText)
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
     <body><div class="journal journal-group">
@@ -1108,6 +1130,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
         ${topicHtml}
         ${highlightsHtml}
         ${extraSectionsHtml}
+        ${billingHtml}
       </div>
       <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
     </div></body></html>`
