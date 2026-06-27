@@ -1323,7 +1323,7 @@ class MediaService {
       const audio = targets[index]
       const localPath = await this.downloadFile(audio.url, `${prefix}_${Date.now()}_${index}.mp3`)
       if (localPath) {
-        files.push({ type: 'audio', localPath, url: audio.url })
+        files.push({ ...audio, type: 'audio', localPath, url: audio.url })
       }
     }
 

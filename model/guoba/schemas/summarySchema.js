@@ -256,6 +256,31 @@ const summarySchemaRaw = [
     }
   },
   {
+    field: 'fileRequest.videoPreprocess.imageFrameStrategy',
+    label: '视频抽帧策略',
+    bottomHelpMessage: '均匀抽帧更稳定；场景变化抽帧更容易抓到画面变化，但静态视频会自动回退均匀抽帧',
+    component: 'Select',
+    defaultValue: 'uniform',
+    componentProps: {
+      options: [
+        { label: '均匀抽帧', value: 'uniform' },
+        { label: '场景变化抽帧', value: 'scene' }
+      ]
+    }
+  },
+  {
+    field: 'fileRequest.videoPreprocess.imageSceneThreshold',
+    label: '场景变化阈值',
+    bottomHelpMessage: '仅场景变化抽帧使用；越低越容易抽到更多帧，建议 0.15-0.35',
+    component: 'InputNumber',
+    defaultValue: 0.25,
+    componentProps: {
+      min: 0.05,
+      max: 0.8,
+      step: 0.05
+    }
+  },
+  {
     component: 'Divider',
     label: '群聊总结',
     componentProps: {
@@ -368,7 +393,9 @@ const summaryRecommendationMap = {
   'fileRequest.videoPreprocess.segmentDurationSeconds': 45,
   'fileRequest.videoPreprocess.maxSegments': 6,
   'fileRequest.videoPreprocess.useImageModel': false,
-  'fileRequest.videoPreprocess.imageFramesPerSegment': 4
+  'fileRequest.videoPreprocess.imageFramesPerSegment': 4,
+  'fileRequest.videoPreprocess.imageFrameStrategy': 'uniform',
+  'fileRequest.videoPreprocess.imageSceneThreshold': 0.25
 }
 
 export const summarySchema = enhanceSchemas(summarySchemaRaw, {

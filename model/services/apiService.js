@@ -1,8 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { execFile as execFileCallback } from 'node:child_process'
 import { promisify } from 'node:util'
 import Config from '../Config.js'
+import resultCache from '../cache.js'
 import { pluginName } from '../constant.js'
 import { debugLog } from '../debug.js'
 import { beautifyText, extractKeyword } from '../../utils/text.js'
@@ -23,12 +25,29 @@ function clampNumber(value, min, max, fallback) {
   return Math.min(max, Math.max(min, Math.round(numeric)))
 }
 
+function clampFloat(value, min, max, fallback) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return fallback
+  }
+
+  return Math.min(max, Math.max(min, numeric))
+}
+
 function parseJson(text, context = '接口响应') {
   try {
     return JSON.parse(text)
   } catch (error) {
     throw new Error(`${context} 不是合法 JSON：${text.slice(0, 200)}`)
   }
+}
+
+function hashText(value = '') {
+  return crypto.createHash('sha1').update(String(value || '')).digest('hex')
+}
+
+function hashBuffer(buffer) {
+  return crypto.createHash('sha1').update(buffer).digest('hex')
 }
 
 function extractFirstJsonBlock(text = '') {
@@ -487,13 +506,14 @@ function formatVideoTimePoint(seconds = 0) {
 function buildVideoSegmentLabel(media = {}, index = 0) {
   const meta = media?.videoProcessMeta || {}
   const totalSegments = Number(meta?.totalSegments) || 1
+  const label = media?.summaryMediaLabel || `视频${index}`
   if (totalSegments <= 1) {
-    return `视频${index}`
+    return label
   }
 
   const startSeconds = Number(meta?.startSeconds) || 0
   const endSeconds = Math.max(startSeconds, Number(meta?.endSeconds) || startSeconds)
-  return `视频${index}：同一原视频的第 ${Number(meta?.segmentIndex) || 1}/${totalSegments} 段，时间范围 ${formatVideoTimePoint(startSeconds)}-${formatVideoTimePoint(endSeconds)}`
+  return `${label}：同一原视频的第 ${Number(meta?.segmentIndex) || 1}/${totalSegments} 段，时间范围 ${formatVideoTimePoint(startSeconds)}-${formatVideoTimePoint(endSeconds)}`
 }
 
 function buildVideoFrameLabel(media = {}, videoIndex = 0, frameIndex = 0, frameCount = 0, localSeconds = 0) {
@@ -502,12 +522,27 @@ function buildVideoFrameLabel(media = {}, videoIndex = 0, frameIndex = 0, frameC
   const segmentIndex = Number(meta?.segmentIndex) || 1
   const globalSeconds = (Number(meta?.startSeconds) || 0) + (Number(localSeconds) || 0)
   const frameText = `第 ${frameIndex}/${frameCount} 帧，约 ${formatVideoTimePoint(globalSeconds)}`
+  const label = media?.summaryMediaLabel || `视频${videoIndex}`
 
   if (totalSegments <= 1) {
-    return `视频${videoIndex}：${frameText}`
+    return `${label}：${frameText}`
   }
 
-  return `视频${videoIndex}：原视频第 ${segmentIndex}/${totalSegments} 段，${frameText}`
+  return `${label}：原视频第 ${segmentIndex}/${totalSegments} 段，${frameText}`
+}
+
+function buildVideoSceneFrameLabel(media = {}, videoIndex = 0, frameIndex = 0, frameCount = 0) {
+  const meta = media?.videoProcessMeta || {}
+  const totalSegments = Number(meta?.totalSegments) || 1
+  const segmentIndex = Number(meta?.segmentIndex) || 1
+  const label = media?.summaryMediaLabel || `视频${videoIndex}`
+  const frameText = `场景变化关键帧 ${frameIndex}/${frameCount}`
+
+  if (totalSegments <= 1) {
+    return `${label}：${frameText}`
+  }
+
+  return `${label}：原视频第 ${segmentIndex}/${totalSegments} 段，${frameText}`
 }
 
 function buildSplitVideoHint(videoFiles = []) {
@@ -1136,19 +1171,53 @@ class ApiService {
     return fetchDispatcherCache.get(normalizedTimeout)
   }
 
+  getMediaAnalysisCacheKey(kind = 'media', payload = {}) {
+    return `media:${kind}:${hashText(JSON.stringify(payload || {}))}`
+  }
+
+  tryGetMediaAnalysisCache(cacheKey = '', label = '媒体理解') {
+    if (!cacheKey) {
+      return null
+    }
+
+    const cached = resultCache.get(cacheKey, Config.get('cache', {}))
+    if (cached?.data) {
+      debugLog('api.mediaCache', `${label}命中缓存`, { cacheKey })
+      return cached.data
+    }
+
+    return null
+  }
+
+  setMediaAnalysisCache(cacheKey = '', value = null) {
+    if (!cacheKey || !value) {
+      return
+    }
+
+    resultCache.set(cacheKey, value, Config.get('cache', {}))
+  }
+
   getVideoImageModelConfig() {
     const config = Config.get('fileRequest.videoPreprocess', {})
+    const strategy = String(config?.imageFrameStrategy || '').trim().toLowerCase()
     return {
       enabled: config?.useImageModel === true,
       framesPerSegment: clampNumber(config?.imageFramesPerSegment, 1, 8, 4),
+      frameStrategy: ['uniform', 'scene'].includes(strategy) ? strategy : 'uniform',
+      sceneThreshold: clampFloat(config?.imageSceneThreshold, 0.05, 0.8, 0.25),
       maxOutputWidth: 1280,
       ffmpegTimeoutMs: 60000
     }
   }
 
-  createApiTempPath(prefix = 'media', ext = '.tmp') {
+  getApiTempDir() {
     const tempDir = path.join(process.cwd(), 'temp', pluginName)
     fs.mkdirSync(tempDir, { recursive: true })
+    return tempDir
+  }
+
+  createApiTempPath(prefix = 'media', ext = '.tmp') {
+    const tempDir = this.getApiTempDir()
     return path.join(
       tempDir,
       `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`
@@ -1190,6 +1259,41 @@ class ApiService {
     return fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0
   }
 
+  async extractSceneVideoFrameImages(videoFile, config = this.getVideoImageModelConfig()) {
+    const tempDir = this.getApiTempDir()
+    const stem = `video_scene_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const pattern = path.join(tempDir, `${stem}_%03d.png`)
+
+    try {
+      await execFile('ffmpeg', [
+        '-v', 'error',
+        '-i', videoFile,
+        '-vf', `select=gt(scene\\,${config.sceneThreshold}),scale='min(iw,${config.maxOutputWidth})':-2:force_original_aspect_ratio=decrease`,
+        '-fps_mode', 'vfr',
+        '-frames:v', String(config.framesPerSegment),
+        '-y',
+        pattern
+      ], {
+        windowsHide: true,
+        timeout: config.ffmpegTimeoutMs
+      })
+
+      return fs.readdirSync(tempDir)
+        .filter(file => file.startsWith(`${stem}_`) && file.endsWith('.png'))
+        .sort()
+        .map(file => path.join(tempDir, file))
+        .filter(file => fs.existsSync(file) && fs.statSync(file).size > 0)
+    } catch (error) {
+      const files = fs.existsSync(tempDir)
+        ? fs.readdirSync(tempDir)
+          .filter(file => file.startsWith(`${stem}_`) && file.endsWith('.png'))
+          .map(file => path.join(tempDir, file))
+        : []
+      this.cleanupTempFiles(files)
+      throw error
+    }
+  }
+
   async extractVideoFramesForImageModel(videoFiles = [], config = this.getVideoImageModelConfig()) {
     const imageFiles = []
     let videoIndex = 0
@@ -1205,6 +1309,37 @@ class ApiService {
       const framesPerSegment = durationSeconds > 0 && durationSeconds < 2
         ? 1
         : config.framesPerSegment
+
+      if (config.frameStrategy === 'scene' && durationSeconds >= 2) {
+        try {
+          const sceneFrames = await this.extractSceneVideoFrameImages(media.localPath, {
+            ...config,
+            framesPerSegment
+          })
+          if (sceneFrames.length > 0) {
+            for (let frameIndex = 0; frameIndex < sceneFrames.length; frameIndex += 1) {
+              imageFiles.push({
+                type: 'image',
+                localPath: sceneFrames[frameIndex],
+                url: media.url,
+                name: media.name || '',
+                summaryMediaLabel: media.summaryMediaLabel,
+                imagePromptLabel: buildVideoSceneFrameLabel(media, videoIndex, frameIndex + 1, sceneFrames.length),
+                videoFrameMeta: {
+                  videoIndex,
+                  frameIndex: frameIndex + 1,
+                  frameCount: sceneFrames.length,
+                  frameStrategy: 'scene',
+                  sourceKey: meta?.sourceKey || media.url || media.localPath || ''
+                }
+              })
+            }
+            continue
+          }
+        } catch (error) {
+          logger.warn(`[${pluginName}] 视频场景变化抽帧失败，已回退均匀抽帧：${error.message}`)
+        }
+      }
 
       for (let frameIndex = 1; frameIndex <= framesPerSegment; frameIndex += 1) {
         const seekSeconds = durationSeconds > 0
@@ -1224,11 +1359,13 @@ class ApiService {
             localPath: outputPath,
             url: media.url,
             name: media.name || '',
+            summaryMediaLabel: media.summaryMediaLabel,
             imagePromptLabel: buildVideoFrameLabel(media, videoIndex, frameIndex, framesPerSegment, seekSeconds),
             videoFrameMeta: {
               videoIndex,
               frameIndex,
               frameCount: framesPerSegment,
+              frameStrategy: 'uniform',
               localSeconds: seekSeconds,
               globalSeconds: (Number(meta?.startSeconds) || 0) + seekSeconds,
               sourceKey: meta?.sourceKey || media.url || media.localPath || ''
@@ -1559,6 +1696,7 @@ class ApiService {
     const promptConfig = Config.get('prompt', {})
     const userContent = []
     const splitMetas = []
+    const cacheParts = []
 
     if (content) {
       userContent.push({ type: 'text', text: content })
@@ -1570,16 +1708,19 @@ class ApiService {
         continue
       }
 
-      const base64 = fs.readFileSync(media.localPath).toString('base64')
+      const buffer = fs.readFileSync(media.localPath)
+      const mediaHash = hashBuffer(buffer)
+      const base64 = buffer.toString('base64')
       const mimeType = getImageMimeType(media.localPath)
       if (mimeType === 'image/gif') {
         logger.warn(`[${pluginName}] 检测到未静态化的 GIF，已跳过：${media.localPath}`)
         continue
       }
-      if (media.imagePromptLabel) {
+      const imagePromptLabel = media.imagePromptLabel || media.summaryMediaLabel
+      if (imagePromptLabel) {
         userContent.push({
           type: 'text',
-          text: String(media.imagePromptLabel)
+          text: String(imagePromptLabel)
         })
       }
       userContent.push({
@@ -1591,6 +1732,11 @@ class ApiService {
       if (media?.splitMeta?.totalParts > 1) {
         splitMetas.push(media.splitMeta)
       }
+      cacheParts.push({
+        hash: mediaHash,
+        label: media.imagePromptLabel || media.summaryMediaLabel || '',
+        splitMeta: media.splitMeta || null
+      })
       imageCount += 1
     }
 
@@ -1608,13 +1754,25 @@ class ApiService {
       systemPrompt += (promptConfig.summaryImageAppend || '').replace('{count}', imageCount)
     }
 
+    const cacheKey = this.getMediaAnalysisCacheKey('image', {
+      content,
+      systemPrompt,
+      images: cacheParts
+    })
+    const cachedResult = this.tryGetMediaAnalysisCache(cacheKey, '图片理解')
+    if (cachedResult) {
+      return cachedResult
+    }
+
     const { json } = await this.requestChatCompletion('image', [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent }
     ])
 
     const result = extractResponseText(json) || null
-    return result ? beautifyText(result) : null
+    const finalResult = result ? beautifyText(result) : null
+    this.setMediaAnalysisCache(cacheKey, finalResult)
+    return finalResult
   }
 
   async callTextImageAPI(content, imageFiles = [], systemPromptOverride = null) {
@@ -1728,6 +1886,7 @@ class ApiService {
     }
 
     let videoCount = 0
+    const cacheParts = []
     for (const media of videoFiles) {
       if (media.type !== 'video' || !media.localPath || !fs.existsSync(media.localPath)) {
         continue
@@ -1739,12 +1898,19 @@ class ApiService {
         text: buildVideoSegmentLabel(media, videoCount)
       })
 
-      const base64 = fs.readFileSync(media.localPath).toString('base64')
+      const buffer = fs.readFileSync(media.localPath)
+      const mediaHash = hashBuffer(buffer)
+      const base64 = buffer.toString('base64')
       userContent.push({
         type: 'video_url',
         video_url: {
           url: `data:video/mp4;base64,${base64}`
         }
+      })
+      cacheParts.push({
+        hash: mediaHash,
+        label: media.summaryMediaLabel || '',
+        videoProcessMeta: media.videoProcessMeta || null
       })
     }
 
@@ -1752,13 +1918,27 @@ class ApiService {
       return null
     }
 
+    const systemPrompt = systemPromptOverride || promptConfig.video || ''
+    const cacheKey = this.getMediaAnalysisCacheKey('video', {
+      content,
+      systemPrompt,
+      splitHint,
+      videos: cacheParts
+    })
+    const cachedResult = this.tryGetMediaAnalysisCache(cacheKey, '视频理解')
+    if (cachedResult) {
+      return cachedResult
+    }
+
     const { json } = await this.requestChatCompletion('video', [
-      { role: 'system', content: systemPromptOverride || promptConfig.video || '' },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent }
     ])
 
     const result = extractResponseText(json) || null
-    return result ? beautifyText(result) : null
+    const finalResult = result ? beautifyText(result) : null
+    this.setMediaAnalysisCache(cacheKey, finalResult)
+    return finalResult
   }
 
   async callSummaryAPI(content, mediaFiles = []) {
@@ -1779,13 +1959,23 @@ class ApiService {
         const prompt = [
           actualBatches > 1 ? `这是第 ${batch + 1} / ${actualBatches} 批图片。` : '',
           '请逐图观察这些图片，提取后续统一总结所需的关键信息。',
+          '如果图片前带有类似 [M1 图片] 的编号，请在分析中保留该编号，方便后续按原消息顺序对应。',
           '优先描述主题、人物、场景、图片文字、表格内容、时间顺序和图片之间的上下文关系。',
           '如果多张图片属于同一长图或同一组内容，请按顺序整合理解。',
           '直接输出纯文本，不要使用 markdown，不要编造。'
         ].filter(Boolean).join('\n')
-        const result = await this.callImageAPI(prompt, chunk)
-        if (result) {
-          mediaSections.push(actualBatches > 1 ? `【第${batch + 1}批图片分析】\n${result}` : `【图片分析】\n${result}`)
+        try {
+          const result = await this.callImageAPI(prompt, chunk)
+          if (result) {
+            mediaSections.push(actualBatches > 1 ? `【第${batch + 1}批图片分析】\n${result}` : `【图片分析】\n${result}`)
+          }
+        } catch (error) {
+          logger.warn(`[${pluginName}] 第 ${batch + 1} 批图片分析失败，已继续处理其他内容：${error.message}`)
+          mediaSections.push(
+            actualBatches > 1
+              ? `【第${batch + 1}批图片处理说明】该批图片分析失败：${error.message}`
+              : `【图片处理说明】图片分析失败：${error.message}`
+          )
         }
       }
     }
@@ -1802,17 +1992,27 @@ class ApiService {
         const prompt = [
           actualBatches > 1 ? `这是第 ${batch + 1} / ${actualBatches} 批视频。` : '',
           '请分析这些视频，提取后续统一总结所需的关键信息。',
+          '如果视频前带有类似 [M2 视频] 的编号，请在分析中保留该编号，方便后续按原消息顺序对应。',
           '优先描述主题、人物、场景、字幕、关键动作和关键台词。',
           '如果同一原视频被拆成多段，请按顺序连续理解。',
           '直接输出纯文本，不要使用 markdown，不要编造。'
         ].filter(Boolean).join('\n')
 
-        const result = await this.callVideoAPI(prompt, chunk, null, {
-          batchLimit: 0,
-          loopLimit: 1
-        })
-        if (result) {
-          mediaSections.push(actualBatches > 1 ? `【第${batch + 1}批视频分析】\n${result}` : `【视频分析】\n${result}`)
+        try {
+          const result = await this.callVideoAPI(prompt, chunk, null, {
+            batchLimit: 0,
+            loopLimit: 1
+          })
+          if (result) {
+            mediaSections.push(actualBatches > 1 ? `【第${batch + 1}批视频分析】\n${result}` : `【视频分析】\n${result}`)
+          }
+        } catch (error) {
+          logger.warn(`[${pluginName}] 第 ${batch + 1} 批视频分析失败，已继续处理其他内容：${error.message}`)
+          mediaSections.push(
+            actualBatches > 1
+              ? `【第${batch + 1}批视频处理说明】该批视频分析失败：${error.message}`
+              : `【视频处理说明】视频分析失败：${error.message}`
+          )
         }
       }
     }

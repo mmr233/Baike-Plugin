@@ -45,6 +45,28 @@ class BaikeService {
     resultCache.set(key, value, Config.get('cache', {}))
   }
 
+  async mapWithConcurrency(items = [], limit = 2, handler = async item => item) {
+    const actualLimit = Math.max(1, Math.min(Number(limit) || 1, items.length || 1))
+    const results = new Array(items.length)
+    let nextIndex = 0
+
+    const worker = async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex
+        nextIndex += 1
+
+        try {
+          results[currentIndex] = await handler(items[currentIndex], currentIndex)
+        } catch (error) {
+          results[currentIndex] = { error }
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: actualLimit }, worker))
+    return results
+  }
+
   getSendMode(funcType = '') {
     const sendConfig = Config.get('send', {})
     return sendConfig[funcType] || sendConfig.primaryMode || 'html'
@@ -346,6 +368,173 @@ class BaikeService {
 
       notices.push(
         `图片数量超过处理上限，本次仅分析前 ${processedCount} 张${totalLimit > 0 ? `（上限 ${totalLimit} 张）` : ''}；${detailParts.join('，')}。`
+      )
+    }
+
+    return notices
+  }
+
+  getSummaryMediaTypeName(type = '') {
+    if (type === 'image') {
+      return '图片'
+    }
+    if (type === 'video') {
+      return '视频'
+    }
+    if (type === 'audio') {
+      return '语音'
+    }
+    return '附件'
+  }
+
+  assignSummaryMediaLabels(containers = {}) {
+    const assignType = (items = [], type = '') => {
+      for (const item of items || []) {
+        if (item && typeof item === 'object') {
+          item.summaryMediaType = type
+        }
+      }
+    }
+
+    assignType(containers.images, 'image')
+    assignType(containers.videos, 'video')
+    assignType(containers.audios, 'audio')
+    assignType(containers.others, 'other')
+  }
+
+  createSummaryMediaLabelAssigner(containers = {}) {
+    let index = 0
+    const queues = {
+      image: [...(containers.images || [])],
+      video: [...(containers.videos || [])],
+      audio: [...(containers.audios || [])],
+      other: [...(containers.others || [])]
+    }
+    const ensureLabel = (item, type) => {
+      if (!item || typeof item !== 'object') {
+        return ''
+      }
+
+      if (!item.summaryMediaLabel) {
+        index += 1
+        item.summaryMediaId = `M${index}`
+        item.summaryMediaType = type || item.summaryMediaType || 'other'
+        item.summaryMediaLabel = `[${item.summaryMediaId} ${this.getSummaryMediaTypeName(item.summaryMediaType)}]`
+      }
+
+      return item.summaryMediaLabel
+    }
+    const nextLabel = (type, fallback) => {
+      const item = queues[type]?.shift()
+      return ensureLabel(item, type) || fallback
+    }
+    const assignRemaining = () => {
+      for (const [type, items] of Object.entries(queues)) {
+        for (const item of items) {
+          ensureLabel(item, type)
+        }
+      }
+    }
+
+    return { ensureLabel, nextLabel, assignRemaining }
+  }
+
+  ensureFallbackSummaryMediaLabels(containers = {}) {
+    const assigner = this.createSummaryMediaLabelAssigner(containers)
+    assigner.assignRemaining()
+  }
+
+  relabelSummaryMediaPlaceholders(texts = [], containers = {}, assigner = null) {
+    const actualAssigner = assigner || this.createSummaryMediaLabelAssigner(containers)
+    const getTypeFromPlaceholder = match => {
+      if (match.startsWith('[图片')) {
+        return 'image'
+      }
+      if (match.startsWith('[视频')) {
+        return 'video'
+      }
+      if (match.startsWith('[语音')) {
+        return 'audio'
+      }
+      return 'other'
+    }
+
+    return (texts || []).map(text => String(text || '')
+      .replace(/\[(?:图片|视频|语音|附件(?::[^\]]+)?)\]/g, match => {
+        const type = getTypeFromPlaceholder(match)
+        return actualAssigner.nextLabel(type, match)
+      }))
+  }
+
+  buildDirectMediaTimeline(message = [], containers = {}, assigner = null) {
+    const actualAssigner = assigner || this.createSummaryMediaLabelAssigner(containers)
+    const queues = {
+      image: [...(containers.images || [])],
+      video: [...(containers.videos || [])],
+      audio: [...(containers.audios || [])],
+      other: [...(containers.others || [])]
+    }
+    const parts = []
+    const nextLabel = (type, fallback) => actualAssigner.ensureLabel(queues[type]?.shift(), type) || fallback
+
+    for (const segmentItem of message || []) {
+      const data = this.messageService.getSegmentData(segmentItem)
+      const type = segmentItem?.type || data?.type || data?._type || ''
+
+      if (type === 'reply') {
+        continue
+      }
+
+      if (type === 'text') {
+        const text = String(data.text || segmentItem?.text || '').trim()
+        const cleaned = text.replace(/^总结\s*/, '').trim()
+        if (cleaned) {
+          parts.push(cleaned)
+        }
+      } else if (type === 'image') {
+        parts.push(nextLabel('image', '[图片]'))
+      } else if (type === 'video') {
+        parts.push(nextLabel('video', '[视频]'))
+      } else if (type === 'record') {
+        parts.push(nextLabel('audio', '[语音]'))
+      } else if (type === 'file') {
+        parts.push(nextLabel('other', '[附件]'))
+      }
+    }
+
+    return parts.length > 0 ? `直接消息：${parts.join(' ')}` : ''
+  }
+
+  assignUnusedSummaryMediaLabels(containers = {}, assigner = null) {
+    if (assigner) {
+      assigner.assignRemaining()
+      return
+    }
+
+    this.ensureFallbackSummaryMediaLabels(containers)
+  }
+
+  buildMediaProcessingNotices(imageMeta = {}, videoMeta = {}, options = {}) {
+    const notices = this.buildImageOverflowNotices(imageMeta, {
+      processedCount: options.processedImageCount,
+      totalLimit: options.totalImageLimit
+    })
+    const skippedVideoSourceCount = Math.max(0, Number(videoMeta?.skippedSourceCount) || 0)
+    const skippedVideoSegmentCount = Math.max(0, Number(videoMeta?.skippedSegmentCount) || 0)
+    const processedVideoCount = Math.max(0, Number(options.processedVideoCount) || 0)
+    const totalVideoLimit = Math.max(0, Number(options.totalVideoLimit) || 0)
+
+    if (skippedVideoSourceCount > 0 || skippedVideoSegmentCount > 0) {
+      const detailParts = []
+      if (skippedVideoSourceCount > 0) {
+        detailParts.push(`${skippedVideoSourceCount} 个原始视频未送入模型`)
+      }
+      if (skippedVideoSegmentCount > 0) {
+        detailParts.push(`${skippedVideoSegmentCount} 个视频片段被截断`)
+      }
+
+      notices.push(
+        `视频数量超过处理上限，本次仅分析前 ${processedVideoCount} 段${totalVideoLimit > 0 ? `（上限 ${totalVideoLimit} 段）` : ''}；${detailParts.join('，')}。`
       )
     }
 
@@ -869,18 +1058,19 @@ class BaikeService {
     await e.reply('正在分析内容，请稍候...')
 
     try {
-      const orderedContextTexts = []
+      let orderedContextTexts = []
       const extraExtractedTexts = []
-      const allImages = [...directImages]
-      const allVideos = [...directVideos]
-      const allAudios = [...directVoices]
+      const allImages = []
+      const allVideos = []
+      const allAudios = []
       const allOtherFiles = []
+      const directOtherFiles = []
 
       this.appendExtractedFiles(directFiles, {
-        images: allImages,
-        videos: allVideos,
-        audios: allAudios,
-        others: allOtherFiles
+        images: directImages,
+        videos: directVideos,
+        audios: directVoices,
+        others: directOtherFiles
       })
 
       if (replySegment?.id) {
@@ -986,10 +1176,50 @@ class BaikeService {
         this.flushOrderedSummaryParts(replyOrderedParts, orderedContextTexts)
       }
 
+      allImages.push(...directImages)
+      allVideos.push(...directVideos)
+      allAudios.push(...directVoices)
+      allOtherFiles.push(...directOtherFiles)
+
       if (orderedContextTexts.length === 0 && allImages.length === 0 && allVideos.length === 0 && allAudios.length === 0 && allOtherFiles.length === 0) {
         await e.reply('未能从消息中提取到可分析内容')
         return true
       }
+
+      this.assignSummaryMediaLabels({
+        images: allImages,
+        videos: allVideos,
+        audios: allAudios,
+        others: allOtherFiles
+      })
+      const mediaLabelAssigner = this.createSummaryMediaLabelAssigner({
+        images: allImages,
+        videos: allVideos,
+        audios: allAudios,
+        others: allOtherFiles
+      })
+      orderedContextTexts = this.relabelSummaryMediaPlaceholders(orderedContextTexts, {
+        images: allImages,
+        videos: allVideos,
+        audios: allAudios,
+        others: allOtherFiles
+      }, mediaLabelAssigner)
+
+      const directTimeline = this.buildDirectMediaTimeline(message, {
+        images: directImages,
+        videos: directVideos,
+        audios: directVoices,
+        others: directOtherFiles
+      }, mediaLabelAssigner)
+      if (directTimeline) {
+        orderedContextTexts.push(directTimeline)
+      }
+      this.assignUnusedSummaryMediaLabels({
+        images: allImages,
+        videos: allVideos,
+        audios: allAudios,
+        others: allOtherFiles
+      }, mediaLabelAssigner)
 
       const fileLimits = this.getSummaryFileLimits()
       const imageFiles = await this.mediaService.downloadImages(allImages, 'sum_img', fileLimits.totalImageLimit)
@@ -1018,13 +1248,30 @@ class BaikeService {
 
       if (audioFiles.length > 0) {
         await e.reply(`正在识别 ${audioFiles.length} 条语音内容...`)
-        for (const audio of audioFiles) {
-          const mp3Path = await this.mediaService.convertAudioToMp3(audio.localPath)
-          const audioResult = mp3Path ? await this.apiService.callAudioAPI(mp3Path) : null
-          if (audioResult) {
-            extraExtractedTexts.push(`【语音内容】${audioResult}`)
+        const audioResults = await this.mapWithConcurrency(audioFiles, 2, async audio => {
+          let mp3Path = null
+          try {
+            mp3Path = await this.mediaService.convertAudioToMp3(audio.localPath)
+            const audioResult = mp3Path ? await this.apiService.callAudioAPI(mp3Path) : null
+            return { audio, audioResult }
+          } finally {
+            this.mediaService.cleanupFile(mp3Path)
           }
-          this.mediaService.cleanupFile(mp3Path)
+        })
+
+        for (const item of audioResults) {
+          if (item?.error) {
+            logger.warn(`[${pluginName}] 语音识别失败：${item.error.message}`)
+            continue
+          }
+
+          const { audio, audioResult } = item || {}
+          if (!audioResult) {
+            continue
+          }
+
+          const label = audio?.summaryMediaLabel || '语音内容'
+          extraExtractedTexts.push(`【${label.replace(/^\[|\]$/g, '')}】${audioResult}`)
         }
         this.mediaService.cleanupFiles(audioFiles)
       }
@@ -1040,7 +1287,7 @@ class BaikeService {
       const botProfile = await this.messageService.getBotProfileForPrompt(e)
       const promptSections = []
       if (orderedContextTexts.length > 0) {
-        promptSections.push('以下内容已尽量按原消息顺序整理；文中的[图片]、[视频]、[语音]、[附件]占位与后续上传媒体的顺序一致。若某张长图被自动裁剪，其片段也会按原图顺序连续排列。请结合上下文理解，不要打乱对应关系。')
+        promptSections.push('以下内容已尽量按原消息顺序整理；文中的[M1 图片]、[M2 视频]、[M3 语音]、[M4 附件]等编号会与后续媒体分析结果一一对应。若某张长图或某个视频被自动切片，其片段仍属于同一个编号，请结合前后文连续理解，不要打乱对应关系。')
         promptSections.push(orderedContextTexts.join('\n'))
       }
       if (extraExtractedTexts.length > 0) {
@@ -1061,9 +1308,11 @@ class BaikeService {
       const result = await this.apiService.callSummaryAPI(prompt, mediaFiles)
       this.mediaService.cleanupFiles(imageFiles)
       this.mediaService.cleanupFiles(videoFiles)
-      const summaryNotices = this.buildImageOverflowNotices(imageFiles.summaryMeta, {
-        processedCount: imageFiles.length,
-        totalLimit: fileLimits.totalImageLimit
+      const summaryNotices = this.buildMediaProcessingNotices(imageFiles.summaryMeta, videoFiles.summaryMeta, {
+        processedImageCount: imageFiles.length,
+        totalImageLimit: fileLimits.totalImageLimit,
+        processedVideoCount: videoFiles.length,
+        totalVideoLimit: fileLimits.totalVideoLimit
       })
 
       if (!result) {

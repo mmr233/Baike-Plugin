@@ -288,7 +288,9 @@ const DEFAULT_CONFIG = {
       segmentDurationSeconds: 45,
       maxSegments: 6,
       useImageModel: false,
-      imageFramesPerSegment: 4
+      imageFramesPerSegment: 4,
+      imageFrameStrategy: 'uniform',
+      imageSceneThreshold: 0.25
     }
   },
   chatSummary: {
