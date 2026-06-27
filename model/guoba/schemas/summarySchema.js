@@ -237,6 +237,25 @@ const summarySchemaRaw = [
     }
   },
   {
+    field: 'fileRequest.videoPreprocess.useImageModel',
+    label: '使用识图模型理解视频',
+    bottomHelpMessage: '开启后会先把视频片段抽成关键帧，再调用图片模型理解；抽帧或识图失败时会自动回退视频模型',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'fileRequest.videoPreprocess.imageFramesPerSegment',
+    label: '每段视频抽帧数',
+    bottomHelpMessage: '使用识图模型理解视频时，每个视频片段抽取多少张关键帧；数值越大越细，但图片请求成本也越高',
+    component: 'InputNumber',
+    defaultValue: 4,
+    componentProps: {
+      min: 1,
+      max: 8,
+      step: 1
+    }
+  },
+  {
     component: 'Divider',
     label: '群聊总结',
     componentProps: {
@@ -347,7 +366,9 @@ const summaryRecommendationMap = {
   'fileRequest.videoPreprocess.compressTargetSizeMb': 12,
   'fileRequest.videoPreprocess.splitTriggerDurationSeconds': 90,
   'fileRequest.videoPreprocess.segmentDurationSeconds': 45,
-  'fileRequest.videoPreprocess.maxSegments': 6
+  'fileRequest.videoPreprocess.maxSegments': 6,
+  'fileRequest.videoPreprocess.useImageModel': false,
+  'fileRequest.videoPreprocess.imageFramesPerSegment': 4
 }
 
 export const summarySchema = enhanceSchemas(summarySchemaRaw, {

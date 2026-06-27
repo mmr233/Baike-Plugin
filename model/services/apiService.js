@@ -1,14 +1,27 @@
 import fs from 'node:fs'
+import path from 'node:path'
+import { execFile as execFileCallback } from 'node:child_process'
+import { promisify } from 'node:util'
 import Config from '../Config.js'
 import { pluginName } from '../constant.js'
 import { debugLog } from '../debug.js'
 import { beautifyText, extractKeyword } from '../../utils/text.js'
 import { sleep } from '../../utils/common.js'
 
+const execFile = promisify(execFileCallback)
 const DEFAULT_CONNECT_TIMEOUT_MS = 30000
 const fetchDispatcherCache = new Map()
 let undiciAgentPromise = null
 let undiciUnavailableWarned = false
+
+function clampNumber(value, min, max, fallback) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return fallback
+  }
+
+  return Math.min(max, Math.max(min, Math.round(numeric)))
+}
 
 function parseJson(text, context = '接口响应') {
   try {
@@ -481,6 +494,20 @@ function buildVideoSegmentLabel(media = {}, index = 0) {
   const startSeconds = Number(meta?.startSeconds) || 0
   const endSeconds = Math.max(startSeconds, Number(meta?.endSeconds) || startSeconds)
   return `视频${index}：同一原视频的第 ${Number(meta?.segmentIndex) || 1}/${totalSegments} 段，时间范围 ${formatVideoTimePoint(startSeconds)}-${formatVideoTimePoint(endSeconds)}`
+}
+
+function buildVideoFrameLabel(media = {}, videoIndex = 0, frameIndex = 0, frameCount = 0, localSeconds = 0) {
+  const meta = media?.videoProcessMeta || {}
+  const totalSegments = Number(meta?.totalSegments) || 1
+  const segmentIndex = Number(meta?.segmentIndex) || 1
+  const globalSeconds = (Number(meta?.startSeconds) || 0) + (Number(localSeconds) || 0)
+  const frameText = `第 ${frameIndex}/${frameCount} 帧，约 ${formatVideoTimePoint(globalSeconds)}`
+
+  if (totalSegments <= 1) {
+    return `视频${videoIndex}：${frameText}`
+  }
+
+  return `视频${videoIndex}：原视频第 ${segmentIndex}/${totalSegments} 段，${frameText}`
 }
 
 function buildSplitVideoHint(videoFiles = []) {
@@ -1109,6 +1136,114 @@ class ApiService {
     return fetchDispatcherCache.get(normalizedTimeout)
   }
 
+  getVideoImageModelConfig() {
+    const config = Config.get('fileRequest.videoPreprocess', {})
+    return {
+      enabled: config?.useImageModel === true,
+      framesPerSegment: clampNumber(config?.imageFramesPerSegment, 1, 8, 4),
+      maxOutputWidth: 1280,
+      ffmpegTimeoutMs: 60000
+    }
+  }
+
+  createApiTempPath(prefix = 'media', ext = '.tmp') {
+    const tempDir = path.join(process.cwd(), 'temp', pluginName)
+    fs.mkdirSync(tempDir, { recursive: true })
+    return path.join(
+      tempDir,
+      `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`
+    )
+  }
+
+  cleanupTempFiles(files = []) {
+    for (const file of files) {
+      const filePath = typeof file === 'string' ? file : file?.localPath
+      if (!filePath) {
+        continue
+      }
+
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath)
+        }
+      } catch (error) {
+        logger.warn(`[${pluginName}] 清理视频抽帧临时文件失败：${error.message}`)
+      }
+    }
+  }
+
+  async extractVideoFrameImage(videoFile, outputPath, seekSeconds, config = this.getVideoImageModelConfig()) {
+    await execFile('ffmpeg', [
+      '-v', 'error',
+      '-ss', Math.max(0, Number(seekSeconds) || 0).toFixed(3),
+      '-i', videoFile,
+      '-frames:v', '1',
+      '-vf', `scale='min(iw,${config.maxOutputWidth})':-2:force_original_aspect_ratio=decrease`,
+      '-q:v', '3',
+      '-y',
+      outputPath
+    ], {
+      windowsHide: true,
+      timeout: config.ffmpegTimeoutMs
+    })
+
+    return fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0
+  }
+
+  async extractVideoFramesForImageModel(videoFiles = [], config = this.getVideoImageModelConfig()) {
+    const imageFiles = []
+    let videoIndex = 0
+
+    for (const media of videoFiles || []) {
+      if (media?.type !== 'video' || !media.localPath || !fs.existsSync(media.localPath)) {
+        continue
+      }
+
+      videoIndex += 1
+      const meta = media?.videoProcessMeta || {}
+      const durationSeconds = Math.max(0, Number(meta?.durationSeconds) || 0)
+      const framesPerSegment = durationSeconds > 0 && durationSeconds < 2
+        ? 1
+        : config.framesPerSegment
+
+      for (let frameIndex = 1; frameIndex <= framesPerSegment; frameIndex += 1) {
+        const seekSeconds = durationSeconds > 0
+          ? Math.min(Math.max(0, durationSeconds - 0.05), durationSeconds * frameIndex / (framesPerSegment + 1))
+          : 0
+        const outputPath = this.createApiTempPath('video_frame', '.jpg')
+
+        try {
+          const ok = await this.extractVideoFrameImage(media.localPath, outputPath, seekSeconds, config)
+          if (!ok) {
+            this.cleanupTempFiles([outputPath])
+            continue
+          }
+
+          imageFiles.push({
+            type: 'image',
+            localPath: outputPath,
+            url: media.url,
+            name: media.name || '',
+            imagePromptLabel: buildVideoFrameLabel(media, videoIndex, frameIndex, framesPerSegment, seekSeconds),
+            videoFrameMeta: {
+              videoIndex,
+              frameIndex,
+              frameCount: framesPerSegment,
+              localSeconds: seekSeconds,
+              globalSeconds: (Number(meta?.startSeconds) || 0) + seekSeconds,
+              sourceKey: meta?.sourceKey || media.url || media.localPath || ''
+            }
+          })
+        } catch (error) {
+          this.cleanupTempFiles([outputPath])
+          logger.warn(`[${pluginName}] 视频抽帧失败：${error.message}`)
+        }
+      }
+    }
+
+    return imageFiles
+  }
+
   createAbortTimer(controller, timeoutMs) {
     let timeoutId = null
     const reset = () => {
@@ -1441,6 +1576,12 @@ class ApiService {
         logger.warn(`[${pluginName}] 检测到未静态化的 GIF，已跳过：${media.localPath}`)
         continue
       }
+      if (media.imagePromptLabel) {
+        userContent.push({
+          type: 'text',
+          text: String(media.imagePromptLabel)
+        })
+      }
       userContent.push({
         type: 'image_url',
         image_url: {
@@ -1482,6 +1623,34 @@ class ApiService {
     }
 
     return this.callSummaryTextAPI(content, systemPromptOverride)
+  }
+
+  async callVideoByImageModelAPI(content, videoFiles = [], systemPromptOverride = null) {
+    const promptConfig = Config.get('prompt', {})
+    const config = this.getVideoImageModelConfig()
+    const imageFiles = await this.extractVideoFramesForImageModel(videoFiles, config)
+
+    if (imageFiles.length === 0) {
+      return null
+    }
+
+    try {
+      const prompt = [
+        String(content || '').trim(),
+        '以下图片是从视频片段中按时间顺序抽取的关键帧，每张图前都有对应的视频、片段和时间标签。',
+        '请把这些关键帧当作同一视频时间线连续理解，概括主体、人物、场景、字幕、关键动作和可能的台词信息。',
+        '如果同一原视频被拆成多段，请按段号和时间顺序整合，不要当成互不相关的独立图片。',
+        '直接输出纯文本，不要使用 markdown，不要编造。'
+      ].filter(Boolean).join('\n')
+
+      return await this.callImageAPI(
+        prompt,
+        imageFiles,
+        systemPromptOverride || promptConfig.video || ''
+      )
+    } finally {
+      this.cleanupTempFiles(imageFiles)
+    }
   }
 
   async callVideoAPI(content, videoFiles = [], systemPromptOverride = null, options = {}) {
@@ -1529,6 +1698,22 @@ class ApiService {
       }
 
       return results.join('\n\n')
+    }
+
+    const imageModelConfig = this.getVideoImageModelConfig()
+    if (imageModelConfig.enabled && options.forceVideoModel !== true) {
+      try {
+        const imageModelResult = await this.callVideoByImageModelAPI(content, videoFiles, systemPromptOverride)
+        if (imageModelResult) {
+          debugLog('api.videoImageModel', '视频已通过识图模型分析', {
+            videoCount: (videoFiles || []).filter(item => item?.type === 'video').length,
+            framesPerSegment: imageModelConfig.framesPerSegment
+          })
+          return imageModelResult
+        }
+      } catch (error) {
+        logger.warn(`[${pluginName}] 视频抽帧识图失败，已回退视频模型：${error.message}`)
+      }
     }
 
     const userContent = []

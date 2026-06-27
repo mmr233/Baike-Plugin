@@ -286,7 +286,9 @@ const DEFAULT_CONFIG = {
       compressTargetSizeMb: 12,
       splitTriggerDurationSeconds: 90,
       segmentDurationSeconds: 45,
-      maxSegments: 6
+      maxSegments: 6,
+      useImageModel: false,
+      imageFramesPerSegment: 4
     }
   },
   chatSummary: {
