@@ -184,6 +184,7 @@ const DEFAULT_CONFIG = {
     enabled: true,
     itemId: 'baike:summary_service',
     itemName: '百科总结服务',
+    itemAliases: ['总结', '群聊总结', '群友总结', '内容总结', '媒体总结', '百科总结'],
     defaultCostFavor: 3,
     exemptMaster: true,
     chargeCached: false,

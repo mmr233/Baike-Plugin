@@ -69,6 +69,17 @@ const runtimeSchemaRaw = [
     defaultValue: '百科总结服务'
   },
   {
+    field: 'summaryBilling.itemAliases',
+    label: '计费商品别名',
+    bottomHelpMessage: 'Baike 注册到 Iris 商城的商品别名；可用于 #总结说明 等短命令，保存到 Iris 商城配置后以 Iris 为准',
+    component: 'Select',
+    defaultValue: ['总结', '群聊总结', '群友总结', '内容总结', '媒体总结', '百科总结'],
+    componentProps: {
+      mode: 'tags',
+      placeholder: '输入别名后回车'
+    }
+  },
+  {
     field: 'summaryBilling.defaultCostFavor',
     label: '默认消耗好感度',
     bottomHelpMessage: '仅在 Iris 商城没有同 ID 商品时使用；正式价格优先读取 Iris 商城配置',

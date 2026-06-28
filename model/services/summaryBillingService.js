@@ -37,6 +37,13 @@ function normalizeLimitScope(value) {
   return ['user', 'group', 'groupUser'].includes(scope) ? scope : 'groupUser'
 }
 
+function normalizeAliases(value, fallback = []) {
+  const source = Array.isArray(value) ? value : fallback
+  return [...new Set(source
+    .map(item => String(item || '').trim())
+    .filter(Boolean))]
+}
+
 function getUserName(e = {}) {
   return String(e.sender?.card || e.sender?.nickname || e.user_id || '').trim()
 }
@@ -55,6 +62,7 @@ class SummaryBillingService {
       enabled: getBoolean(config.enabled, true),
       itemId: String(config.itemId || 'baike:summary_service').trim() || 'baike:summary_service',
       itemName: String(config.itemName || '百科总结服务').trim() || '百科总结服务',
+      itemAliases: normalizeAliases(config.itemAliases, ['总结', '群聊总结', '群友总结', '内容总结', '媒体总结', '百科总结']),
       defaultCostFavor: getPositiveInteger(config.defaultCostFavor, 3),
       exemptMaster: getBoolean(config.exemptMaster, true),
       chargeCached: getBoolean(config.chargeCached, false),
@@ -469,6 +477,7 @@ class SummaryBillingService {
           const registered = Shop.registerItem({
             id: config.itemId,
             name: config.itemName,
+            aliases: config.itemAliases,
             type: BILLING_TYPE,
             costFavor: config.defaultCostFavor,
             amount: 1,
