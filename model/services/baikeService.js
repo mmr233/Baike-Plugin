@@ -50,9 +50,38 @@ class BaikeService {
     this.messageService = new MessageService()
     this.documentService = new DocumentService(this.mediaService, this.messageService)
     this.summaryBillingService = new SummaryBillingService()
+    this.searchBillingService = new SummaryBillingService({
+      configKey: 'searchBilling',
+      featureName: '搜索',
+      logScope: 'search.billing',
+      serviceKey: 'search',
+      defaultItemId: 'baike:search_service',
+      defaultItemName: '百科搜索服务',
+      defaultItemAliases: ['搜索', '百科搜索', '查询', '百科查询'],
+      defaultCostFavor: 2,
+      type: 'baike:search_service',
+      typeLabel: '百科搜索服务',
+      typeSubtitle: '使用百科搜索时自动扣费',
+      typeIntro: '这是 Baike-Plugin 的服务型商品，触发搜索并实际消耗模型时会自动扣除好感度。',
+      ownedText: '服务型商品，使用搜索时自动扣除',
+      defaultFeature: 'search',
+      chargeSourcePrefix: 'search',
+      refundSourcePrefix: 'search-refund',
+      defaultFailureReason: 'search_failed',
+      usageDataFile: 'search_billing_usage.json',
+      limitExceededCode: 'search_usage_limit_exceeded',
+      unavailableItemMessage: '未找到搜索计费商品，请联系主人检查 Iris 商城配置',
+      platformDisabledMessage: '签到插件当前已关闭，暂时无法使用搜索计费服务',
+      registrationDisabledMessage: '搜索计费未启用',
+      typeRegisterFailedMessage: '搜索计费商品类型注册失败',
+      itemRegisterFailedMessage: '搜索计费商品注册失败',
+      desc: 'Baike-Plugin 搜索功能自动扣费项；可在 Iris-Sign-Plugin 的商城配置中用同 ID 覆盖价格。'
+    })
     this.groupSummaryInflight = new Map()
     this.summaryBillingService.ensureRegistered()
       .catch(error => logger.warn(`[${pluginName}] 总结计费商品预注册失败：${error.message}`))
+    this.searchBillingService.ensureRegistered()
+      .catch(error => logger.warn(`[${pluginName}] 搜索计费商品预注册失败：${error.message}`))
   }
 
   getFormattedDate(timestamp) {
@@ -340,6 +369,32 @@ class BaikeService {
     }
   }
 
+  async chargeSearchUsage(e, context = {}) {
+    const result = await this.searchBillingService.charge(e, context)
+    if (!result.ok) {
+      await e.reply(result.message || '好感度不足，暂时无法使用搜索功能')
+      return null
+    }
+
+    return result
+  }
+
+  async refundSearchUsage(chargeResult, reason = 'search_failed') {
+    try {
+      await this.searchBillingService.refund(chargeResult, reason)
+    } catch (error) {
+      logger.warn(`[${pluginName}] 搜索计费退款处理失败：${error.message}`)
+    }
+  }
+
+  async completeSearchUsage(chargeResult, reason = 'search_completed') {
+    try {
+      await this.searchBillingService.complete(chargeResult, reason)
+    } catch (error) {
+      logger.warn(`[${pluginName}] 搜索次数记录完成处理失败：${error.message}`)
+    }
+  }
+
   getBillingReasonText(reason = '') {
     const reasonMap = {
       cacheHit: '命中缓存',
@@ -355,12 +410,12 @@ class BaikeService {
     return reasonMap[reason] || reason || '未扣费'
   }
 
-  buildSummaryBillingText(chargeResult = null) {
+  buildBillingText(chargeResult = null, fallbackItemName = '百科服务') {
     if (!chargeResult) {
       return ''
     }
 
-    const itemName = chargeResult.item?.name || '百科总结服务'
+    const itemName = chargeResult.item?.name || fallbackItemName
     if (chargeResult.charged) {
       const parts = [`本次${itemName}已扣除 ${chargeResult.costFavor || 0} 点好感度。`]
       if (chargeResult.beforeFavor !== undefined && chargeResult.favor !== undefined) {
@@ -378,7 +433,15 @@ class BaikeService {
     return ''
   }
 
-  appendSummaryBillingText(text = '', billingText = '') {
+  buildSummaryBillingText(chargeResult = null) {
+    return this.buildBillingText(chargeResult, '百科总结服务')
+  }
+
+  buildSearchBillingText(chargeResult = null) {
+    return this.buildBillingText(chargeResult, '百科搜索服务')
+  }
+
+  appendBillingText(text = '', billingText = '') {
     const actualText = String(text || '').trim()
     const actualBillingText = String(billingText || '').trim()
     if (!actualBillingText) {
@@ -389,6 +452,10 @@ class BaikeService {
       actualText,
       `【扣费信息】\n${actualBillingText}`
     ].filter(Boolean).join('\n\n')
+  }
+
+  appendSummaryBillingText(text = '', billingText = '') {
+    return this.appendBillingText(text, billingText)
   }
 
   appendExtractedFiles(files, containers = {}) {
@@ -1353,6 +1420,10 @@ class BaikeService {
 
   async search(e) {
     const isExplicitSearch = e.msg.startsWith('搜索')
+    if (!isExplicitSearch && !Config.get('searchContext.enableConvenientCommand', false)) {
+      return false
+    }
+
     const rawQuestion = isExplicitSearch
       ? e.msg.replace(/^搜索/, '').trim()
       : e.msg.trim()
@@ -1363,6 +1434,21 @@ class BaikeService {
     if (!keyword) {
       await e.reply('请输入要搜索的内容，例如：搜索胡桃')
       return true
+    }
+
+    const message = Array.isArray(e.message) ? e.message : []
+    const hasReplyContext = Boolean(message.find(item => item.type === 'reply')?.id || e.reply_id)
+    const initialCacheKey = this.getCacheKey('search', keyword)
+    const initialCached = isExplicitSearch ? this.tryGetCache(initialCacheKey, '搜索') : null
+    const initialCacheReady = Boolean(!hasReplyContext && initialCached?.rawContent && initialCached?.data)
+    let chargeResult = null
+    if (!initialCacheReady) {
+      chargeResult = await this.chargeSearchUsage(e, {
+        feature: isExplicitSearch ? 'explicitSearch' : 'convenientSearch'
+      })
+      if (!chargeResult) {
+        return true
+      }
     }
 
     let searchQuery = keyword
@@ -1394,7 +1480,10 @@ class BaikeService {
     return this.doSearch(e, searchQuery, {
       displayKeyword,
       rawQuestion: rawQuestion || keyword,
-      searchContext
+      searchContext,
+      chargeResult,
+      initialCacheKey,
+      initialCached
     })
   }
 
@@ -2027,7 +2116,27 @@ class BaikeService {
     const searchContext = options.searchContext?.hasContext ? options.searchContext : null
     const userInfo = this.messageService.getUserInfo(e)
     const cacheKey = this.getCacheKey('search', searchQuery)
-    const cached = this.tryGetCache(cacheKey, '搜索')
+    const cached = options.initialCacheKey === cacheKey
+      ? (options.initialCached || this.tryGetCache(cacheKey, '搜索'))
+      : this.tryGetCache(cacheKey, '搜索')
+    let chargeResult = options.chargeResult || null
+    const cacheReady = Boolean(!searchContext && cached?.rawContent && cached?.data)
+    if (!chargeResult && cacheReady) {
+      chargeResult = await this.chargeSearchUsage(e, {
+        feature: 'search',
+        cacheHit: true
+      })
+      if (!chargeResult) {
+        return true
+      }
+    } else if (!chargeResult) {
+      chargeResult = await this.chargeSearchUsage(e, {
+        feature: 'search'
+      })
+      if (!chargeResult) {
+        return true
+      }
+    }
     let data = searchContext ? null : cached?.data || null
     let citations = cached?.citations || []
     let rawContent = cached?.rawContent || ''
@@ -2038,6 +2147,7 @@ class BaikeService {
         const searchResult = await this.apiService.searchKeyword(searchQuery)
         if (!searchResult.content) {
           await e.reply(`未找到“${displayKeyword}”的相关信息`)
+          await this.refundSearchUsage(chargeResult, 'empty_search_result')
           return true
         }
 
@@ -2050,6 +2160,7 @@ class BaikeService {
           logger.error(`[${pluginName}] 搜索失败`, error)
           await e.reply('查询失败，请稍后重试')
         }
+        await this.refundSearchUsage(chargeResult, 'search_request_failed')
         return true
       }
     }
@@ -2077,6 +2188,7 @@ class BaikeService {
           logger.error(`[${pluginName}] 搜索结果整理失败`, error)
           await e.reply('查询失败，请稍后重试')
         }
+        await this.refundSearchUsage(chargeResult, 'search_organize_failed')
         return true
       }
     }
@@ -2086,9 +2198,11 @@ class BaikeService {
       const contentText = this.buildSearchContent(data, rawContent)
 
       if (contentText) {
+        const billingText = this.buildSearchBillingText(chargeResult)
+        const displayContentText = this.appendBillingText(contentText, billingText)
         forwardMsg.push({
           ...userInfo,
-          message: [{ type: 'text', text: `═══ ${displayKeyword} ═══\n\n${contentText}` }]
+          message: [{ type: 'text', text: `═══ ${displayKeyword} ═══\n\n${displayContentText}` }]
         })
       }
 
@@ -2126,17 +2240,21 @@ class BaikeService {
         }
       }
 
-      const html = generateSearchHTML(displayKeyword, contentText, citations)
+      const billingText = this.buildSearchBillingText(chargeResult)
+      const finalContentText = this.appendBillingText(contentText, billingText)
+      const html = generateSearchHTML(displayKeyword, contentText, citations, { billingText })
       await this.sendResult(
         e,
         forwardMsg,
-        contentText || '查询完成',
+        finalContentText || '查询完成',
         html,
         'search'
       )
+      await this.completeSearchUsage(chargeResult, 'search_sent')
     } catch (error) {
       logger.error(`[${pluginName}] 搜索结果发送失败`, error)
       await e.reply('结果处理失败，请稍后重试')
+      await this.refundSearchUsage(chargeResult, 'search_send_failed')
     } finally {
       this.mediaService.cleanupFiles(screenshotPaths)
     }

@@ -969,7 +969,8 @@ export function generateHutaoHTML(title, content, stats = null, notices = [], op
     </div></body></html>`
 }
 
-export function generateSearchHTML(keyword, content, citations = []) {
+export function generateSearchHTML(keyword, content, citations = [], options = {}) {
+  const billingText = String(options?.billingText || '').trim()
   const sections = parseBracketSections(content)
   const previewText = getPreviewText(content)
 
@@ -1011,6 +1012,7 @@ export function generateSearchHTML(keyword, content, citations = []) {
       </div>
     `
     : ''
+  const billingHtml = renderBillingSection(billingText)
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
     <body><div class="journal journal-search">
@@ -1019,6 +1021,7 @@ export function generateSearchHTML(keyword, content, citations = []) {
         ${renderSnapshotNote(previewText, '摘要快照')}
         ${contentHtml}
         ${citationsHtml}
+        ${billingHtml}
       </div>
       <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
     </div></body></html>`

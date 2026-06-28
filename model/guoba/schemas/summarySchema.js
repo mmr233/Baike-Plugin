@@ -373,6 +373,13 @@ const summarySchemaRaw = [
     }
   },
   {
+    field: 'searchContext.enableConvenientCommand',
+    label: '开启搜索便捷命令',
+    bottomHelpMessage: '关闭后，只能使用“搜索 关键词”触发搜索；“xx是什么 / xx是谁”等自然语言问法不会触发，避免误触扣费',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
     field: 'searchContext.historyMessageCount',
     label: '前文注入条数',
     bottomHelpMessage: '仅对“xx是什么 / xx是谁 / xx是啥 / 谁”这类自然语言搜索生效，0 为关闭前文注入；引用消息会继续单独注入',

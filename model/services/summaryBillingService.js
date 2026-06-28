@@ -6,8 +6,33 @@ import { pluginName, pluginRoot } from '../constant.js'
 
 const IRIS_SHOP_MODULE_PATH = '../../../Iris-Sign-Plugin/model/index.js'
 const BILLING_PLUGIN_ID = 'baike'
-const BILLING_TYPE = 'baike:summary_service'
-const USAGE_DATA_PATH = path.join(pluginRoot, 'data', 'summary_billing_usage.json')
+const DEFAULT_SERVICE_OPTIONS = {
+  configKey: 'summaryBilling',
+  featureName: '总结',
+  logScope: 'summary.billing',
+  serviceKey: 'summary',
+  defaultItemId: 'baike:summary_service',
+  defaultItemName: '百科总结服务',
+  defaultItemAliases: ['总结', '群聊总结', '群友总结', '内容总结', '媒体总结', '百科总结'],
+  defaultCostFavor: 3,
+  type: 'baike:summary_service',
+  typeLabel: '百科总结服务',
+  typeSubtitle: '使用百科总结时自动扣费',
+  typeIntro: '这是 Baike-Plugin 的服务型商品，触发总结并实际消耗模型时会自动扣除好感度。',
+  ownedText: '服务型商品，使用总结时自动扣除',
+  defaultFeature: 'summary',
+  chargeSourcePrefix: 'summary',
+  refundSourcePrefix: 'summary-refund',
+  defaultFailureReason: 'summary_failed',
+  usageDataFile: 'summary_billing_usage.json',
+  limitExceededCode: 'summary_usage_limit_exceeded',
+  unavailableItemMessage: '未找到总结计费商品，请联系主人检查 Iris 商城配置',
+  platformDisabledMessage: '签到插件当前已关闭，暂时无法使用总结计费服务',
+  registrationDisabledMessage: '总结计费未启用',
+  typeRegisterFailedMessage: '总结计费商品类型注册失败',
+  itemRegisterFailedMessage: '总结计费商品注册失败',
+  desc: 'Baike-Plugin 总结功能自动扣费项；可在 Iris-Sign-Plugin 的商城配置中用同 ID 覆盖价格。'
+}
 const HOUR_MS = 60 * 60 * 1000
 
 let shopModulePromise = null
@@ -49,21 +74,26 @@ function getUserName(e = {}) {
 }
 
 class SummaryBillingService {
-  constructor() {
+  constructor(options = {}) {
+    this.options = {
+      ...DEFAULT_SERVICE_OPTIONS,
+      ...options
+    }
+    this.usageDataPath = path.join(pluginRoot, 'data', this.options.usageDataFile || DEFAULT_SERVICE_OPTIONS.usageDataFile)
     this.registerPromise = null
     this.registeredItemId = ''
     this.usageLockPromise = Promise.resolve()
   }
 
   getConfig() {
-    const config = Config.get('summaryBilling', {})
+    const config = Config.get(this.options.configKey, {})
     const limit = config.limit || config.usageLimit || {}
     return {
       enabled: getBoolean(config.enabled, true),
-      itemId: String(config.itemId || 'baike:summary_service').trim() || 'baike:summary_service',
-      itemName: String(config.itemName || '百科总结服务').trim() || '百科总结服务',
-      itemAliases: normalizeAliases(config.itemAliases, ['总结', '群聊总结', '群友总结', '内容总结', '媒体总结', '百科总结']),
-      defaultCostFavor: getPositiveInteger(config.defaultCostFavor, 3),
+      itemId: String(config.itemId || this.options.defaultItemId).trim() || this.options.defaultItemId,
+      itemName: String(config.itemName || this.options.defaultItemName).trim() || this.options.defaultItemName,
+      itemAliases: normalizeAliases(config.itemAliases, this.options.defaultItemAliases),
+      defaultCostFavor: getPositiveInteger(config.defaultCostFavor, this.options.defaultCostFavor),
       exemptMaster: getBoolean(config.exemptMaster, true),
       chargeCached: getBoolean(config.chargeCached, false),
       chargeFailed: getBoolean(config.chargeFailed, false),
@@ -77,7 +107,8 @@ class SummaryBillingService {
         countCached: getBoolean(limit.countCached, false),
         countFailed: getBoolean(limit.countFailed, false),
         countMaster: getBoolean(limit.countMaster, false)
-      }
+      },
+      featureName: this.options.featureName
     }
   }
 
@@ -173,31 +204,31 @@ class SummaryBillingService {
   }
 
   readUsageData() {
-    if (!fs.existsSync(USAGE_DATA_PATH)) {
+    if (!fs.existsSync(this.usageDataPath)) {
       return { version: 1, records: [] }
     }
 
     try {
-      const data = JSON.parse(fs.readFileSync(USAGE_DATA_PATH, 'utf8'))
+      const data = JSON.parse(fs.readFileSync(this.usageDataPath, 'utf8'))
       return {
         version: 1,
         records: Array.isArray(data.records) ? data.records : []
       }
     } catch (error) {
-      logger.warn(`[${pluginName}] 总结次数记录读取失败，已使用空记录继续：${error.message}`)
+      logger.warn(`[${pluginName}] ${this.options.featureName}次数记录读取失败，已使用空记录继续：${error.message}`)
       return { version: 1, records: [] }
     }
   }
 
   writeUsageData(data) {
-    fs.mkdirSync(path.dirname(USAGE_DATA_PATH), { recursive: true })
+    fs.mkdirSync(path.dirname(this.usageDataPath), { recursive: true })
     const payload = `${JSON.stringify({
       version: 1,
       records: Array.isArray(data.records) ? data.records : []
     }, null, 2)}\n`
-    const tempPath = `${USAGE_DATA_PATH}.tmp`
+    const tempPath = `${this.usageDataPath}.tmp`
     fs.writeFileSync(tempPath, payload, 'utf8')
-    fs.renameSync(tempPath, USAGE_DATA_PATH)
+    fs.renameSync(tempPath, this.usageDataPath)
   }
 
   normalizeUsageRecords(records = [], config = this.getConfig(), now = Date.now()) {
@@ -233,8 +264,8 @@ class SummaryBillingService {
   buildLimitExceededMessage(e = {}, config = this.getConfig(), usedCount = 0, resetAt = Date.now()) {
     const remaining = this.formatRemainingTime(resetAt - Date.now())
     return [
-      `${getUserName(e) || '你的'}总结次数已达上限。`,
-      `${this.getUsageScopeText(config.limit.scope)} ${config.limit.periodHours} 小时内最多可使用 ${config.limit.maxUses} 次总结。`,
+      `${getUserName(e) || '你的'}${config.featureName}次数已达上限。`,
+      `${this.getUsageScopeText(config.limit.scope)} ${config.limit.periodHours} 小时内最多可使用 ${config.limit.maxUses} 次${config.featureName}。`,
       `当前已使用：${usedCount}/${config.limit.maxUses} 次，约 ${remaining} 后可再次使用。`
     ].join('\n')
   }
@@ -264,7 +295,7 @@ class SummaryBillingService {
         this.writeUsageData(data)
         return {
           ok: false,
-          code: 'summary_usage_limit_exceeded',
+          code: this.options.limitExceededCode,
           message: this.buildLimitExceededMessage(e, config, usedCount, resetAt),
           usedCount,
           maxUses: config.limit.maxUses,
@@ -278,7 +309,7 @@ class SummaryBillingService {
         scopeKey,
         groupId: String(e.group_id || ''),
         userId: String(e.user_id || ''),
-        feature: context.feature || 'summary',
+        feature: context.feature || this.options.defaultFeature,
         cacheHit: Boolean(context.cacheHit),
         master: this.isMaster(e),
         status: 'pending',
@@ -291,10 +322,10 @@ class SummaryBillingService {
       data.records.push(reservation)
       this.writeUsageData(data)
 
-      debugLog('summary.billing.usage', '总结次数额度已预占', {
+      debugLog(`${this.options.logScope}.usage`, `${config.featureName}次数额度已预占`, {
         userId: e.user_id,
         groupId: e.group_id,
-        feature: context.feature || 'summary',
+        feature: context.feature || this.options.defaultFeature,
         scope: config.limit.scope,
         usedCount: usedCount + 1,
         maxUses: config.limit.maxUses
@@ -333,7 +364,7 @@ class SummaryBillingService {
       }
       this.writeUsageData(data)
 
-      debugLog('summary.billing.usage', '总结次数记录已更新', {
+      debugLog(`${this.options.logScope}.usage`, `${config.featureName}次数记录已更新`, {
         id: reservation.id,
         status,
         counted,
@@ -412,17 +443,17 @@ class SummaryBillingService {
 
   buildServiceTypeDefinition() {
     return {
-      type: BILLING_TYPE,
-      label: '百科总结服务',
+      type: this.options.type,
+      label: this.options.typeLabel,
       unit: '次',
-      subtitle: '使用百科总结时自动扣费',
-      intro: '这是 Baike-Plugin 的服务型商品，触发总结并实际消耗模型时会自动扣除好感度。',
+      subtitle: this.options.typeSubtitle,
+      intro: this.options.typeIntro,
       isEnabled: () => true,
-      getOwnedText: async () => '服务型商品，使用总结时自动扣除',
+      getOwnedText: async () => this.options.ownedText,
       grant: async ({ item }) => ({
         ok: false,
         code: 'manual_exchange_disabled',
-        message: `${item?.name || '百科总结服务'}会在使用总结时自动扣除，无需手动兑换`
+        message: `${item?.name || this.options.defaultItemName}会在使用${this.options.featureName}时自动扣除，无需手动兑换`
       })
     }
   }
@@ -430,7 +461,7 @@ class SummaryBillingService {
   async ensureRegistered() {
     const config = this.getConfig()
     if (!config.enabled) {
-      return { ok: false, code: 'disabled', message: '总结计费未启用' }
+      return { ok: false, code: 'disabled', message: this.options.registrationDisabledMessage }
     }
 
     if (this.registeredItemId && this.registeredItemId !== config.itemId) {
@@ -458,7 +489,7 @@ class SummaryBillingService {
           return {
             ok: false,
             code: typeRegistered?.code || 'type_register_failed',
-            message: typeRegistered?.message || '总结计费商品类型注册失败'
+            message: typeRegistered?.message || this.options.typeRegisterFailedMessage
           }
         }
 
@@ -472,39 +503,36 @@ class SummaryBillingService {
           }
         }
 
-        let item = Shop.getItemById?.(config.itemId)
-        if (!item) {
-          const registered = Shop.registerItem({
-            id: config.itemId,
-            name: config.itemName,
-            aliases: config.itemAliases,
-            type: BILLING_TYPE,
-            costFavor: config.defaultCostFavor,
-            amount: 1,
-            limitDays: 0,
-            limitCount: 0,
-            desc: 'Baike-Plugin 总结功能自动扣费项；可在 Iris-Sign-Plugin 的商城配置中用同 ID 覆盖价格。',
-            enabled: true,
-            sellable: true,
-            rewardable: false,
-            pluginId: BILLING_PLUGIN_ID,
-            source: pluginName
-          }, {
-            pluginId: BILLING_PLUGIN_ID,
-            source: pluginName
-          })
+        const registered = Shop.registerItem({
+          id: config.itemId,
+          name: config.itemName,
+          aliases: config.itemAliases,
+          type: this.options.type,
+          costFavor: config.defaultCostFavor,
+          amount: 1,
+          limitDays: 0,
+          limitCount: 0,
+          desc: this.options.desc,
+          enabled: true,
+          sellable: true,
+          rewardable: false,
+          pluginId: BILLING_PLUGIN_ID,
+          source: pluginName
+        }, {
+          override: true,
+          pluginId: BILLING_PLUGIN_ID,
+          source: pluginName
+        })
 
-          if (!registered?.ok && registered?.code !== 'item_exists') {
-            return {
-              ok: false,
-              code: registered.code || 'item_register_failed',
-              message: registered.message || '总结计费商品注册失败'
-            }
+        if (!registered?.ok && registered?.code !== 'item_exists') {
+          return {
+            ok: false,
+            code: registered.code || 'item_register_failed',
+            message: registered.message || this.options.itemRegisterFailedMessage
           }
-
-          item = registered.item || Shop.getItemById?.(config.itemId)
         }
 
+        const item = registered.item || Shop.getItemById?.(config.itemId)
         return {
           ok: true,
           Shop,
@@ -592,7 +620,7 @@ class SummaryBillingService {
     const item = this.resolveBillingItem(Shop, config.itemId) || registered.item
     if (!item) {
       return this.attachUsageResult(
-        this.buildUnavailableResult('未找到总结计费商品，请联系主人检查 Iris 商城配置', 'item_not_found'),
+        this.buildUnavailableResult(this.options.unavailableItemMessage, 'item_not_found'),
         usageReservation,
         'item_not_found'
       )
@@ -600,7 +628,7 @@ class SummaryBillingService {
 
     if (config.respectIrisBaseEnable && Shop.isPlatformEnabled?.() === false) {
       return this.attachUsageResult(
-        this.buildUnavailableResult('签到插件当前已关闭，暂时无法使用总结计费服务', 'platform_disabled'),
+        this.buildUnavailableResult(this.options.platformDisabledMessage, 'platform_disabled'),
         usageReservation,
         'platform_disabled'
       )
@@ -654,8 +682,8 @@ class SummaryBillingService {
     }
 
     const transactionId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-    const chargeSource = `${pluginName}:summary:${transactionId}`
-    const idempotencyKey = `${BILLING_PLUGIN_ID}:summary:${transactionId}`
+    const chargeSource = `${pluginName}:${this.options.chargeSourcePrefix}:${transactionId}`
+    const idempotencyKey = `${BILLING_PLUGIN_ID}:${this.options.serviceKey}:${transactionId}`
     const chargeOptions = {
       pluginId: BILLING_PLUGIN_ID,
       groupId: e.group_id,
@@ -674,7 +702,7 @@ class SummaryBillingService {
       meta: {
         transactionId,
         localTransactionId: transactionId,
-        feature: context.feature || 'summary',
+        feature: context.feature || this.options.defaultFeature,
         cacheHit: Boolean(context.cacheHit),
         messageId: e.message_id || '',
         groupId: e.group_id,
@@ -696,7 +724,7 @@ class SummaryBillingService {
           itemName: item.name,
           transactionId,
           localTransactionId: transactionId,
-          feature: context.feature || 'summary',
+          feature: context.feature || this.options.defaultFeature,
           cacheHit: Boolean(context.cacheHit),
           messageId: e.message_id || '',
           groupId: e.group_id,
@@ -723,7 +751,7 @@ class SummaryBillingService {
           groupId: e.group_id,
           userId: e.user_id,
           value: deducted,
-          source: `${pluginName}:summary-partial-refund`,
+          source: `${pluginName}:${this.options.chargeSourcePrefix}-partial-refund`,
           meta: {
             itemId: item.id,
             reason: 'favor_race_insufficient'
@@ -745,7 +773,7 @@ class SummaryBillingService {
     }
 
     const irisTransactionId = String(result.transactionId || '').trim() || transactionId
-    debugLog('summary.billing', '总结计费扣除完成', {
+    debugLog(this.options.logScope, `${config.featureName}计费扣除完成`, {
       userId: e.user_id,
       groupId: e.group_id,
       itemId: item.id,
@@ -754,7 +782,7 @@ class SummaryBillingService {
       localTransactionId: transactionId,
       beforeFavor: result.beforeFavor,
       favor: result.favor,
-      feature: context.feature || 'summary'
+      feature: context.feature || this.options.defaultFeature
     })
 
     return {
@@ -775,7 +803,7 @@ class SummaryBillingService {
     }
   }
 
-  async refund(chargeResult, reason = 'summary_failed') {
+  async refund(chargeResult, reason = this.options.defaultFailureReason) {
     await this.markFailedUsage(chargeResult, reason)
 
     if (!chargeResult?.charged || chargeResult.refunded || this.getConfig().chargeFailed) {
@@ -784,11 +812,12 @@ class SummaryBillingService {
 
     const Shop = await this.loadShop()
     if (!Shop) {
-      logger.warn(`[${pluginName}] 总结失败后退款失败：Iris 商城不可用`)
+      logger.warn(`[${pluginName}] ${this.options.featureName}失败后退款失败：Iris 商城不可用`)
       return null
     }
 
-    const refundIdempotencyKey = `${BILLING_PLUGIN_ID}:summary-refund:${chargeResult.transactionId || chargeResult.localTransactionId || Date.now()}`
+    const refundSource = `${pluginName}:${this.options.refundSourcePrefix}`
+    const refundIdempotencyKey = `${BILLING_PLUGIN_ID}:${this.options.refundSourcePrefix}:${chargeResult.transactionId || chargeResult.localTransactionId || Date.now()}`
     const result = typeof Shop.refundServiceCharge === 'function'
       ? await Shop.refundServiceCharge({
         pluginId: BILLING_PLUGIN_ID,
@@ -797,14 +826,14 @@ class SummaryBillingService {
         itemId: chargeResult.item?.id || '',
         transactionId: chargeResult.transactionId,
         costFavor: chargeResult.costFavor,
-        source: `${pluginName}:summary-refund`,
-        refundSource: `${pluginName}:summary-refund`,
-        reason: `${chargeResult.item?.name || '百科总结服务'}失败退款：${reason}`,
+        source: refundSource,
+        refundSource,
+        reason: `${chargeResult.item?.name || this.options.defaultItemName}失败退款：${reason}`,
         idempotencyKey: refundIdempotencyKey,
         requestId: refundIdempotencyKey,
         meta: {
           reason,
-          source: chargeResult.source || `${pluginName}:summary`,
+          source: chargeResult.source || `${pluginName}:${this.options.chargeSourcePrefix}`,
           localTransactionId: chargeResult.localTransactionId || ''
         }
       })
@@ -813,7 +842,7 @@ class SummaryBillingService {
         groupId: chargeResult.groupId,
         userId: chargeResult.userId,
         value: chargeResult.costFavor,
-        source: `${pluginName}:summary-refund`,
+        source: refundSource,
         idempotencyKey: refundIdempotencyKey,
         requestId: refundIdempotencyKey,
         meta: {
@@ -825,9 +854,9 @@ class SummaryBillingService {
       })
     if (result.ok) {
       chargeResult.refunded = true
-      logger.info(`[${pluginName}] 总结未完成，已退回 ${chargeResult.costFavor} 点好感度`)
+      logger.info(`[${pluginName}] ${this.options.featureName}未完成，已退回 ${chargeResult.costFavor} 点好感度`)
     } else {
-      logger.warn(`[${pluginName}] 总结失败后退款失败：${result.message || result.code || '未知错误'}`)
+      logger.warn(`[${pluginName}] ${this.options.featureName}失败后退款失败：${result.message || result.code || '未知错误'}`)
     }
 
     return result

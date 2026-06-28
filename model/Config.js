@@ -201,6 +201,27 @@ const DEFAULT_CONFIG = {
       countMaster: false
     }
   },
+  searchBilling: {
+    enabled: true,
+    itemId: 'baike:search_service',
+    itemName: '百科搜索服务',
+    itemAliases: ['搜索', '百科搜索', '查询', '百科查询'],
+    defaultCostFavor: 2,
+    exemptMaster: true,
+    chargeCached: false,
+    chargeFailed: false,
+    allowWhenUnavailable: false,
+    respectIrisBaseEnable: true,
+    limit: {
+      enabled: false,
+      maxUses: 50,
+      periodHours: 24,
+      scope: 'groupUser',
+      countCached: false,
+      countFailed: false,
+      countMaster: false
+    }
+  },
   debug: {
     enabled: false
   },
@@ -326,6 +347,7 @@ const DEFAULT_CONFIG = {
     }
   },
   searchContext: {
+    enableConvenientCommand: false,
     historyMessageCount: 5,
     replyNearbyMessageCount: 6,
     filterBotMessages: true

@@ -195,6 +195,160 @@ const runtimeSchemaRaw = [
     defaultValue: false
   },
   {
+    component: 'Divider',
+    label: '搜索计费',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'searchBilling.enabled',
+    label: '启用搜索计费',
+    bottomHelpMessage: '开启后，非缓存且成功完成的搜索会通过 Iris-Sign-Plugin 好感度商城扣费',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'searchBilling.itemId',
+    label: '搜索商品 ID',
+    bottomHelpMessage: 'Baike 会向 Iris 商城注册同 ID 商品；如需统一改价，可在 Iris 商城配置里添加同 ID 商品覆盖默认价格',
+    component: 'Input',
+    defaultValue: 'baike:search_service'
+  },
+  {
+    field: 'searchBilling.itemName',
+    label: '搜索商品名称',
+    component: 'Input',
+    defaultValue: '百科搜索服务'
+  },
+  {
+    field: 'searchBilling.itemAliases',
+    label: '搜索商品别名',
+    bottomHelpMessage: 'Baike 注册到 Iris 商城的搜索商品别名；保存到 Iris 商城配置后以 Iris 为准',
+    component: 'Select',
+    defaultValue: ['搜索', '百科搜索', '查询', '百科查询'],
+    componentProps: {
+      mode: 'tags',
+      placeholder: '输入别名后回车'
+    }
+  },
+  {
+    field: 'searchBilling.defaultCostFavor',
+    label: '搜索默认消耗好感度',
+    bottomHelpMessage: '仅在 Iris 商城没有同 ID 商品时使用；正式价格优先读取 Iris 商城配置',
+    component: 'InputNumber',
+    defaultValue: 2,
+    componentProps: {
+      min: 0,
+      max: 9999,
+      step: 1
+    }
+  },
+  {
+    field: 'searchBilling.exemptMaster',
+    label: '搜索主人免计费',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'searchBilling.chargeCached',
+    label: '搜索缓存命中也计费',
+    bottomHelpMessage: '默认关闭；关闭时命中完整缓存不会扣好感度',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'searchBilling.chargeFailed',
+    label: '搜索失败也计费',
+    bottomHelpMessage: '默认关闭；关闭时搜索请求、整理或发送失败会自动退回好感度',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'searchBilling.allowWhenUnavailable',
+    label: '搜索商城不可用时放行',
+    bottomHelpMessage: '默认关闭；关闭时 Iris 商城不可用会阻止非豁免用户使用搜索',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'searchBilling.respectIrisBaseEnable',
+    label: '搜索遵守 Iris 总开关',
+    bottomHelpMessage: '开启后 Iris-Sign-Plugin 总开关关闭时会阻止计费搜索',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    component: 'Divider',
+    label: '搜索次数限制',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'searchBilling.limit.enabled',
+    label: '启用搜索次数限制',
+    bottomHelpMessage: '默认关闭；开启后只统计成功完成、非缓存、非主人触发的搜索',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'searchBilling.limit.maxUses',
+    label: '搜索周期内最多次数',
+    component: 'InputNumber',
+    defaultValue: 50,
+    componentProps: {
+      min: 0,
+      max: 9999,
+      step: 1
+    }
+  },
+  {
+    field: 'searchBilling.limit.periodHours',
+    label: '搜索统计周期（小时）',
+    component: 'InputNumber',
+    defaultValue: 24,
+    componentProps: {
+      min: 1,
+      max: 8760,
+      step: 1
+    }
+  },
+  {
+    field: 'searchBilling.limit.scope',
+    label: '搜索限制范围',
+    component: 'Select',
+    defaultValue: 'groupUser',
+    componentProps: {
+      options: [
+        { label: '每个群内用户', value: 'groupUser' },
+        { label: '每个用户', value: 'user' },
+        { label: '每个群', value: 'group' }
+      ]
+    }
+  },
+  {
+    field: 'searchBilling.limit.countCached',
+    label: '搜索缓存命中计入次数',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'searchBilling.limit.countFailed',
+    label: '搜索失败计入次数',
+    bottomHelpMessage: '默认关闭；关闭时搜索失败不会占用次数',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'searchBilling.limit.countMaster',
+    label: '搜索主人计入次数',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
     field: 'debug.enabled',
     label: '调试日志',
     bottomHelpMessage: '开启后会输出接口请求、上下文注入和文件解析等调试日志',

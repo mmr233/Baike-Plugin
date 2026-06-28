@@ -14,7 +14,7 @@ export default class BaikeApp extends plugin {
       priority: 5000,
       rule: [
         {
-          reg: '^搜索',
+          reg: '^搜索(?:\\s+.*)?$',
           fnc: 'search'
         },
         {
