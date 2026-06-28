@@ -102,7 +102,7 @@ export default class BaikeHelp extends plugin {
           ? '支持显式搜索命令和自然语言问法，适合查概念、人物、作品和事件。'
           : '默认仅支持显式搜索命令，避免自然语言问法误触扣费。',
         list: [
-          { icon: 1, title: '关键词搜索', desc: '直接查资料并整理结构化结果', command: '搜索 胡桃' },
+          { icon: 1, title: '关键词搜索', desc: '直接查资料并整理结构化结果', command: '搜索胡桃 / 搜索 胡桃' },
           ...(config.searchContext.enableConvenientCommand
             ? [{ icon: 2, title: '自然语言提问', desc: '匹配“是什么 / 是谁 / 是啥 / 谁”句式', command: '胡桃是谁' }]
             : []),

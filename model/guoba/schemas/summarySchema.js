@@ -375,7 +375,7 @@ const summarySchemaRaw = [
   {
     field: 'searchContext.enableConvenientCommand',
     label: '开启搜索便捷命令',
-    bottomHelpMessage: '关闭后，只能使用“搜索 关键词”触发搜索；“xx是什么 / xx是谁”等自然语言问法不会触发，避免误触扣费',
+    bottomHelpMessage: '关闭后，只能使用“搜索关键词 / 搜索 关键词”触发搜索；“xx是什么 / xx是谁”等自然语言问法不会触发，避免误触扣费',
     component: 'Switch',
     defaultValue: false
   },
