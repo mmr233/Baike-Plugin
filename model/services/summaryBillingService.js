@@ -646,16 +646,25 @@ class SummaryBillingService {
 
     const transactionId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     const chargeSource = `${pluginName}:summary:${transactionId}`
+    const idempotencyKey = `${BILLING_PLUGIN_ID}:summary:${transactionId}`
     const chargeOptions = {
+      pluginId: BILLING_PLUGIN_ID,
       groupId: e.group_id,
       userId: e.user_id,
       item,
       itemId: item.id,
       count: 1,
+      costFavor,
+      serviceId: item.id,
+      serviceName: item.name,
+      reason: `${item.name}自动扣款`,
       source: chargeSource,
+      idempotencyKey,
+      requestId: idempotencyKey,
       respectBaseEnable: config.respectIrisBaseEnable,
       meta: {
         transactionId,
+        localTransactionId: transactionId,
         feature: context.feature || 'summary',
         cacheHit: Boolean(context.cacheHit),
         messageId: e.message_id || '',
@@ -666,14 +675,18 @@ class SummaryBillingService {
     const result = typeof Shop.chargeService === 'function'
       ? await Shop.chargeService(chargeOptions)
       : await Shop.addFavor({
+        pluginId: BILLING_PLUGIN_ID,
         groupId: e.group_id,
         userId: e.user_id,
         value: -costFavor,
         source: chargeSource,
+        idempotencyKey,
+        requestId: idempotencyKey,
         meta: {
           itemId: item.id,
           itemName: item.name,
           transactionId,
+          localTransactionId: transactionId,
           feature: context.feature || 'summary',
           cacheHit: Boolean(context.cacheHit),
           messageId: e.message_id || '',
@@ -697,6 +710,7 @@ class SummaryBillingService {
       const deducted = Math.abs(Number(result.deltaFavor) || 0)
       if (deducted > 0) {
         await Shop.addFavor({
+          pluginId: BILLING_PLUGIN_ID,
           groupId: e.group_id,
           userId: e.user_id,
           value: deducted,
@@ -721,11 +735,14 @@ class SummaryBillingService {
       }, usageReservation, 'favor_race_insufficient')
     }
 
+    const irisTransactionId = String(result.transactionId || '').trim() || transactionId
     debugLog('summary.billing', '总结计费扣除完成', {
       userId: e.user_id,
       groupId: e.group_id,
       itemId: item.id,
       costFavor,
+      transactionId: irisTransactionId,
+      localTransactionId: transactionId,
       beforeFavor: result.beforeFavor,
       favor: result.favor,
       feature: context.feature || 'summary'
@@ -740,7 +757,9 @@ class SummaryBillingService {
       favor: result.favor,
       groupId: e.group_id,
       userId: e.user_id,
-      transactionId,
+      transactionId: irisTransactionId,
+      localTransactionId: transactionId,
+      idempotencyKey,
       source: result.source || chargeSource,
       usageReservation,
       refunded: false
@@ -760,28 +779,39 @@ class SummaryBillingService {
       return null
     }
 
+    const refundIdempotencyKey = `${BILLING_PLUGIN_ID}:summary-refund:${chargeResult.transactionId || chargeResult.localTransactionId || Date.now()}`
     const result = typeof Shop.refundServiceCharge === 'function'
       ? await Shop.refundServiceCharge({
+        pluginId: BILLING_PLUGIN_ID,
         groupId: chargeResult.groupId,
         userId: chargeResult.userId,
         itemId: chargeResult.item?.id || '',
         transactionId: chargeResult.transactionId,
         costFavor: chargeResult.costFavor,
-        source: chargeResult.source || `${pluginName}:summary`,
+        source: `${pluginName}:summary-refund`,
         refundSource: `${pluginName}:summary-refund`,
+        reason: `${chargeResult.item?.name || '百科总结服务'}失败退款：${reason}`,
+        idempotencyKey: refundIdempotencyKey,
+        requestId: refundIdempotencyKey,
         meta: {
-          reason
+          reason,
+          source: chargeResult.source || `${pluginName}:summary`,
+          localTransactionId: chargeResult.localTransactionId || ''
         }
       })
       : await Shop.addFavor({
+        pluginId: BILLING_PLUGIN_ID,
         groupId: chargeResult.groupId,
         userId: chargeResult.userId,
         value: chargeResult.costFavor,
         source: `${pluginName}:summary-refund`,
+        idempotencyKey: refundIdempotencyKey,
+        requestId: refundIdempotencyKey,
         meta: {
           reason,
           itemId: chargeResult.item?.id || '',
-          transactionId: chargeResult.transactionId || ''
+          transactionId: chargeResult.transactionId || '',
+          localTransactionId: chargeResult.localTransactionId || ''
         }
       })
     if (result.ok) {
