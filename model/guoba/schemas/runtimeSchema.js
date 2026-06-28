@@ -412,9 +412,21 @@ const runtimeSchemaRaw = [
     }
   },
   {
+    field: 'send.searchSourceDisplayLimit',
+    label: '搜索来源显示上限',
+    bottomHelpMessage: '-1 表示全部显示，0 表示隐藏参考来源；超过上限的来源会隐藏，避免搜索卡片过长',
+    component: 'InputNumber',
+    defaultValue: 10,
+    componentProps: {
+      min: -1,
+      max: 100,
+      step: 1
+    }
+  },
+  {
     field: 'send.searchScreenshotCount',
     label: '搜索来源截图数量',
-    bottomHelpMessage: '-1 表示全部截图，0 表示关闭截图',
+    bottomHelpMessage: '-1 表示全部截图，0 表示关闭截图；仅当搜索结果首选合并转发发送时才会尝试截图',
     component: 'InputNumber',
     defaultValue: -1,
     componentProps: {

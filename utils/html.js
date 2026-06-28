@@ -577,6 +577,12 @@ function getJournalCSS() {
       line-height: 1.65;
       word-break: break-all;
     }
+    .source-more {
+      color: #8d745d;
+      font-size: 12px;
+      line-height: 1.7;
+      padding: 2px 4px;
+    }
     .empty-state {
       color: #a18467;
       font-size: 12px;
@@ -971,6 +977,7 @@ export function generateHutaoHTML(title, content, stats = null, notices = [], op
 
 export function generateSearchHTML(keyword, content, citations = [], options = {}) {
   const billingText = String(options?.billingText || '').trim()
+  const hiddenSourceCount = Math.max(0, Number(options?.hiddenSourceCount) || 0)
   const sections = parseBracketSections(content)
   const previewText = getPreviewText(content)
 
@@ -1008,6 +1015,9 @@ export function generateSearchHTML(keyword, content, citations = [], options = {
               </div>
             </div>
           `).join('')}
+          ${hiddenSourceCount > 0
+            ? `<div class="source-more">已隐藏 ${hiddenSourceCount} 个参考来源，可在锅巴调整搜索来源显示上限。</div>`
+            : ''}
         </div>
       </div>
     `

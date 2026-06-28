@@ -329,6 +329,42 @@ class BaikeService {
     return SEND_MODE_PRIORITY[currentIndex + 1]
   }
 
+  getSearchSourceDisplay(citations = []) {
+    const items = Array.isArray(citations) ? citations.filter(Boolean) : []
+    const rawLimit = Number(Config.get('send.searchSourceDisplayLimit', 10))
+    const limit = Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 10
+
+    if (limit === 0) {
+      return {
+        citations: [],
+        hiddenCount: items.length,
+        sourceCount: items.length,
+        disabled: true
+      }
+    }
+
+    const visible = limit < 0 ? items : items.slice(0, limit)
+    return {
+      citations: visible,
+      hiddenCount: Math.max(0, items.length - visible.length),
+      sourceCount: items.length,
+      disabled: false
+    }
+  }
+
+  buildSearchSourceText(displayKeyword = '', citations = [], hiddenCount = 0) {
+    if (!Array.isArray(citations) || citations.length === 0) {
+      return ''
+    }
+
+    const lines = citations.map((item, index) => `${index + 1}. ${item}`)
+    if (hiddenCount > 0) {
+      lines.push(`……已隐藏 ${hiddenCount} 个参考来源，可在锅巴调整“搜索来源显示上限”。`)
+    }
+
+    return `═══ ${displayKeyword} - 参考来源 ═══\n\n${lines.join('\n')}`
+  }
+
   async replyResult(e, message, label = '结果') {
     try {
       await e.reply(message)
@@ -2196,6 +2232,8 @@ class BaikeService {
     try {
       const forwardMsg = []
       const contentText = this.buildSearchContent(data, rawContent)
+      const sourceDisplay = this.getSearchSourceDisplay(citations)
+      const visibleCitations = sourceDisplay.citations
 
       if (contentText) {
         const billingText = this.buildSearchBillingText(chargeResult)
@@ -2206,21 +2244,23 @@ class BaikeService {
         })
       }
 
-      if (citations.length > 0) {
+      const sourceText = this.buildSearchSourceText(displayKeyword, visibleCitations, sourceDisplay.hiddenCount)
+      if (sourceText) {
         forwardMsg.push({
           ...userInfo,
           message: [{
             type: 'text',
-            text: `═══ ${displayKeyword} - 参考来源 ═══\n\n${citations.map((item, index) => `${index + 1}. ${item}`).join('\n')}`
+            text: sourceText
           }]
         })
 
         const screenshotCount = Config.get('send.searchScreenshotCount', -1)
-        if (screenshotCount !== 0) {
+        const shouldCaptureScreenshots = this.getSendMode('search') === 'forward' && screenshotCount !== 0
+        if (shouldCaptureScreenshots) {
           const mode = Config.get('send.searchScreenshotMode', 'viewport')
           const timeoutMs = Config.get('send.searchScreenshotTimeoutMs', 10000)
-          const limit = screenshotCount === -1 ? citations.length : Math.min(citations.length, screenshotCount)
-          const targets = citations.slice(0, limit)
+          const limit = screenshotCount === -1 ? visibleCitations.length : Math.min(visibleCitations.length, screenshotCount)
+          const targets = visibleCitations.slice(0, limit)
 
           for (let index = 0; index < targets.length; index += 1) {
             const screenshot = await this.mediaService.captureScreenshot(targets[index], index, mode, {
@@ -2242,7 +2282,10 @@ class BaikeService {
 
       const billingText = this.buildSearchBillingText(chargeResult)
       const finalContentText = this.appendBillingText(contentText, billingText)
-      const html = generateSearchHTML(displayKeyword, contentText, citations, { billingText })
+      const html = generateSearchHTML(displayKeyword, contentText, visibleCitations, {
+        billingText,
+        hiddenSourceCount: sourceDisplay.hiddenCount
+      })
       await this.sendResult(
         e,
         forwardMsg,

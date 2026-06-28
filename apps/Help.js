@@ -106,7 +106,7 @@ export default class BaikeHelp extends plugin {
           ...(config.searchContext.enableConvenientCommand
             ? [{ icon: 2, title: '自然语言提问', desc: '匹配“是什么 / 是谁 / 是啥 / 谁”句式', command: '胡桃是谁' }]
             : []),
-          { icon: 3, title: '来源截图', desc: `当前搜索结果来源截图数量：${config.send.searchScreenshotCount}` }
+          { icon: 3, title: '参考来源', desc: `显示上限：${config.send.searchSourceDisplayLimit} / 截图数量：${config.send.searchScreenshotCount}` }
         ]
       },
       {

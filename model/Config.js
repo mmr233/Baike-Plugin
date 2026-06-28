@@ -359,6 +359,7 @@ const DEFAULT_CONFIG = {
     contentSummary: '',
     groupChatSummary: '',
     memberSummary: '',
+    searchSourceDisplayLimit: 10,
     searchScreenshotCount: -1,
     searchScreenshotMode: 'viewport',
     searchScreenshotTimeoutMs: 10000
