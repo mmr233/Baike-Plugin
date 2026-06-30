@@ -549,6 +549,33 @@ class MessageService {
     return profiles.join('\n\n')
   }
 
+  getProfileDisplayName(profile = {}, userId = '') {
+    const actualUserId = String(this.pickProfileValue(profile, ['user_id', 'uid', 'uin']) || userId || '').trim()
+    const card = this.normalizeProfileTextValue(this.pickProfileValue(profile, ['card', 'group_name']))
+    const nickname = this.normalizeProfileTextValue(this.pickProfileValue(profile, ['nickname', 'name', 'nick']))
+    return card || nickname || actualUserId
+  }
+
+  async resolveGroupMemberName(e, userId = '', cache = new Map()) {
+    const actualUserId = String(userId || '').trim()
+    if (!actualUserId) {
+      return ''
+    }
+
+    if (cache.has(actualUserId)) {
+      return cache.get(actualUserId)
+    }
+
+    let displayName = actualUserId
+    try {
+      const profile = await this.getGroupMemberProfileData(e, e.group_id, actualUserId)
+      displayName = this.getProfileDisplayName(profile, actualUserId) || actualUserId
+    } catch {}
+
+    cache.set(actualUserId, displayName)
+    return displayName
+  }
+
   getBotUserId(e) {
     const candidates = [
       e?.self_id,
@@ -1596,7 +1623,7 @@ class MessageService {
     return messages
   }
 
-  parseGroupMessage(messageData) {
+  async parseGroupMessage(messageData, options = {}) {
     const result = {
       user_id: '',
       nickname: '',
@@ -1667,7 +1694,9 @@ class MessageService {
         } else if (type === 'face') {
           texts.push('[表情]')
         } else if (type === 'at') {
-          texts.push(`@${segmentData.qq || segmentItem?.qq || ''}`)
+          const targetId = String(segmentData.qq || segmentItem?.qq || '').trim()
+          const targetName = await this.resolveGroupMemberName(options.event, targetId, options.atNameCache)
+          texts.push(`@${targetName || targetId}`)
         }
       }
 
@@ -1679,15 +1708,19 @@ class MessageService {
     return result
   }
 
-  formatMessagesForSummary(messages, filterUserIds = []) {
+  async formatMessagesForSummary(messages, filterUserIds = [], options = {}) {
     const formattedMessages = []
     const userMessageCounts = {}
     const hourlyActivity = {}
     const allImageUrls = []
     const allDocFiles = []
+    const atNameCache = new Map()
 
     for (const item of messages || []) {
-      const parsed = this.parseGroupMessage(item)
+      const parsed = await this.parseGroupMessage(item, {
+        ...options,
+        atNameCache
+      })
       if (!parsed.text && !parsed.hasMedia) {
         continue
       }

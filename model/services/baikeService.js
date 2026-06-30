@@ -1282,19 +1282,27 @@ class BaikeService {
     return userOrder.slice(0, maxCount).map(userId => {
       const entry = messageByUser.get(userId)
       const messages = entry.messages || []
+      const highlightTexts = (parsed.highlights || [])
+        .filter(item => String(item.userId || '') === userId)
+        .flatMap(item => [item.content, item.roast])
+        .filter(Boolean)
       const samples = messages
         .map(item => String(item.text || '').trim())
         .filter(Boolean)
         .slice(-3)
       const mediaCount = messages.filter(item => /\[(图片|视频|语音|文档|文件|表情)\]/.test(String(item.text || ''))).length
       const recent = messages[messages.length - 1]
-      const keywords = [...new Set(samples
-        .join(' ')
-        .replace(/\[[^\]]+\]/g, ' ')
-        .split(/[^\p{L}\p{N}_@#]+/u)
-        .map(item => item.trim())
-        .filter(item => item.length >= 2 && item.length <= 12)
-      )].slice(0, 4)
+      const keywords = this.extractPortraitKeywords([
+        ...messages.map(item => item.text),
+        ...highlightTexts
+      ], {
+        maxCount: 8
+      })
+      const tags = [
+        messages.length >= 10 ? '高频发言' : messages.length >= 3 ? '积极参与' : '点到即止',
+        mediaCount > 0 ? '带媒体内容' : '',
+        ...keywords.slice(0, 5).map(item => `#${item}`)
+      ].filter(Boolean)
 
       return {
         userId,
@@ -1303,16 +1311,142 @@ class BaikeService {
         messageCount: messages.length,
         mediaCount,
         latestTime: recent?.time || '',
-        tags: [
-          messages.length >= 10 ? '高频发言' : messages.length >= 3 ? '积极参与' : '点到即止',
-          mediaCount > 0 ? '带媒体内容' : '',
-          keywords[0] ? `关键词:${keywords.slice(0, 2).join('/')}` : ''
-        ].filter(Boolean),
+        tags,
         summary: samples.length > 0
           ? `本轮出现 ${messages.length} 次，最近关注：${samples.map(item => item.slice(0, 36)).join(' / ')}`
           : `本轮出现 ${messages.length} 次，主要贡献集中在被精选消息附近。`
       }
     })
+  }
+
+  extractPortraitKeywords(texts = [], options = {}) {
+    const maxCount = Math.max(1, Math.min(Number(options.maxCount) || 6, 10))
+    const stopWords = new Set([
+      '这个', '那个', '就是', '什么', '怎么', '还是', '不是', '没有', '然后', '感觉',
+      '可以', '已经', '现在', '今天', '明天', '昨天', '一下', '一个', '不会', '这么',
+      '这么说', '为什么', '哈哈', '哈哈哈', '草', '啊', '呀', '吧', '吗', '呢', '了',
+      '今天在聊', '也得优化', '说抽帧', '又补充',
+      '图片', '视频', '语音', '表情', '文件', '文档', '群名片'
+    ])
+    const source = (Array.isArray(texts) ? texts : [texts])
+      .map(item => String(item || ''))
+      .join('\n')
+      .replace(/\[[^\]]+\]/g, ' ')
+      .replace(/https?:\/\/\S+/gi, ' ')
+      .replace(/@(\S{2,24})/g, ' @$1 ')
+      .trim()
+    const scores = new Map()
+    const buckets = {
+      mention: new Set(),
+      technical: new Set(),
+      phrase: new Set()
+    }
+    const normalizeKeyword = (word = '') => String(word || '')
+      .replace(/^(今天在聊|又补充了?|补充了?|说|聊|关于|针对|顺便|以及|还有)/, '')
+      .replace(/[和与及、，。！？,.!?;；:：]+$/g, '')
+      .replace(/^(和|也|要|得|了)+/, '')
+      .trim()
+    const addKeyword = (word = '', weight = 1, bucket = 'phrase') => {
+      const rawWord = String(word || '').trim()
+      if (/[\u4e00-\u9fa5]/.test(rawWord) && /[和与及、，]/.test(rawWord)) {
+        for (const part of rawWord.split(/[和与及、，]/)) {
+          addKeyword(part, weight, bucket)
+        }
+        return
+      }
+
+      const keyword = normalizeKeyword(word)
+        .replace(/^[\s"'“”‘’【】[\]()（）<>《》]+|[\s"'“”‘’【】[\]()（）<>《》，。！？、,.!?;；:：]+$/g, '')
+        .trim()
+      if (!keyword || stopWords.has(keyword)) {
+        return
+      }
+      if (keyword.length < 2 || keyword.length > 16) {
+        return
+      }
+      if (/^\d+$/.test(keyword)) {
+        return
+      }
+      scores.set(keyword, (scores.get(keyword) || 0) + weight + Math.min(keyword.length, 8) / 20)
+      buckets[bucket]?.add(keyword)
+    }
+
+    for (const match of source.matchAll(/@[\p{L}\p{N}_\-\u4e00-\u9fa5]{2,24}/gu)) {
+      addKeyword(match[0], 4.5, 'mention')
+    }
+    for (const phrase of [
+      '视频切片',
+      '抽帧策略',
+      '接口超时',
+      '好感度扣费',
+      '搜索来源',
+      '显示上限',
+      '用户画像',
+      '关键词'
+    ]) {
+      if (source.includes(phrase)) {
+        addKeyword(phrase, 5, 'phrase')
+      }
+    }
+    for (const match of source.matchAll(/[A-Za-z]+[A-Za-z0-9]*(?:[-_+.][A-Za-z0-9]+)+/g)) {
+      addKeyword(match[0], 6, 'technical')
+    }
+    for (const match of source.matchAll(/[\u4e00-\u9fa5]{2,6}(?:切片|策略|超时|扣费|显示|上限|来源|模型|接口|缓存|总结|搜索|画像|抽帧|好感度)/g)) {
+      addKeyword(match[0], 3.6, 'phrase')
+    }
+    for (const match of source.matchAll(/(?:抽帧|接口|好感度|搜索|来源|显示|视频|用户|群聊|总结|缓存|模型|关键词)[\u4e00-\u9fa5]{1,6}/g)) {
+      addKeyword(match[0], 3.4, 'phrase')
+    }
+    for (const match of source.matchAll(/[A-Za-z][A-Za-z0-9_+#.-]{1,24}/g)) {
+      const word = match[0]
+      addKeyword(word, /[-_+#.0-9]/.test(word) ? 4 : 2.2, 'technical')
+    }
+    for (const match of source.matchAll(/[A-Za-z0-9_+#.-]*[\u4e00-\u9fa5]+[A-Za-z0-9_+#.-]*/g)) {
+      const bucket = /[A-Za-z0-9_+#.-]/.test(match[0]) ? 'technical' : 'phrase'
+      const weight = bucket === 'technical' ? 3 : 1.2
+      for (const part of match[0].split(/[和也与及、，。！？,.!?;；:：]/)) {
+        addKeyword(part, weight, bucket)
+      }
+    }
+    for (const match of source.matchAll(/[\u4e00-\u9fa5]{2,8}/g)) {
+      addKeyword(match[0], 1.6, 'phrase')
+    }
+
+    const sortBucket = items => [...items]
+      .sort((a, b) => (scores.get(b) || 0) - (scores.get(a) || 0) || a.length - b.length)
+    const result = []
+    const pushUnique = keyword => {
+      if (!keyword || result.includes(keyword)) {
+        return
+      }
+      if (result.some(item => item.startsWith('@') && item.slice(1).includes(keyword))) {
+        return
+      }
+      if (result.some(item => keyword.includes(item) && item.length >= 4 && !item.startsWith('@'))) {
+        return
+      }
+      if (result.some(item => item.includes(keyword) && item.length > keyword.length + 1)) {
+        return
+      }
+      for (let index = result.length - 1; index >= 0; index -= 1) {
+        if (keyword.includes(result[index]) && keyword.length > result[index].length + 1 && !result[index].startsWith('@')) {
+          result.splice(index, 1)
+        }
+      }
+      if (!result.includes(keyword)) {
+        result.push(keyword)
+      }
+    }
+
+    sortBucket(buckets.mention).slice(0, 1).forEach(pushUnique)
+    sortBucket(buckets.technical).slice(0, 2).forEach(pushUnique)
+    sortBucket(buckets.phrase).slice(0, Math.max(2, maxCount - result.length)).forEach(pushUnique)
+    ;[...scores.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)
+      .map(([keyword]) => keyword)
+      .forEach(pushUnique)
+
+    return result.slice(0, maxCount)
   }
 
   buildMemberStats(formattedMessages = []) {
@@ -2155,7 +2289,9 @@ class BaikeService {
         hourlyActivity,
         allImageUrls,
         allDocFiles
-      } = this.messageService.formatMessagesForSummary(messages, actualMembers)
+      } = await this.messageService.formatMessagesForSummary(messages, actualMembers, {
+        event: e
+      })
 
       if (formattedMessages.length === 0) {
         if (timeRangeHours > 0) {
