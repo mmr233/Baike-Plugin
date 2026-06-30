@@ -172,6 +172,7 @@
   },
   "send": {
     "primaryMode": "html",
+    "cardTheme": "light",
     "autoFallback": true,
     "search": "forward",
     "contentSummary": "",

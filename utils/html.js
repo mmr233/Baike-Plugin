@@ -39,7 +39,208 @@ function getFooterText() {
   return footerTextCache
 }
 
-function getJournalCSS() {
+function normalizeTheme(theme = 'light') {
+  return String(theme || '').toLowerCase() === 'night' ? 'night' : 'light'
+}
+
+function getNightJournalCSS() {
+  return `
+    body.theme-night {
+      color: #f4ead8;
+      background-color: #141821;
+      background-image:
+        radial-gradient(rgba(242, 197, 119, 0.16) 1.2px, transparent 1.2px),
+        linear-gradient(180deg, #10131b 0%, #1b2230 100%);
+    }
+    body.theme-night .journal {
+      background:
+        linear-gradient(180deg, rgba(38,45,59,0.98), rgba(28,34,47,0.98));
+      border-color: #e1b66b;
+      box-shadow: 0 22px 46px rgba(0,0,0,0.42), 8px 8px 0 rgba(225, 182, 107, 0.22);
+    }
+    body.theme-night .journal::before {
+      background: radial-gradient(circle, rgba(255,236,190,0.28) 0 4px, transparent 4.5px);
+    }
+    body.theme-night .journal::after {
+      background: repeating-linear-gradient(to bottom, rgba(225,182,107,0.4) 0, rgba(225,182,107,0.4) 8px, transparent 8px, transparent 16px);
+    }
+    body.theme-night .tape-strip {
+      background: rgba(106, 141, 189, 0.46);
+    }
+    body.theme-night .title-sticker {
+      background: #202839;
+      border-color: #e1b66b;
+      box-shadow: 7px 7px 0 rgba(106, 141, 189, 0.35);
+    }
+    body.theme-night .journal-search .title-sticker,
+    body.theme-night .journal-summary .title-sticker,
+    body.theme-night .journal-group .title-sticker {
+      box-shadow: 7px 7px 0 rgba(106, 141, 189, 0.35);
+    }
+    body.theme-night .title-sticker h1,
+    body.theme-night .section-title,
+    body.theme-night .chart-title,
+    body.theme-night .vertical-chart-title,
+    body.theme-night .info-card-title {
+      color: #f2c577;
+    }
+    body.theme-night .journal-search .title-sticker h1,
+    body.theme-night .portrait-name,
+    body.theme-night .source-host,
+    body.theme-night .supplement-card-title {
+      color: #8fd6d2;
+    }
+    body.theme-night .date-tag {
+      background: #2d3d5f;
+      color: #f4ead8;
+      border-color: #e1b66b;
+      box-shadow: 2px 2px 0 rgba(0,0,0,0.28);
+    }
+    body.theme-night .section,
+    body.theme-night .chart-panel,
+    body.theme-night .vertical-chart-panel {
+      background: #202839;
+      border-color: rgba(225,182,107,0.42);
+      box-shadow: 4px 4px 0 rgba(0,0,0,0.34);
+    }
+    body.theme-night .paper-section {
+      background-color: #202839;
+      background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent 33px,
+        rgba(143, 214, 210, 0.18) 33px,
+        rgba(143, 214, 210, 0.18) 34px
+      );
+    }
+    body.theme-night .source-section {
+      background: linear-gradient(135deg, rgba(31,43,58,0.96), rgba(35,35,49,0.96));
+    }
+    body.theme-night .billing-section {
+      background: linear-gradient(135deg, rgba(32,50,43,0.96), rgba(35,35,49,0.96));
+    }
+    body.theme-night .quote-section {
+      background: linear-gradient(135deg, rgba(58,45,34,0.96), rgba(35,35,49,0.96));
+    }
+    body.theme-night .metric-card,
+    body.theme-night .info-card,
+    body.theme-night .source-item,
+    body.theme-night .quote-card,
+    body.theme-night .portrait-card,
+    body.theme-night .supplement-card {
+      background: rgba(27,34,47,0.92);
+      border-color: rgba(225,182,107,0.34);
+      box-shadow: 4px 4px 0 rgba(0,0,0,0.28);
+    }
+    body.theme-night .metric-card::before {
+      border-color: rgba(242,197,119,0.32);
+    }
+    body.theme-night .metric-card.blue::before {
+      border-color: rgba(143,214,210,0.36);
+    }
+    body.theme-night .metric-card-inner {
+      background: radial-gradient(circle, rgba(43,53,70,0.98) 45%, rgba(30,38,52,0.98) 100%);
+    }
+    body.theme-night .metric-card.blue .metric-card-inner {
+      background: radial-gradient(circle, rgba(38,58,73,0.98) 45%, rgba(29,43,58,0.98) 100%);
+    }
+    body.theme-night .metric-label,
+    body.theme-night .chart-meta,
+    body.theme-night .vertical-chart-label,
+    body.theme-night .source-url,
+    body.theme-night .source-more,
+    body.theme-night .portrait-meta,
+    body.theme-night .empty-state,
+    body.theme-night .journal-footer span {
+      color: #b9ad9c;
+    }
+    body.theme-night .metric-value,
+    body.theme-night .chart-value {
+      color: #f2c577;
+    }
+    body.theme-night .metric-card.blue .metric-value,
+    body.theme-night .vertical-chart-value {
+      color: #8fd6d2;
+    }
+    body.theme-night .info-card::before,
+    body.theme-night .source-item::before {
+      background: rgba(143,214,210,0.28);
+    }
+    body.theme-night .chart-panel::before,
+    body.theme-night .vertical-chart-panel::before {
+      background: repeating-linear-gradient(to bottom, rgba(242,197,119,0.42) 0, rgba(242,197,119,0.42) 3px, transparent 3px, transparent 16px);
+      border-left-color: rgba(242,197,119,0.5);
+    }
+    body.theme-night .hero-note {
+      background: linear-gradient(135deg, #3a3145, #243a54);
+      border-color: rgba(225,182,107,0.45);
+      box-shadow: 5px 5px 0 rgba(0,0,0,0.32);
+    }
+    body.theme-night .hero-kicker,
+    body.theme-night .hero-text,
+    body.theme-night .rich-paragraph,
+    body.theme-night .rich-list,
+    body.theme-night .chart-label,
+    body.theme-night .portrait-summary,
+    body.theme-night .text-content {
+      color: #f4ead8;
+    }
+    body.theme-night .chart-track {
+      background: rgba(242, 197, 119, 0.16);
+      border-color: rgba(225,182,107,0.38);
+    }
+    body.theme-night .chart-fill {
+      background:
+        repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0 5px, rgba(255,255,255,0) 5px 10px),
+        linear-gradient(90deg, #d97757 0%, #f2c577 100%);
+    }
+    body.theme-night .chart-fill.blue,
+    body.theme-night .vertical-chart-fill {
+      background:
+        repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0 5px, rgba(255,255,255,0) 5px 10px),
+        linear-gradient(180deg, #8fd6d2 0%, #4b8fb1 100%);
+    }
+    body.theme-night .vertical-chart-track {
+      background: rgba(143, 214, 210, 0.14);
+      border-color: rgba(143,214,210,0.35);
+    }
+    body.theme-night .quote-note,
+    body.theme-night .portrait-tag {
+      background: rgba(242,197,119,0.16);
+      border-color: rgba(242,197,119,0.46);
+      color: #f8d792;
+    }
+    body.theme-night .quote-note-label {
+      color: #f2c577;
+    }
+    body.theme-night .quote-card::before {
+      color: rgba(242,197,119,0.22);
+    }
+    body.theme-night .quote-meta {
+      color: #b9ad9c;
+    }
+    body.theme-night .stamp {
+      border-color: rgba(242,197,119,0.62);
+      background: rgba(16,19,27,0.42);
+    }
+    body.theme-night .source-index,
+    body.theme-night .pin {
+      background: #4b8fb1;
+    }
+    body.theme-night .billing-avatar,
+    body.theme-night .quote-avatar,
+    body.theme-night .portrait-avatar {
+      border-color: rgba(242,197,119,0.52);
+      background: #10131b;
+    }
+    body.theme-night .journal-footer {
+      background: linear-gradient(90deg, #182033, #232b3e, #182033);
+      border-top-color: rgba(225,182,107,0.36);
+    }
+  `
+}
+
+function getJournalCSS(theme = 'light') {
   return `
     :root {
       --paper-bg: #fdfaf3;
@@ -766,6 +967,7 @@ function getJournalCSS() {
       margin-right: 6px;
       vertical-align: middle;
     }
+    ${normalizeTheme(theme) === 'night' ? getNightJournalCSS() : ''}
   `
 }
 
@@ -1085,6 +1287,8 @@ function renderUserPortraits(portraits = []) {
 export function generateHutaoHTML(title, content, stats = null, notices = [], options = {}) {
   const actualNotices = Array.isArray(notices) ? notices.filter(Boolean) : []
   const billingText = String(options?.billingText || '').trim()
+  const theme = normalizeTheme(options?.theme)
+  const bodyClass = theme === 'night' ? 'theme-night' : 'theme-light'
   const sections = parseBracketSections(content)
   const previewText = getPreviewText(content)
   const contentHtml = content
@@ -1116,8 +1320,8 @@ export function generateHutaoHTML(title, content, stats = null, notices = [], op
     : ''
   const billingHtml = renderBillingSection(billingText)
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
-    <body><div class="journal journal-summary">
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS(theme)}</style></head>
+    <body class="${bodyClass}"><div class="journal journal-summary">
       ${renderJournalHeader(title, '🔥')}
       <div class="journal-body">
         ${renderSnapshotNote(previewText, '摘要快照')}
@@ -1132,6 +1336,8 @@ export function generateHutaoHTML(title, content, stats = null, notices = [], op
 export function generateSearchHTML(keyword, content, citations = [], options = {}) {
   const billingText = String(options?.billingText || '').trim()
   const hiddenSourceCount = Math.max(0, Number(options?.hiddenSourceCount) || 0)
+  const theme = normalizeTheme(options?.theme)
+  const bodyClass = theme === 'night' ? 'theme-night' : 'theme-light'
   const sections = parseBracketSections(content)
   const previewText = getPreviewText(content)
 
@@ -1178,8 +1384,8 @@ export function generateSearchHTML(keyword, content, citations = [], options = {
     : ''
   const billingHtml = renderBillingSection(billingText)
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
-    <body><div class="journal journal-search">
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS(theme)}</style></head>
+    <body class="${bodyClass}"><div class="journal journal-search">
       ${renderJournalHeader(keyword, '🔍')}
       <div class="journal-body">
         ${renderSnapshotNote(previewText, '摘要快照')}
@@ -1200,8 +1406,11 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
     hourlyActivity = {},
     isMemberMode = false,
     billingText = '',
-    userPortraits = []
+    userPortraits = [],
+    theme = 'light'
   } = data
+  const normalizedTheme = normalizeTheme(theme)
+  const bodyClass = normalizedTheme === 'night' ? 'theme-night' : 'theme-light'
   const { topicSummary = '', highlights = [], extraSections = [] } = parsedContent || {}
   const displayTitle = isMemberMode ? '群友画像' : title
   const rankItems = Array.isArray(memberStats) && memberStats.length > 0
@@ -1298,8 +1507,8 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
   const userPortraitsHtml = renderUserPortraits(userPortraits)
   const billingHtml = renderBillingSection(billingText)
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
-    <body><div class="journal journal-group">
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS(normalizedTheme)}</style></head>
+    <body class="${bodyClass}"><div class="journal journal-group">
       ${renderJournalHeader(displayTitle, '')}
       <div class="journal-body">
         ${statsHtml}

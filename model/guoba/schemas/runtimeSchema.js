@@ -373,6 +373,19 @@ const runtimeSchemaRaw = [
     }
   },
   {
+    field: 'send.cardTheme',
+    label: 'HTML 卡片主题',
+    bottomHelpMessage: '仅影响 HTML 图片卡片；夜晚模式会使用深色背景和高对比文字',
+    component: 'Select',
+    defaultValue: 'light',
+    componentProps: {
+      options: [
+        { label: '白天手帐', value: 'light' },
+        { label: '夜晚手帐', value: 'night' }
+      ]
+    }
+  },
+  {
     field: 'send.autoFallback',
     label: '自动降级发送',
     bottomHelpMessage: '按 HTML -> 合并转发 -> 纯文本 的顺序回退',

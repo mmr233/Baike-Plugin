@@ -253,12 +253,12 @@ class BaikeService {
           }]
         }],
         fallbackText,
-        generateGroupSummaryHTML(cached.title, parsedForHtml, {
+        generateGroupSummaryHTML(cached.title, parsedForHtml, this.getCardRenderOptions({
           ...cached.statsData,
           isMemberMode: cached.isMemberMode,
           billingText,
           userPortraits
-        }),
+        })),
         cached.isMemberMode ? 'memberSummary' : 'groupChatSummary'
       )
       await this.completeSummaryUsage(chargeResult, options.completedReason || 'cached_group_summary_sent')
@@ -335,6 +335,14 @@ class BaikeService {
   getSendMode(funcType = '') {
     const sendConfig = Config.get('send', {})
     return sendConfig[funcType] || sendConfig.primaryMode || 'html'
+  }
+
+  getCardRenderOptions(extra = {}) {
+    const theme = String(Config.get('send.cardTheme', 'light') || 'light').trim().toLowerCase()
+    return {
+      ...extra,
+      theme: theme === 'night' ? 'night' : 'light'
+    }
   }
 
   getNextFallbackMode(currentMode) {
@@ -1894,7 +1902,7 @@ class BaikeService {
       const displayText = this.buildSummaryDisplayText(result, notices)
       const billingText = this.buildSummaryBillingText(chargeResult, e)
       const finalDisplayText = this.appendSummaryBillingText(displayText, billingText)
-      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, notices, { billingText })
+      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, notices, this.getCardRenderOptions({ billingText }))
       const userInfo = this.messageService.getUserInfo(e)
       try {
         await this.sendResult(
@@ -2190,7 +2198,7 @@ class BaikeService {
       const displayText = this.buildSummaryDisplayText(result, summaryNotices)
       const billingText = this.buildSummaryBillingText(chargeResult, e)
       const finalDisplayText = this.appendSummaryBillingText(displayText, billingText)
-      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, summaryNotices, { billingText })
+      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, summaryNotices, this.getCardRenderOptions({ billingText }))
       const userInfo = this.messageService.getUserInfo(e)
       await this.sendResult(
         e,
@@ -2465,7 +2473,7 @@ class BaikeService {
           }]
         }],
         fallbackText,
-        generateGroupSummaryHTML(title, parsedForHtml, { ...statsData, isMemberMode, billingText, userPortraits }),
+        generateGroupSummaryHTML(title, parsedForHtml, this.getCardRenderOptions({ ...statsData, isMemberMode, billingText, userPortraits })),
         isMemberMode ? 'memberSummary' : 'groupChatSummary'
       )
       if (!degraded) {
@@ -2624,10 +2632,10 @@ class BaikeService {
 
       const billingText = this.buildSearchBillingText(chargeResult, e)
       const finalContentText = this.appendBillingText(contentText, billingText)
-      const html = generateSearchHTML(displayKeyword, contentText, visibleCitations, {
+      const html = generateSearchHTML(displayKeyword, contentText, visibleCitations, this.getCardRenderOptions({
         billingText,
         hiddenSourceCount: sourceDisplay.hiddenCount
-      })
+      }))
       await this.sendResult(
         e,
         forwardMsg,

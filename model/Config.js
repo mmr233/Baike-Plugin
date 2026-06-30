@@ -355,6 +355,7 @@ const DEFAULT_CONFIG = {
   },
   send: {
     primaryMode: 'html',
+    cardTheme: 'light',
     autoFallback: true,
     search: 'forward',
     contentSummary: '',
