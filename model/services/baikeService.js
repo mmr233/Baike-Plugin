@@ -221,7 +221,7 @@ class BaikeService {
 
     const parsed = parseSummaryContent(cached.result)
     const userInfo = this.messageService.getUserInfo(e)
-    const billingText = this.buildSummaryBillingText(chargeResult)
+    const billingText = this.buildSummaryBillingText(chargeResult, e)
     const fallbackText = this.appendSummaryBillingText(`${cached.title}：\n\n${cached.result}`, billingText)
     const forwardText = this.appendSummaryBillingText(
       `═══ ${cached.title} ═══\n\n📊 消息数量：${cached.statsData.messageCount}条\n👥 活跃成员：${cached.statsData.memberCount}人\n📈 发言排行：${cached.statsData.statsText}\n\n═══ 内容分析 ═══\n\n${cached.result}`,
@@ -365,9 +365,17 @@ class BaikeService {
     return `═══ ${displayKeyword} - 参考来源 ═══\n\n${lines.join('\n')}`
   }
 
-  async replyResult(e, message, label = '结果') {
+  shouldQuoteReply(e = {}) {
+    return Boolean(e?.message_id)
+  }
+
+  async replyResult(e, message, label = '结果', quote = false) {
     try {
-      await e.reply(message)
+      if (quote) {
+        await e.reply(message, true)
+      } else {
+        await e.reply(message)
+      }
       return true
     } catch (error) {
       if (isAmbiguousSendTimeoutError(error)) {
@@ -377,6 +385,17 @@ class BaikeService {
 
       throw error
     }
+  }
+
+  getBillingUserLabel(e = {}, chargeResult = null) {
+    const userId = String(chargeResult?.userId || e?.user_id || '').trim()
+    const name = String(e?.sender?.card || e?.sender?.nickname || chargeResult?.userName || '').trim()
+
+    if (name && userId && name !== userId) {
+      return `${name}(${userId})`
+    }
+
+    return name || userId || ''
   }
 
   async chargeSummaryUsage(e, context = {}) {
@@ -446,14 +465,16 @@ class BaikeService {
     return reasonMap[reason] || reason || '未扣费'
   }
 
-  buildBillingText(chargeResult = null, fallbackItemName = '百科服务') {
+  buildBillingText(chargeResult = null, fallbackItemName = '百科服务', e = {}) {
     if (!chargeResult) {
       return ''
     }
 
     const itemName = chargeResult.item?.name || fallbackItemName
+    const userLabel = this.getBillingUserLabel(e, chargeResult)
+    const userLine = userLabel ? `使用者：${userLabel}。` : ''
     if (chargeResult.charged) {
-      const parts = [`本次${itemName}已扣除 ${chargeResult.costFavor || 0} 点好感度。`]
+      const parts = [userLine, `本次${itemName}已扣除 ${chargeResult.costFavor || 0} 点好感度。`].filter(Boolean)
       if (chargeResult.beforeFavor !== undefined && chargeResult.favor !== undefined) {
         parts.push(`扣费前：${chargeResult.beforeFavor}，扣费后：${chargeResult.favor}。`)
       } else if (chargeResult.favor !== undefined) {
@@ -463,18 +484,18 @@ class BaikeService {
     }
 
     if (chargeResult.skipped || chargeResult.reason) {
-      return `本次未扣好感度：${this.getBillingReasonText(chargeResult.reason)}。`
+      return [userLine, `本次未扣好感度：${this.getBillingReasonText(chargeResult.reason)}。`].filter(Boolean).join('\n')
     }
 
     return ''
   }
 
-  buildSummaryBillingText(chargeResult = null) {
-    return this.buildBillingText(chargeResult, '百科总结服务')
+  buildSummaryBillingText(chargeResult = null, e = {}) {
+    return this.buildBillingText(chargeResult, '百科总结服务', e)
   }
 
-  buildSearchBillingText(chargeResult = null) {
-    return this.buildBillingText(chargeResult, '百科搜索服务')
+  buildSearchBillingText(chargeResult = null, e = {}) {
+    return this.buildBillingText(chargeResult, '百科搜索服务', e)
   }
 
   appendBillingText(text = '', billingText = '') {
@@ -1399,7 +1420,7 @@ class BaikeService {
         try {
           imagePath = await this.mediaService.renderHtmlToImage(htmlContent)
           if (imagePath && fs.existsSync(imagePath)) {
-            await this.replyResult(e, { type: 'image', file: imagePath }, 'HTML 图片')
+            await this.replyResult(e, { type: 'image', file: imagePath }, 'HTML 图片', this.shouldQuoteReply(e))
             return true
           }
         } catch (error) {
@@ -1559,7 +1580,7 @@ class BaikeService {
       const result = cached.result
       const notices = Array.isArray(cached.notices) ? cached.notices : []
       const displayText = this.buildSummaryDisplayText(result, notices)
-      const billingText = this.buildSummaryBillingText(chargeResult)
+      const billingText = this.buildSummaryBillingText(chargeResult, e)
       const finalDisplayText = this.appendSummaryBillingText(displayText, billingText)
       const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, notices, { billingText })
       const userInfo = this.messageService.getUserInfo(e)
@@ -1855,7 +1876,7 @@ class BaikeService {
 
       this.setCache(cacheKey, { result, notices: summaryNotices })
       const displayText = this.buildSummaryDisplayText(result, summaryNotices)
-      const billingText = this.buildSummaryBillingText(chargeResult)
+      const billingText = this.buildSummaryBillingText(chargeResult, e)
       const finalDisplayText = this.appendSummaryBillingText(displayText, billingText)
       const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, summaryNotices, { billingText })
       const userInfo = this.messageService.getUserInfo(e)
@@ -2107,7 +2128,7 @@ class BaikeService {
 
       const parsed = parseSummaryContent(result)
       const userInfo = this.messageService.getUserInfo(e)
-      const billingText = this.buildSummaryBillingText(chargeResult)
+      const billingText = this.buildSummaryBillingText(chargeResult, e)
       const fallbackText = this.appendSummaryBillingText(`${title}：\n\n${result}`, billingText)
       const forwardText = this.appendSummaryBillingText(
         `═══ ${title} ═══\n\n📊 消息数量：${statsData.messageCount}条\n👥 活跃成员：${statsData.memberCount}人\n📈 发言排行：${statsText}\n\n═══ 内容分析 ═══\n\n${result}`,
@@ -2236,7 +2257,7 @@ class BaikeService {
       const visibleCitations = sourceDisplay.citations
 
       if (contentText) {
-        const billingText = this.buildSearchBillingText(chargeResult)
+        const billingText = this.buildSearchBillingText(chargeResult, e)
         const displayContentText = this.appendBillingText(contentText, billingText)
         forwardMsg.push({
           ...userInfo,
@@ -2280,7 +2301,7 @@ class BaikeService {
         }
       }
 
-      const billingText = this.buildSearchBillingText(chargeResult)
+      const billingText = this.buildSearchBillingText(chargeResult, e)
       const finalContentText = this.appendBillingText(contentText, billingText)
       const html = generateSearchHTML(displayKeyword, contentText, visibleCitations, {
         billingText,

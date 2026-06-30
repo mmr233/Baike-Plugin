@@ -580,13 +580,17 @@ class SummaryBillingService {
 
   async charge(e = {}, context = {}) {
     const config = this.getConfig()
+    const userName = getUserName(e)
     const skipped = this.shouldSkip(e, context, config)
     if (skipped.skip) {
       return {
         ok: true,
         charged: false,
         skipped: true,
-        reason: skipped.reason
+        reason: skipped.reason,
+        groupId: e.group_id,
+        userId: e.user_id,
+        userName
       }
     }
 
@@ -603,6 +607,9 @@ class SummaryBillingService {
         charged: false,
         skipped: true,
         reason: chargeSkipped.reason,
+        groupId: e.group_id,
+        userId: e.user_id,
+        userName,
         usageReservation
       }
     }
@@ -651,6 +658,9 @@ class SummaryBillingService {
         reason: 'free',
         item,
         costFavor,
+        groupId: e.group_id,
+        userId: e.user_id,
+        userName,
         usageReservation
       }
     }
@@ -794,6 +804,7 @@ class SummaryBillingService {
       favor: result.favor,
       groupId: e.group_id,
       userId: e.user_id,
+      userName,
       transactionId: irisTransactionId,
       localTransactionId: transactionId,
       idempotencyKey,
