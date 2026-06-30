@@ -341,6 +341,7 @@ const DEFAULT_CONFIG = {
     maxMessageCount: 500,
     docMaxChars: 2000,
     historyHoursLimit: 24,
+    userPortraitMaxCount: 4,
     inflightDedup: {
       enabled: true,
       waitMs: 120000

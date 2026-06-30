@@ -346,6 +346,18 @@ const summarySchemaRaw = [
     }
   },
   {
+    field: 'chatSummary.userPortraitMaxCount',
+    label: '精选用户画像数量',
+    bottomHelpMessage: '群聊总结卡片中最多展示多少个精选用户画像，0 表示不显示；优先展示消息精选中出现的用户',
+    component: 'InputNumber',
+    defaultValue: 4,
+    componentProps: {
+      min: 0,
+      max: 8,
+      step: 1
+    }
+  },
+  {
     field: 'chatSummary.inflightDedup.enabled',
     label: '等待同类总结完成',
     bottomHelpMessage: '开启后，同群同范围的群聊总结正在生成时，后续触发会等待前一个结果并复用缓存，避免重复扣费和重复请求模型',

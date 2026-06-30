@@ -89,6 +89,19 @@ class BaikeService {
     return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`
   }
 
+  getAvatarUrl(userId = '') {
+    const actualUserId = String(userId || '').trim()
+    return actualUserId ? `https://q1.qlogo.cn/g?b=qq&s=0&nk=${actualUserId}` : ''
+  }
+
+  normalizeMatchText(text = '') {
+    return String(text || '')
+      .replace(/\s+/g, '')
+      .replace(/[，。！？、,.!?;；:："'“”‘’【】[\]()（）]/g, '')
+      .trim()
+      .toLowerCase()
+  }
+
   getCacheKey(type, id) {
     return `${type}:${id}`
   }
@@ -220,6 +233,8 @@ class BaikeService {
     }
 
     const parsed = parseSummaryContent(cached.result)
+    const parsedForHtml = cached.parsedContent || parsed
+    const userPortraits = Array.isArray(cached.userPortraits) ? cached.userPortraits : []
     const userInfo = this.messageService.getUserInfo(e)
     const billingText = this.buildSummaryBillingText(chargeResult, e)
     const fallbackText = this.appendSummaryBillingText(`${cached.title}：\n\n${cached.result}`, billingText)
@@ -238,10 +253,11 @@ class BaikeService {
           }]
         }],
         fallbackText,
-        generateGroupSummaryHTML(cached.title, parsed, {
+        generateGroupSummaryHTML(cached.title, parsedForHtml, {
           ...cached.statsData,
           isMemberMode: cached.isMemberMode,
-          billingText
+          billingText,
+          userPortraits
         }),
         cached.isMemberMode ? 'memberSummary' : 'groupChatSummary'
       )
@@ -1157,6 +1173,168 @@ class BaikeService {
     ].join('\n').replace(/\n{3,}/g, '\n\n')
   }
 
+  scoreHighlightMatch(highlight = {}, message = {}) {
+    const highlightSender = String(highlight.sender || '').trim()
+    const messageSender = String(message.nickname || message.user_id || '').trim()
+    const highlightContent = this.normalizeMatchText(highlight.content)
+    const messageContent = this.normalizeMatchText(message.text)
+    let score = 0
+
+    if (highlightSender && messageSender && (highlightSender === messageSender || highlightSender.includes(messageSender) || messageSender.includes(highlightSender))) {
+      score += 5
+    }
+
+    if (highlight.time && message.time && String(highlight.time).includes(String(message.time).slice(0, 16))) {
+      score += 4
+    }
+
+    if (highlightContent && messageContent) {
+      if (messageContent.includes(highlightContent) || highlightContent.includes(messageContent)) {
+        score += 8
+      } else {
+        const shortContent = highlightContent.slice(0, 24)
+        if (shortContent && messageContent.includes(shortContent)) {
+          score += 4
+        }
+      }
+    }
+
+    return score
+  }
+
+  findBestHighlightMessage(highlight = {}, formattedMessages = []) {
+    let best = null
+    let bestScore = 0
+
+    for (const message of formattedMessages || []) {
+      const score = this.scoreHighlightMatch(highlight, message)
+      if (score > bestScore) {
+        best = message
+        bestScore = score
+      }
+    }
+
+    return bestScore > 0 ? best : null
+  }
+
+  enrichGroupSummaryParsed(parsed = {}, formattedMessages = []) {
+    const highlights = Array.isArray(parsed.highlights) ? parsed.highlights : []
+    return {
+      ...parsed,
+      highlights: highlights.map(item => {
+        const matched = this.findBestHighlightMessage(item, formattedMessages)
+        const userId = String(matched?.user_id || item.userId || '').trim()
+        const sender = item.sender || matched?.nickname || userId
+
+        return {
+          ...item,
+          sender,
+          userId,
+          avatar: this.getAvatarUrl(userId)
+        }
+      })
+    }
+  }
+
+  buildSelectedUserPortraits(parsed = {}, formattedMessages = [], sortedMembers = [], options = {}) {
+    const maxCount = Math.max(0, Math.min(Number(options.maxCount) || 0, 8))
+    if (maxCount <= 0) {
+      return []
+    }
+
+    const messageByUser = new Map()
+    for (const message of formattedMessages || []) {
+      const userId = String(message.user_id || '').trim()
+      if (!userId) {
+        continue
+      }
+      if (!messageByUser.has(userId)) {
+        messageByUser.set(userId, {
+          userId,
+          nickname: message.nickname || userId,
+          messages: []
+        })
+      }
+      messageByUser.get(userId).messages.push(message)
+    }
+
+    const userOrder = []
+    const addUser = userId => {
+      const actualUserId = String(userId || '').trim()
+      if (actualUserId && messageByUser.has(actualUserId) && !userOrder.includes(actualUserId)) {
+        userOrder.push(actualUserId)
+      }
+    }
+
+    for (const item of parsed.highlights || []) {
+      addUser(item.userId)
+    }
+
+    const memberNameOrder = (sortedMembers || []).map(([name]) => String(name || '').trim())
+    for (const name of memberNameOrder) {
+      const matched = [...messageByUser.values()].find(item => item.nickname === name)
+      addUser(matched?.userId)
+      if (userOrder.length >= maxCount) {
+        break
+      }
+    }
+
+    return userOrder.slice(0, maxCount).map(userId => {
+      const entry = messageByUser.get(userId)
+      const messages = entry.messages || []
+      const samples = messages
+        .map(item => String(item.text || '').trim())
+        .filter(Boolean)
+        .slice(-3)
+      const mediaCount = messages.filter(item => /\[(图片|视频|语音|文档|文件|表情)\]/.test(String(item.text || ''))).length
+      const recent = messages[messages.length - 1]
+      const keywords = [...new Set(samples
+        .join(' ')
+        .replace(/\[[^\]]+\]/g, ' ')
+        .split(/[^\p{L}\p{N}_@#]+/u)
+        .map(item => item.trim())
+        .filter(item => item.length >= 2 && item.length <= 12)
+      )].slice(0, 4)
+
+      return {
+        userId,
+        nickname: entry.nickname || userId,
+        avatar: this.getAvatarUrl(userId),
+        messageCount: messages.length,
+        mediaCount,
+        latestTime: recent?.time || '',
+        tags: [
+          messages.length >= 10 ? '高频发言' : messages.length >= 3 ? '积极参与' : '点到即止',
+          mediaCount > 0 ? '带媒体内容' : '',
+          keywords[0] ? `关键词:${keywords.slice(0, 2).join('/')}` : ''
+        ].filter(Boolean),
+        summary: samples.length > 0
+          ? `本轮出现 ${messages.length} 次，最近关注：${samples.map(item => item.slice(0, 36)).join(' / ')}`
+          : `本轮出现 ${messages.length} 次，主要贡献集中在被精选消息附近。`
+      }
+    })
+  }
+
+  buildMemberStats(formattedMessages = []) {
+    const stats = new Map()
+    for (const message of formattedMessages || []) {
+      const userId = String(message.user_id || '').trim()
+      const nickname = String(message.nickname || userId || '未知成员').trim()
+      const key = userId || nickname
+      if (!stats.has(key)) {
+        stats.set(key, {
+          userId,
+          nickname,
+          count: 0,
+          avatar: this.getAvatarUrl(userId)
+        })
+      }
+      stats.get(key).count += 1
+    }
+
+    return [...stats.values()].sort((a, b) => b.count - a.count)
+  }
+
   messageLikelyContainsMedia(messageData) {
     if (!messageData) {
       return false
@@ -2043,6 +2221,7 @@ class BaikeService {
       }
 
       const sortedMembers = Object.entries(userMessageCounts).sort((a, b) => b[1] - a[1])
+      const memberStats = this.buildMemberStats(formattedMessages)
       const statsText = sortedMembers.slice(0, 10).map(([name, count]) => `${name}: ${count}条`).join('、')
       const botProfile = await this.messageService.getBotProfileForPrompt(e)
       const messageTexts = formattedMessages
@@ -2081,6 +2260,7 @@ class BaikeService {
         messageCount: formattedMessages.length,
         memberCount: Object.keys(userMessageCounts).length,
         sortedMembers,
+        memberStats,
         hourlyActivity,
         statsText
       }
@@ -2115,18 +2295,23 @@ class BaikeService {
         })
       }
 
+      const parsed = parseSummaryContent(result)
+      const parsedForHtml = this.enrichGroupSummaryParsed(parsed, formattedMessages)
+      const userPortraits = this.buildSelectedUserPortraits(parsedForHtml, formattedMessages, sortedMembers, {
+        maxCount: chatConfig.userPortraitMaxCount ?? 4
+      })
       if (!degraded) {
         this.setCache(cacheKey, {
           result,
           statsData,
           title,
-          isMemberMode
+          isMemberMode,
+          parsedContent: parsedForHtml,
+          userPortraits
         })
       } else {
         await this.refundSummaryUsage(chargeResult, 'group_summary_degraded')
       }
-
-      const parsed = parseSummaryContent(result)
       const userInfo = this.messageService.getUserInfo(e)
       const billingText = this.buildSummaryBillingText(chargeResult, e)
       const fallbackText = this.appendSummaryBillingText(`${title}：\n\n${result}`, billingText)
@@ -2144,7 +2329,7 @@ class BaikeService {
           }]
         }],
         fallbackText,
-        generateGroupSummaryHTML(title, parsed, { ...statsData, isMemberMode, billingText }),
+        generateGroupSummaryHTML(title, parsedForHtml, { ...statsData, isMemberMode, billingText, userPortraits }),
         isMemberMode ? 'memberSummary' : 'groupChatSummary'
       )
       if (!degraded) {

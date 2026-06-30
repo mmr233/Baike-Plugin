@@ -187,6 +187,26 @@ function getJournalCSS() {
     .billing-section {
       background: linear-gradient(135deg, rgba(248,255,239,0.96), rgba(255,252,247,0.96));
     }
+    .billing-profile {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .billing-avatar,
+    .quote-avatar,
+    .portrait-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid rgba(123,92,68,0.28);
+      background: #fff;
+      flex-shrink: 0;
+    }
+    .billing-profile-main {
+      flex: 1;
+      min-width: 0;
+    }
     .quote-section {
       background: linear-gradient(135deg, rgba(255,248,213,0.96), rgba(255,252,240,0.96));
     }
@@ -615,15 +635,25 @@ function getJournalCSS() {
       justify-content: space-between;
       gap: 10px;
       margin-bottom: 8px;
-      padding-left: 18px;
       font-size: 11px;
       color: #9a806a;
+    }
+    .quote-body {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      padding-left: 18px;
+      position: relative;
+    }
+    .quote-main {
+      flex: 1;
+      min-width: 0;
     }
     .quote-author {
       font-weight: bold;
     }
     .quote-content {
-      padding-left: 18px;
+      padding-left: 0;
     }
     .quote-note {
       margin-top: 10px;
@@ -638,6 +668,63 @@ function getJournalCSS() {
       font-size: 12px;
       color: #8a6726;
       margin-bottom: 4px;
+    }
+    .portrait-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .portrait-card {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      background: rgba(255,255,255,0.88);
+      border: 1px solid #d9dff0;
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 3px 3px 0 rgba(190, 208, 228, 0.35);
+      min-width: 0;
+    }
+    .portrait-main {
+      flex: 1;
+      min-width: 0;
+    }
+    .portrait-name {
+      color: #5f94c0;
+      font-weight: bold;
+      font-size: 13px;
+      line-height: 1.3;
+      word-break: break-word;
+      margin-bottom: 4px;
+    }
+    .portrait-meta {
+      color: #9a806a;
+      font-size: 11px;
+      line-height: 1.6;
+      margin-bottom: 6px;
+    }
+    .portrait-summary {
+      color: #5a4a3a;
+      font-size: 12px;
+      line-height: 1.7;
+      word-break: break-word;
+      margin-bottom: 6px;
+    }
+    .portrait-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .portrait-tag {
+      color: #6a5428;
+      font-size: 10px;
+      line-height: 1.3;
+      background: rgba(255,245,183,0.92);
+      border: 1px dashed #ccb56e;
+      border-radius: 999px;
+      padding: 3px 7px;
+      max-width: 100%;
+      word-break: break-word;
     }
     .supplement-list {
       display: flex;
@@ -914,16 +1001,83 @@ function renderSnapshotNote(text = '', kicker = '摘要快照') {
   `
 }
 
+function getAvatarUrl(userId = '') {
+  const actualUserId = String(userId || '').trim()
+  return actualUserId ? `https://q1.qlogo.cn/g?b=qq&s=0&nk=${actualUserId}` : ''
+}
+
+function parseBillingUser(text = '') {
+  const match = String(text || '').match(/(?:^|\n)使用者：(.+?)(?:。|\n|$)/)
+  if (!match) {
+    return null
+  }
+
+  const label = String(match[1] || '').trim()
+  const idMatch = label.match(/\((\d+)\)$/)
+  const userId = idMatch?.[1] || ''
+  const name = idMatch ? label.replace(/\(\d+\)$/, '').trim() : label
+  return {
+    name,
+    userId,
+    avatar: getAvatarUrl(userId)
+  }
+}
+
+function stripBillingUserLine(text = '') {
+  return String(text || '').replace(/^使用者：.+?(?:。|\n)/, '').trim()
+}
+
 function renderBillingSection(text = '') {
   const actualText = String(text || '').trim()
   if (!actualText) {
     return ''
   }
+  const user = parseBillingUser(actualText)
+  const billingText = user ? stripBillingUserLine(actualText) : actualText
 
   return `
     <div class="section billing-section">
       <div class="section-title">扣费信息</div>
-      ${renderRichTextHtml(actualText)}
+      ${user
+        ? `
+          <div class="billing-profile">
+            ${user.avatar ? `<img class="billing-avatar" src="${escapeHtml(user.avatar)}" alt="">` : ''}
+            <div class="billing-profile-main">
+              <div class="portrait-name">${escapeHtml(user.name || user.userId || '未知用户')}</div>
+              ${user.userId ? `<div class="portrait-meta">QQ ${escapeHtml(user.userId)}</div>` : ''}
+              ${renderRichTextHtml(billingText)}
+            </div>
+          </div>
+        `
+        : renderRichTextHtml(billingText)}
+    </div>
+  `
+}
+
+function renderUserPortraits(portraits = []) {
+  const items = (Array.isArray(portraits) ? portraits : []).filter(item => item?.nickname || item?.userId)
+  if (items.length === 0) {
+    return ''
+  }
+
+  return `
+    <div class="section source-section">
+      <div class="section-title">精选用户画像</div>
+      <div class="portrait-grid">
+        ${items.map(item => `
+          <div class="portrait-card">
+            ${item.avatar ? `<img class="portrait-avatar" src="${escapeHtml(item.avatar)}" alt="">` : ''}
+            <div class="portrait-main">
+              <div class="portrait-name">${escapeHtml(item.nickname || item.userId || '未知成员')}</div>
+              <div class="portrait-meta">${escapeHtml(`${item.messageCount || 0} 条消息${item.latestTime ? ` · 最近 ${item.latestTime}` : ''}`)}</div>
+              <div class="portrait-summary">${escapeHtml(item.summary || '')}</div>
+              ${(item.tags || []).length > 0
+                ? `<div class="portrait-tags">${item.tags.map(tag => `<span class="portrait-tag">${escapeHtml(tag)}</span>`).join('')}</div>`
+                : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
     </div>
   `
 }
@@ -1042,15 +1196,20 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
     messageCount = 0,
     memberCount = 0,
     sortedMembers = [],
+    memberStats = [],
     hourlyActivity = {},
     isMemberMode = false,
-    billingText = ''
+    billingText = '',
+    userPortraits = []
   } = data
   const { topicSummary = '', highlights = [], extraSections = [] } = parsedContent || {}
   const displayTitle = isMemberMode ? '群友画像' : title
-  const rankChartHtml = !isMemberMode && sortedMembers.length > 0
+  const rankItems = Array.isArray(memberStats) && memberStats.length > 0
+    ? memberStats.map(item => [item.nickname || item.userId || '未知成员', item.count || 0])
+    : sortedMembers
+  const rankChartHtml = !isMemberMode && rankItems.length > 0
     ? renderBarChart(
-      sortedMembers.slice(0, 10).map(([name, count], index) => ({
+      rankItems.slice(0, 10).map(([name, count], index) => ({
         label: index === 0 ? `${name} · TOP1` : name,
         value: count,
         color: index === 0 ? '' : 'blue'
@@ -1099,17 +1258,22 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
         <div class="section-title">${isMemberMode ? '成员消息精选' : '群消息精选'}</div>
         ${highlights.map(item => `
           <div class="quote-card">
-            <div class="quote-meta">
-              <span class="quote-author">${escapeHtml(item.sender || '匿名')}</span>
-              <span>${escapeHtml(item.time || '')}</span>
-            </div>
-            <div class="quote-content">${renderRichTextHtml(item.content || '')}</div>
-            ${item.roast ? `
-              <div class="quote-note">
-                <div class="quote-note-label">胡桃锐评</div>
-                ${renderRichTextHtml(item.roast)}
+            <div class="quote-body">
+              ${item.avatar ? `<img class="quote-avatar" src="${escapeHtml(item.avatar)}" alt="">` : ''}
+              <div class="quote-main">
+                <div class="quote-meta">
+                  <span class="quote-author">${escapeHtml(item.sender || '匿名')}</span>
+                  <span>${escapeHtml(item.time || '')}</span>
+                </div>
+                <div class="quote-content">${renderRichTextHtml(item.content || '')}</div>
+                ${item.roast ? `
+                  <div class="quote-note">
+                    <div class="quote-note-label">胡桃锐评</div>
+                    ${renderRichTextHtml(item.roast)}
+                  </div>
+                ` : ''}
               </div>
-            ` : ''}
+            </div>
           </div>
         `).join('')}
       </div>
@@ -1131,6 +1295,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
       </div>
     `
     : ''
+  const userPortraitsHtml = renderUserPortraits(userPortraits)
   const billingHtml = renderBillingSection(billingText)
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS()}</style></head>
@@ -1142,6 +1307,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
         ${activityChartHtml}
         ${topicHtml}
         ${highlightsHtml}
+        ${userPortraitsHtml}
         ${extraSectionsHtml}
         ${billingHtml}
       </div>
