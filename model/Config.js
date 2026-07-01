@@ -563,6 +563,11 @@ const DEFAULT_CONFIG = {
     maxMessageCount: 500,
     docMaxChars: 2000,
     historyHoursLimit: 24,
+    historyFetch: {
+      paginationEnabled: true,
+      batchSize: 100,
+      batchDelayMs: 50
+    },
     filterBotMessages: true,
     skipBotMemberSummary: true,
     userPortraitMaxCount: 4,

@@ -1294,7 +1294,8 @@ class BaikeService {
     }
   }
 
-  getCompactGroupMessageTexts(formattedMessages = []) {
+  getCompactGroupMessageTexts(formattedMessages = [], options = {}) {
+    const botUserId = String(options.botProfile?.userId || '').trim()
     return (formattedMessages || [])
       .map(item => {
         const time = item.timestamp
@@ -1305,7 +1306,9 @@ class BaikeService {
             })
           : String(item.time || '').slice(0, 16)
         const userId = String(item.user_id || '').trim()
-        const nickname = String(item.nickname || userId || '未知成员').trim()
+        const nickname = botUserId && userId === botUserId
+          ? '我(机器人)'
+          : String(item.nickname || item.card || userId || '未知成员').trim()
         const text = String(item.text || '').replace(/\s+/g, ' ').trim()
         return text ? `[${time}] [${userId}] ${nickname}: ${text}` : ''
       })
@@ -1479,7 +1482,7 @@ class BaikeService {
       return null
     }
 
-    const messageTexts = this.getCompactGroupMessageTexts(formattedMessages)
+    const messageTexts = this.getCompactGroupMessageTexts(formattedMessages, { botProfile })
     const commonValues = {
       statsText,
       extraContext: extraContext || '无',
@@ -2806,7 +2809,17 @@ class BaikeService {
 
     let chargeResult = null
     try {
-      const rawMessages = await this.messageService.getGroupHistoryMessages(e, Math.min(messageCount, chatConfig.maxMessageCount || 500))
+      const historyFetchConfig = chatConfig.historyFetch || {}
+      const rawMessages = await this.messageService.getGroupHistoryMessages(
+        e,
+        Math.min(messageCount, chatConfig.maxMessageCount || 500),
+        {
+          maxAgeHours: timeRangeHours,
+          paginationEnabled: historyFetchConfig.paginationEnabled !== false,
+          batchSize: historyFetchConfig.batchSize,
+          batchDelayMs: historyFetchConfig.batchDelayMs
+        }
+      )
       if (!rawMessages || rawMessages.length === 0) {
         await e.reply('无法获取群聊历史消息，请确认机器人权限')
         this.finishGroupSummaryInflight(cacheKey, inflightEntry, {
@@ -2917,13 +2930,7 @@ class BaikeService {
       const memberStats = this.buildMemberStats(formattedMessages)
       const statsText = sortedMembers.slice(0, 10).map(([name, count]) => `${name}: ${count}条`).join('、')
       const botProfile = await this.messageService.getBotProfileForPrompt(e)
-      const messageTexts = formattedMessages
-        .map(item => {
-          const isBotMessage = botProfile.userId && String(item.user_id || '') === botProfile.userId
-          const senderName = isBotMessage ? '我(机器人)' : item.nickname
-          return `[${item.time}] ${senderName}: ${item.text}`
-        })
-        .join('\n')
+      const messageTexts = this.getCompactGroupMessageTexts(formattedMessages, { botProfile })
       const memberProfilesText = actualMembers.length > 0
         ? await this.messageService.getGroupMemberProfiles(e, actualMembers)
         : ''

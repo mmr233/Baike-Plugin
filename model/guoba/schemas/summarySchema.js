@@ -346,6 +346,37 @@ const summarySchemaRaw = [
     }
   },
   {
+    field: 'chatSummary.historyFetch.paginationEnabled',
+    label: '分页回溯拉取历史',
+    bottomHelpMessage: '开启后按批次回溯群历史消息，类似 AstrBot 的 OneBot 拉取方式；协议端不支持分页时会自动回退到一次性拉取',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'chatSummary.historyFetch.batchSize',
+    label: '历史分页批大小',
+    bottomHelpMessage: '每次从 OneBot 拉取多少条群历史消息，建议 50-100；过大可能增加协议端压力',
+    component: 'InputNumber',
+    defaultValue: 100,
+    componentProps: {
+      min: 20,
+      max: 200,
+      step: 10
+    }
+  },
+  {
+    field: 'chatSummary.historyFetch.batchDelayMs',
+    label: '分页批间延迟（毫秒）',
+    bottomHelpMessage: '分页回溯时每批之间等待多久，默认 50ms，用于减轻 NapCat/OneBot 后端压力',
+    component: 'InputNumber',
+    defaultValue: 50,
+    componentProps: {
+      min: 0,
+      max: 1000,
+      step: 10
+    }
+  },
+  {
     field: 'chatSummary.filterBotMessages',
     label: '过滤机器人消息',
     bottomHelpMessage: '群聊总结时过滤机器人本人发送的消息；机器人消息里图片/视频较多时可明显减少媒体分析量。@机器人做成员总结时会自动保留机器人消息',

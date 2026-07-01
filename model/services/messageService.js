@@ -2,6 +2,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { debugLog } from '../debug.js'
+import { sleep } from '../../utils/common.js'
+
+function clampInteger(value, min, max, fallback) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return fallback
+  }
+
+  return Math.min(max, Math.max(min, Math.floor(numeric)))
+}
 
 class MessageService {
   getTextLikeFileExtensions() {
@@ -281,7 +291,43 @@ class MessageService {
     const data = this.getMessageData(messageData)
     const userId = String(data.user_id || data.sender?.user_id || messageData?.user_id || '')
     const nickname = data.sender?.card || data.sender?.nickname || data.nickname || userId || '未知用户'
-    return { userId, nickname }
+    const card = data.sender?.card || data.card || ''
+    const rawNickname = data.sender?.nickname || data.nickname || ''
+    return { userId, nickname, card, rawNickname }
+  }
+
+  getMessageAnchor(messageData) {
+    const data = this.getMessageData(messageData)
+    return data.message_seq
+      || messageData?.message_seq
+      || data.real_id
+      || messageData?.real_id
+      || data.seq
+      || messageData?.seq
+      || data.message_id
+      || messageData?.message_id
+      || data.id
+      || messageData?.id
+      || ''
+  }
+
+  normalizeHistoryResponseMessages(response) {
+    const data = response?.data ?? response
+    const candidates = [
+      data?.messages,
+      data?.message,
+      response?.messages,
+      response?.message,
+      data
+    ]
+
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) {
+        return candidate
+      }
+    }
+
+    return []
   }
 
   formatContextTime(timestamp) {
@@ -936,6 +982,75 @@ class MessageService {
     }
 
     return null
+  }
+
+  async getMessageById(e, messageId) {
+    const actualMessageId = String(messageId || '').trim()
+    if (!actualMessageId) {
+      return null
+    }
+
+    try {
+      if (e?.group?.getMsg) {
+        return await e.group.getMsg(actualMessageId)
+      }
+      if (e?.friend?.getMsg) {
+        return await e.friend.getMsg(actualMessageId)
+      }
+      if (e?.bot?.sendApi) {
+        const result = await e.bot.sendApi('get_msg', { message_id: actualMessageId })
+        return result?.data || result
+      }
+    } catch (error) {
+      debugLog('message.reply', '按消息 ID 获取引用失败', {
+        messageId: actualMessageId,
+        error: error.message
+      })
+    }
+
+    return null
+  }
+
+  normalizeSummaryTextPart(text = '', maxLength = 800) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim()
+    if (!normalized) {
+      return ''
+    }
+
+    return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized
+  }
+
+  async buildReplySummaryForGroupMessage(e, replyId = '', options = {}) {
+    const actualReplyId = String(replyId || '').trim()
+    if (!actualReplyId) {
+      return ''
+    }
+
+    const cache = options.replyCache instanceof Map ? options.replyCache : null
+    if (cache?.has(actualReplyId)) {
+      return cache.get(actualReplyId)
+    }
+
+    let summary = ''
+    try {
+      const replyMessage = await this.getMessageById(e, actualReplyId)
+      if (replyMessage) {
+        const parsed = await this.parseGroupMessage(replyMessage, {
+          ...options,
+          includeReplyPreview: false
+        })
+        const sender = parsed.nickname || parsed.user_id || '未知成员'
+        const text = this.normalizeSummaryTextPart(parsed.text, 120)
+        summary = text ? `[回复 ${sender}: ${text}]` : `[回复 ${sender}]`
+      }
+    } catch {}
+
+    if (!summary) {
+      summary = `[回复消息:${actualReplyId}]`
+    }
+
+    cache?.set(actualReplyId, summary)
+    return summary
   }
 
   getSummaryPlaceholderByMediaType(type = '', name = '') {
@@ -1614,7 +1729,60 @@ class MessageService {
     return filtered
   }
 
-  async getGroupHistoryMessages(e, count) {
+  getHistoryStartTimestamp(maxAgeHours = 0) {
+    const hours = Number(maxAgeHours) || 0
+    return hours > 0 ? Math.floor(Date.now() / 1000) - Math.floor(hours * 3600) : 0
+  }
+
+  getEarliestHistoryMessage(messages = []) {
+    const list = Array.isArray(messages) ? messages.filter(Boolean) : []
+    if (list.length === 0) {
+      return null
+    }
+
+    return list.reduce((earliest, item) => {
+      const itemTime = this.getMessageTime(item)
+      const earliestTime = this.getMessageTime(earliest)
+      if (!earliest || (itemTime > 0 && (earliestTime <= 0 || itemTime < earliestTime))) {
+        return item
+      }
+      return earliest
+    }, list[0])
+  }
+
+  async fetchGroupHistoryBatch(e, count, anchor = '') {
+    if (!e.bot?.sendApi || !e.group_id) {
+      return []
+    }
+
+    const actualCount = Math.max(1, Number(count) || 1)
+    const baseParams = {
+      group_id: e.group_id,
+      count: actualCount,
+      reverseOrder: true
+    }
+    const actualAnchor = String(anchor || '').trim()
+    const attempts = actualAnchor
+      ? [
+          { ...baseParams, message_seq: actualAnchor },
+          { ...baseParams, message_id: actualAnchor }
+        ]
+      : [baseParams]
+
+    for (const params of attempts) {
+      try {
+        const response = await e.bot.sendApi('get_group_msg_history', params)
+        const messages = this.normalizeHistoryResponseMessages(response)
+        if (messages.length > 0) {
+          return messages
+        }
+      } catch {}
+    }
+
+    return []
+  }
+
+  async getGroupHistoryMessagesSingle(e, count) {
     if (!e.group_id) {
       return []
     }
@@ -1628,7 +1796,7 @@ class MessageService {
           group_id: e.group_id,
           count: actualCount
         })
-        messages = response?.data?.messages || response?.messages || response?.data || []
+        messages = this.normalizeHistoryResponseMessages(response)
         if (messages.length > 0) {
           return messages
         }
@@ -1640,7 +1808,7 @@ class MessageService {
           message_seq: 0,
           count: actualCount
         })
-        messages = response?.data?.messages || response?.messages || response?.data || []
+        messages = this.normalizeHistoryResponseMessages(response)
         if (messages.length > 0) {
           return messages
         }
@@ -1663,30 +1831,130 @@ class MessageService {
           group_id: e.group_id,
           count: actualCount
         })
-        messages = response?.data?.messages || response?.messages || response?.data || []
+        messages = this.normalizeHistoryResponseMessages(response)
       } catch {}
     }
 
     return messages
   }
 
+  async getGroupHistoryMessagesPaged(e, count, options = {}) {
+    if (!e.group_id || !e.bot?.sendApi) {
+      return []
+    }
+
+    const actualCount = Math.max(0, Number(count) || 0)
+    if (actualCount <= 0) {
+      return []
+    }
+
+    const batchSize = clampInteger(options.batchSize, 20, 200, 100)
+    const batchDelayMs = clampInteger(options.batchDelayMs, 0, 1000, 50)
+    const startTimestamp = this.getHistoryStartTimestamp(options.maxAgeHours)
+    const allMessages = []
+    const seenKeys = new Set()
+    let anchor = String(options.beforeId || '').trim()
+    let reachedTimeBoundary = false
+
+    while (allMessages.length < actualCount) {
+      const fetchCount = Math.min(batchSize, actualCount - allMessages.length)
+      const messages = await this.fetchGroupHistoryBatch(e, fetchCount, anchor)
+      if (messages.length === 0) {
+        break
+      }
+
+      for (const item of messages) {
+        const key = this.getMessageUniqueKey(item)
+        if (seenKeys.has(key)) {
+          continue
+        }
+        seenKeys.add(key)
+
+        const timestamp = this.getMessageTime(item)
+        if (startTimestamp > 0 && timestamp > 0 && timestamp < startTimestamp) {
+          reachedTimeBoundary = true
+          continue
+        }
+
+        allMessages.push(item)
+      }
+
+      const earliest = this.getEarliestHistoryMessage(messages)
+      const nextAnchor = this.getMessageAnchor(earliest)
+      const earliestTime = this.getMessageTime(earliest)
+      if (!nextAnchor || (anchor && String(nextAnchor) === anchor)) {
+        break
+      }
+      if (startTimestamp > 0 && earliestTime > 0 && earliestTime <= startTimestamp) {
+        break
+      }
+      if (messages.length < fetchCount || reachedTimeBoundary) {
+        break
+      }
+
+      anchor = String(nextAnchor)
+      if (batchDelayMs > 0 && allMessages.length < actualCount) {
+        await sleep(batchDelayMs)
+      }
+    }
+
+    const sorted = this.dedupeAndSortMessages(allMessages).slice(-actualCount)
+    debugLog('message.groupHistory', '群历史消息分页回溯完成', {
+      requestedCount: actualCount,
+      batchSize,
+      batchDelayMs,
+      maxAgeHours: Number(options.maxAgeHours) || 0,
+      fetchedCount: allMessages.length,
+      returnedCount: sorted.length
+    })
+
+    return sorted
+  }
+
+  async getGroupHistoryMessages(e, count, options = {}) {
+    const actualCount = Math.max(0, Number(count) || 0)
+    if (actualCount <= 0) {
+      return []
+    }
+
+    if (options.paginationEnabled !== false) {
+      const paged = await this.getGroupHistoryMessagesPaged(e, actualCount, options)
+      if (paged.length > 0) {
+        return paged
+      }
+    }
+
+    const messages = await this.getGroupHistoryMessagesSingle(e, actualCount)
+    const sorted = this.dedupeAndSortMessages(messages).slice(-actualCount)
+    debugLog('message.groupHistory', '群历史消息一次性拉取完成', {
+      requestedCount: actualCount,
+      fetchedCount: Array.isArray(messages) ? messages.length : 0,
+      returnedCount: sorted.length,
+      paginationEnabled: options.paginationEnabled !== false
+    })
+    return sorted
+  }
+
   async parseGroupMessage(messageData, options = {}) {
+    const sender = this.getMessageSender(messageData)
     const result = {
-      user_id: '',
-      nickname: '',
-      time: 0,
+      message_id: this.getMessageId(messageData),
+      message_seq: this.getMessageSeq(messageData),
+      user_id: sender.userId,
+      nickname: sender.nickname,
+      card: sender.card || '',
+      rawNickname: sender.rawNickname || '',
+      time: this.getMessageTime(messageData),
       text: '',
       hasMedia: false,
       imageUrls: [],
-      docFiles: []
+      docFiles: [],
+      replyToId: '',
+      contents: []
     }
 
     try {
       const data = messageData?.data || messageData || {}
-      result.user_id = String(data.user_id || data.sender?.user_id || messageData?.user_id || '')
-      result.nickname = data.sender?.nickname || data.sender?.card || data.nickname || result.user_id
-      result.time = data.time || messageData?.time || 0
-
       const message = data.message || data.content || messageData?.message || messageData?.content || []
       const list = Array.isArray(message) ? message : []
       const texts = []
@@ -1696,36 +1964,53 @@ class MessageService {
         const type = segmentItem?.type || segmentData?.type || segmentData?._type || ''
 
         if (type === 'text') {
-          const text = segmentData.text || segmentItem?.text || ''
-          if (text.trim()) {
-            texts.push(text.trim())
+          const text = this.normalizeSummaryTextPart(segmentData.text || segmentItem?.text || '')
+          if (text) {
+            result.contents.push({ type: 'text', text })
+            texts.push(text)
           }
         } else if (type === 'image') {
           result.hasMedia = true
-          const url = this.getMediaUrl(segmentData) || segmentItem?.url || segmentItem?.file || ''
-          if (url) {
-            result.imageUrls.push(url)
-          }
-          texts.push('[图片]')
-        } else if (type === 'video') {
-          result.hasMedia = true
-          texts.push('[视频]')
-        } else if (type === 'record') {
-          result.hasMedia = true
-          texts.push('[语音]')
-        } else if (type === 'file') {
-          result.hasMedia = true
-          const name = this.getSegmentFileName(segmentItem, segmentData)
           const url = this.getUsableMediaSource(
             this.getMediaUrl(segmentData),
             segmentItem?.url,
             segmentItem?.file,
-            segmentItem?.path,
-            segmentData?.download_url,
-            segmentItem?.download_url
+            segmentItem?.path
           )
-          const ext = this.getFileExtension(name, url)
-          const fileId = this.getFileIdCandidates(segmentData, segmentItem)[0] || ''
+          if (url) {
+            result.imageUrls.push(url)
+          }
+          result.contents.push({ type: 'image', url })
+          texts.push('[图片]')
+        } else if (type === 'video') {
+          result.hasMedia = true
+          result.contents.push({ type: 'video', url: this.getMediaUrl(segmentData) || segmentItem?.url || segmentItem?.file || '' })
+          texts.push('[视频]')
+        } else if (type === 'record') {
+          result.hasMedia = true
+          result.contents.push({ type: 'voice', url: this.getMediaUrl(segmentData) || segmentItem?.url || segmentItem?.file || '' })
+          texts.push('[语音]')
+        } else if (type === 'file') {
+          result.hasMedia = true
+          const fileInfo = options.event
+            ? await this.resolveFileSegment(options.event, segmentItem)
+            : {
+                name: this.getSegmentFileName(segmentItem, segmentData),
+                url: this.getUsableMediaSource(
+                  this.getMediaUrl(segmentData),
+                  segmentItem?.url,
+                  segmentItem?.file,
+                  segmentItem?.path,
+                  segmentData?.download_url,
+                  segmentItem?.download_url
+                ),
+                ext: '',
+                file_id: this.getFileIdCandidates(segmentData, segmentItem)[0] || ''
+              }
+          const name = fileInfo.name || 'file'
+          const url = fileInfo.url || ''
+          const ext = fileInfo.ext || this.getFileExtension(name, url)
+          const fileId = fileInfo.file_id || ''
 
           if (this.isTextLikeFileName(name, url) || ['doc', 'docx', 'pdf'].includes(ext)) {
             result.docFiles.push({ name, url, file_id: fileId })
@@ -1738,16 +2023,63 @@ class MessageService {
           } else {
             texts.push(`[文件:${name}]`)
           }
-        } else if (type === 'face') {
+          result.contents.push({ type: 'file', name, url, ext, file_id: fileId })
+        } else if (['face', 'mface', 'bface', 'sface'].includes(type)) {
+          result.contents.push({ type: 'emoji', emojiId: String(segmentData.id || segmentItem?.id || '') })
           texts.push('[表情]')
         } else if (type === 'at') {
           const targetId = String(segmentData.qq || segmentItem?.qq || '').trim()
           const targetName = await this.resolveGroupMemberName(options.event, targetId, options.atNameCache)
-          texts.push(`@${targetName || targetId}`)
+          if (targetId && targetId !== 'all') {
+            result.contents.push({ type: 'at', userId: targetId, name: targetName || targetId })
+            texts.push(`@${targetName || targetId}`)
+          }
+        } else if (type === 'reply') {
+          const replyId = String(segmentData.id || segmentItem?.id || segmentData.message_id || '').trim()
+          result.replyToId = replyId || result.replyToId
+          const replySummary = options.includeReplyPreview === false
+            ? (replyId ? `[回复消息:${replyId}]` : '[回复消息]')
+            : await this.buildReplySummaryForGroupMessage(options.event, replyId, options)
+          result.contents.push({ type: 'reply', replyId, summary: replySummary })
+          if (replySummary) {
+            texts.push(replySummary)
+          }
+        } else if (type === 'forward') {
+          const forwardContent = options.event
+            ? await this.parseForwardMessage(options.event, segmentItem)
+            : { orderedTexts: [], texts: [], images: [], videos: [], audios: [], files: [] }
+          const summary = this.normalizeSummaryTextPart(
+            (forwardContent.orderedTexts?.length ? forwardContent.orderedTexts : forwardContent.texts || [])
+              .slice(0, 3)
+              .join(' / '),
+            180
+          )
+          const mediaHints = [
+            forwardContent.images?.length ? `${forwardContent.images.length}张图片` : '',
+            forwardContent.videos?.length ? `${forwardContent.videos.length}个视频` : '',
+            forwardContent.audios?.length ? `${forwardContent.audios.length}段语音` : '',
+            forwardContent.files?.length ? `${forwardContent.files.length}个文件` : ''
+          ].filter(Boolean)
+          const text = summary
+            ? `[转发消息: ${summary}]`
+            : mediaHints.length > 0 ? `[转发消息，含${mediaHints.join('、')}]` : '[转发消息]'
+          result.contents.push({ type: 'forward', summary, mediaHints })
+          texts.push(text)
+        } else if (type === 'json' || type === 'xml') {
+          const raw = segmentData.data || segmentItem?.data || ''
+          const text = this.normalizeSummaryTextPart(typeof raw === 'string' ? raw : JSON.stringify(raw), 180)
+          if (text) {
+            result.contents.push({ type, text })
+            texts.push(text)
+          }
         }
       }
 
-      result.text = texts.join(' ')
+      if (texts.length === 0) {
+        result.text = this.normalizeSummaryTextPart(data.raw_message || messageData?.raw_message || '')
+      } else {
+        result.text = texts.join(' ')
+      }
     } catch (error) {
       logger.error(`[百科查询] 解析群消息失败：${error.message}`)
     }
@@ -1762,17 +2094,20 @@ class MessageService {
     const allImageUrls = []
     const allDocFiles = []
     const atNameCache = new Map()
+    const replyCache = new Map()
+    const targetUserIds = new Set((filterUserIds || []).map(item => String(item || '').trim()).filter(Boolean))
 
     for (const item of messages || []) {
       const parsed = await this.parseGroupMessage(item, {
         ...options,
-        atNameCache
+        atNameCache,
+        replyCache
       })
       if (!parsed.text && !parsed.hasMedia) {
         continue
       }
 
-      if (filterUserIds.length > 0 && !filterUserIds.includes(parsed.user_id)) {
+      if (targetUserIds.size > 0 && !targetUserIds.has(parsed.user_id)) {
         continue
       }
 
@@ -1787,11 +2122,17 @@ class MessageService {
       allDocFiles.push(...parsed.docFiles)
 
       formattedMessages.push({
+        message_id: parsed.message_id,
+        message_seq: parsed.message_seq,
         nickname: parsed.nickname,
+        card: parsed.card,
+        rawNickname: parsed.rawNickname,
         time: parsed.time ? new Date(parsed.time * 1000).toLocaleString('zh-CN') : '',
         timestamp: parsed.time,
         text: parsed.text,
-        user_id: parsed.user_id
+        user_id: parsed.user_id,
+        replyToId: parsed.replyToId,
+        contents: parsed.contents || []
       })
     }
 
