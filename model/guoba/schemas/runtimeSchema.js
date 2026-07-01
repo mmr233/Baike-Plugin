@@ -375,14 +375,39 @@ const runtimeSchemaRaw = [
   {
     field: 'send.cardTheme',
     label: 'HTML 卡片主题',
-    bottomHelpMessage: '仅影响 HTML 图片卡片；夜晚模式会使用深色背景和高对比文字',
+    bottomHelpMessage: '仅影响 HTML 图片卡片；自动模式会按下面的夜晚时段切换主题',
     component: 'Select',
-    defaultValue: 'light',
+    defaultValue: 'auto',
     componentProps: {
       options: [
+        { label: '自动按时段', value: 'auto' },
         { label: '白天手帐', value: 'light' },
         { label: '夜晚手帐', value: 'night' }
       ]
+    }
+  },
+  {
+    field: 'send.cardNightStartHour',
+    label: '夜晚模式开始小时',
+    bottomHelpMessage: '0-23 点；例如 22 表示 22:00 起使用夜晚卡片',
+    component: 'InputNumber',
+    defaultValue: 22,
+    componentProps: {
+      min: 0,
+      max: 23,
+      step: 1
+    }
+  },
+  {
+    field: 'send.cardNightEndHour',
+    label: '夜晚模式结束小时',
+    bottomHelpMessage: '0-23 点；例如 7 表示到 07:00 前使用夜晚卡片，支持跨天区间',
+    component: 'InputNumber',
+    defaultValue: 7,
+    componentProps: {
+      min: 0,
+      max: 23,
+      step: 1
     }
   },
   {

@@ -14,6 +14,24 @@ import { generateGroupSummaryHTML, generateHutaoHTML, generateSearchHTML } from 
 const SEND_MODE_PRIORITY = ['html', 'forward', 'text']
 const DEFAULT_GROUP_SUMMARY_INFLIGHT_WAIT_MS = 120000
 
+function normalizeHour(value, fallback = 0) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return fallback
+  }
+  return Math.min(23, Math.max(0, Math.floor(number)))
+}
+
+function isHourInRange(hour, startHour, endHour) {
+  if (startHour === endHour) {
+    return false
+  }
+  if (startHour < endHour) {
+    return hour >= startHour && hour < endHour
+  }
+  return hour >= startHour || hour < endHour
+}
+
 function getSendErrorText(error = {}) {
   return [
     error?.message,
@@ -338,10 +356,18 @@ class BaikeService {
   }
 
   getCardRenderOptions(extra = {}) {
-    const theme = String(Config.get('send.cardTheme', 'light') || 'light').trim().toLowerCase()
+    const sendConfig = Config.get('send', {})
+    const theme = String(sendConfig.cardTheme || 'auto').trim().toLowerCase()
+    const startHour = normalizeHour(sendConfig.cardNightStartHour, 22)
+    const endHour = normalizeHour(sendConfig.cardNightEndHour, 7)
+    const currentHour = new Date().getHours()
+    const resolvedTheme = theme === 'night' || (theme === 'auto' && isHourInRange(currentHour, startHour, endHour))
+      ? 'night'
+      : 'light'
+
     return {
       ...extra,
-      theme: theme === 'night' ? 'night' : 'light'
+      theme: resolvedTheme
     }
   }
 

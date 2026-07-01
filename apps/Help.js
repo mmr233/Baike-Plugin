@@ -22,8 +22,21 @@ function formatFallbackCount(items = []) {
   return Array.isArray(items) && items.length > 0 ? ` / 备用${items.length}` : ''
 }
 
-function formatCardTheme(theme = '') {
-  return String(theme || '').toLowerCase() === 'night' ? '夜晚手帐' : '白天手帐'
+function formatHour(value, fallback = 0) {
+  const number = Number(value)
+  const hour = Number.isFinite(number) ? Math.min(23, Math.max(0, Math.floor(number))) : fallback
+  return `${formatTimePart(hour)}:00`
+}
+
+function formatCardTheme(config = {}) {
+  const theme = String(config.cardTheme || '').toLowerCase()
+  if (theme === 'night') {
+    return '夜晚手帐'
+  }
+  if (theme === 'light') {
+    return '白天手帐'
+  }
+  return `自动 ${formatHour(config.cardNightStartHour, 22)}-${formatHour(config.cardNightEndHour, 7)}`
 }
 
 function processHelpList(helpList) {
@@ -145,7 +158,7 @@ export default class BaikeHelp extends plugin {
           { icon: 31, title: '搜索模型', desc: `${config.api.search.model || '未配置'} / ${formatRequestMode(config.api.search.requestMode)}${formatFallbackCount(config.api.search.fallbackModels)}` },
           { icon: 32, title: '图片模型', desc: `${config.api.image?.model || config.api.summary.model || '未配置'} / ${formatRequestMode(config.api.image?.requestMode)}${formatFallbackCount(config.api.image?.fallbackModels)}` },
           { icon: 33, title: '总结模型', desc: `${config.api.summary.model || '未配置'} / ${formatRequestMode(config.api.summary.requestMode)}${formatFallbackCount(config.api.summary.fallbackModels)}` },
-          { icon: 34, title: '发送优先级', desc: `${config.send.primaryMode} / ${formatCardTheme(config.send.cardTheme)} -> 自动降级 ${config.send.autoFallback ? '已开启' : '已关闭'}` }
+          { icon: 34, title: '发送优先级', desc: `${config.send.primaryMode} / ${formatCardTheme(config.send)} -> 自动降级 ${config.send.autoFallback ? '已开启' : '已关闭'}` }
         ]
       }
     ]

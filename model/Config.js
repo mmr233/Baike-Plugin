@@ -72,9 +72,26 @@ function migrateLegacyConfig(config) {
   }
 
   const nextConfig = cloneDeep(config)
+  const sendConfig = isPlainObject(nextConfig.send)
+    ? { ...nextConfig.send }
+    : {}
   const scheduledSummary = isPlainObject(nextConfig.scheduledSummary)
     ? { ...nextConfig.scheduledSummary }
     : {}
+
+  const missingCardNightWindow = sendConfig.cardNightStartHour === undefined && sendConfig.cardNightEndHour === undefined
+  if (missingCardNightWindow && sendConfig.cardTheme === 'light') {
+    sendConfig.cardTheme = 'auto'
+  }
+  if (sendConfig.cardTheme !== undefined || Object.keys(sendConfig).length > 0) {
+    if (sendConfig.cardNightStartHour === undefined) {
+      sendConfig.cardNightStartHour = 22
+    }
+    if (sendConfig.cardNightEndHour === undefined) {
+      sendConfig.cardNightEndHour = 7
+    }
+    nextConfig.send = sendConfig
+  }
 
   if (isValidCron(scheduledSummary.cron)) {
     const time = parseCronToTime(scheduledSummary.cron, DEFAULT_SCHEDULED_SUMMARY_TIME)
@@ -355,7 +372,9 @@ const DEFAULT_CONFIG = {
   },
   send: {
     primaryMode: 'html',
-    cardTheme: 'light',
+    cardTheme: 'auto',
+    cardNightStartHour: 22,
+    cardNightEndHour: 7,
     autoFallback: true,
     search: 'forward',
     contentSummary: '',

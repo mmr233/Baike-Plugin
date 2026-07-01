@@ -172,7 +172,9 @@
   },
   "send": {
     "primaryMode": "html",
-    "cardTheme": "light",
+    "cardTheme": "auto",
+    "cardNightStartHour": 22,
+    "cardNightEndHour": 7,
     "autoFallback": true,
     "search": "forward",
     "contentSummary": "",
