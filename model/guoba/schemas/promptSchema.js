@@ -83,7 +83,7 @@ const promptSchemaRaw = [
   {
     field: 'prompt.groupMember',
     label: '@成员总结提示词',
-    bottomHelpMessage: '支持 {statsText}、{extraContext}、{memberProfiles}、{botProfile}、{messageTexts} 占位符；默认模板会解析 今日话题/话题总结/消息精选/用户画像/互动质量锐评',
+    bottomHelpMessage: '支持 {statsText}、{extraContext}、{memberProfiles}、{botProfile}、{messageTexts} 占位符；默认模板偏个人画像与公正评判，会解析 今日话题/话题总结/消息精选/用户画像/互动质量锐评',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -129,6 +129,46 @@ const promptSchemaRaw = [
       ...textAreaProps,
       placeholder: '请输入增强质量锐评提示词'
     }
+  },
+  {
+    field: 'prompt.groupMemberTopics',
+    label: '成员增强话题提示词',
+    bottomHelpMessage: '成员总结增强模块使用；支持 {maxTopics}、{statsText}、{extraContext}、{botProfile}、{messageTexts} 占位符，要求返回 JSON 数组',
+    component: 'InputTextArea',
+    componentProps: {
+      ...textAreaProps,
+      placeholder: '请输入成员增强话题提示词'
+    }
+  },
+  {
+    field: 'prompt.groupMemberHighlights',
+    label: '成员增强精选提示词',
+    bottomHelpMessage: '成员总结增强模块使用；支持 {maxHighlights}、{extraContext}、{messageTexts} 占位符，要求返回 JSON 数组',
+    component: 'InputTextArea',
+    componentProps: {
+      ...textAreaProps,
+      placeholder: '请输入成员增强精选提示词'
+    }
+  },
+  {
+    field: 'prompt.groupMemberUserPortraits',
+    label: '成员增强画像提示词',
+    bottomHelpMessage: '成员总结增强模块使用；支持 {maxPortraits}、{userStatsText}、{extraContext}、{messageTexts} 占位符，要求返回 JSON 数组',
+    component: 'InputTextArea',
+    componentProps: {
+      ...textAreaProps,
+      placeholder: '请输入成员增强画像提示词'
+    }
+  },
+  {
+    field: 'prompt.groupMemberQualityReview',
+    label: '成员增强锐评提示词',
+    bottomHelpMessage: '成员总结增强模块使用；支持 {statsText}、{extraContext}、{messageTexts} 占位符，要求返回 JSON 对象',
+    component: 'InputTextArea',
+    componentProps: {
+      ...textAreaProps,
+      placeholder: '请输入成员增强锐评提示词'
+    }
   }
 ]
 
@@ -142,7 +182,11 @@ const promptRecommendationMap = {
   'prompt.groupTopics': '保持默认模板',
   'prompt.groupHighlights': '保持默认模板',
   'prompt.groupUserPortraits': '保持默认模板',
-  'prompt.groupQualityReview': '保持默认模板'
+  'prompt.groupQualityReview': '保持默认模板',
+  'prompt.groupMemberTopics': '保持默认模板',
+  'prompt.groupMemberHighlights': '保持默认模板',
+  'prompt.groupMemberUserPortraits': '保持默认模板',
+  'prompt.groupMemberQualityReview': '保持默认模板'
 }
 
 export const promptSchema = enhanceSchemas(promptSchemaRaw, {

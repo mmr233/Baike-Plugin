@@ -81,50 +81,53 @@ const DEFAULT_GROUP_CHAT_PROMPT = `请分析以下群聊记录，严格按以下
 聊天记录：
 {messageTexts}`
 
-const DEFAULT_GROUP_MEMBER_PROMPT = `请分析以下群聊中指定成员的聊天记录，严格按以下格式输出（不要使用markdown格式）：
+const DEFAULT_GROUP_MEMBER_PROMPT = `请分析以下群聊中指定成员的聊天记录，重点做“个人画像与公正评判”，严格按以下格式输出（不要使用markdown格式）：
 
 额外要求：
 1. 最终输出只能包含“===今日话题===”“===话题总结===”“===消息精选===”“===用户画像===”“===群聊质量锐评===”五部分
-2. 不要在结尾额外输出“发言统计”“群聊图片内容”“文档”“目标成员主页资料”等标题
-3. 图片、文档和主页资料只允许融合进今日话题、话题总结、消息精选、用户画像或群聊质量锐评的内容里，不要原样复述这些标题
-4. 如果聊天记录里出现下面提供的机器人账号，请明确把它视为机器人本人发言，不要当作普通群友
-5. 涉及机器人本人发言时，请使用第一人称“我”来评价或吐槽，不要用第三人称代称机器人
-6. @消息请尽量还原为群聊记录里出现的群名片/昵称，不要输出@qq号
+2. 这不是整群日报，不要大篇幅总结全群氛围、全群热点或其他群友表现；所有判断都必须围绕目标成员本人
+3. 不要在结尾额外输出“发言统计”“群聊图片内容”“文档”“目标成员主页资料”等标题
+4. 图片、文档和主页资料只允许作为证据融合进目标成员分析，不要原样复述这些标题
+5. 如果聊天记录里出现下面提供的机器人账号，请明确把它视为机器人本人发言，不要当作普通群友
+6. 涉及机器人本人发言时，请使用第一人称“我”来评价或吐槽，不要用第三人称代称机器人
+7. @消息请尽量还原为群聊记录里出现的群名片/昵称，不要输出@qq号
+8. 评价要公正克制：既指出亮点，也指出局限或风险；不要无根据贴标签，不做人身攻击
 
 ===今日话题===
 【话题】10字以内的话题名
 【参与者】目标成员和主要互动对象昵称，最多5人，用、分隔
-【详情】讲清楚目标成员在这个话题中说了什么、推动了什么、和谁互动
+【详情】围绕目标成员说明：他说了什么、回应了谁、表达了什么立场或情绪、对讨论有什么影响；少写群聊背景，多写个人证据
 ---
 （提取1-3个与目标成员最相关的话题；没有明确话题时可少写）
 
 ===话题总结===
-（总结目标成员讨论的主要话题、观点、互动情况和发言氛围，用纯文本描述）
+（用一段话总结目标成员本轮发言画像：主要关注点、观点倾向、信息价值、表达方式、互动姿态和情绪状态；不要写成整群总体总结）
 
 ===消息精选===
 【时间】消息的原始时间
-【发送者】发送者昵称
-【内容】消息原文摘要
-【吐槽】用幽默毒舌但不攻击个人的语气吐槽为什么选中这条
+【发送者】目标成员昵称
+【内容】目标成员消息原文摘要
+【吐槽】说明这条消息体现了他的哪种行为模式、判断力、表达习惯或互动特点；语气可以幽默但必须基于证据
 ---
-（精选3-5条最有趣/最有价值/最离谱的相关消息，每条之间用---分隔）
+（精选3-5条目标成员本人最有代表性的消息；只有在理解上下文必须时才提及被回复/被@对象）
 
 ===用户画像===
-【用户】用户昵称
+【用户】目标成员昵称
 【称号】一个有梗但不冒犯的称号
-【关键词】#关键词1、#关键词2、#关键词3、#关键词4
-【画像】结合发言内容概括该成员本轮聊天中的角色、关注点和互动风格
+【关键词】#关键词1、#关键词2、#关键词3、#关键词4、#关键词5
+【画像】结合发言证据概括该成员本轮聊天中的角色定位、兴趣焦点、表达风格、互动方式、稳定优点和可能短板
 ---
-（优先输出被 @ 的目标成员；如有明显互动对象，可补充1-2位）
+（原则上只输出目标成员；如果同时 @ 了多个成员，则每个目标成员各输出一条）
 
 ===群聊质量锐评===
-【标题】成员互动主题标题
-【副标题】一句轻松的副标题
-【维度】抽象维度名|比例|一句犀利、幽默或温情的点评
-【维度】抽象维度名|比例|一句犀利、幽默或温情的点评
-【维度】抽象维度名|比例|一句犀利、幽默或温情的点评
-【总结】一句总结性的金句
-（维度3-5个，评价目标成员相关互动质量和发言风格；维度名保持2-6字抽象概括，比例总和不超过100）
+【标题】目标成员表现标题
+【副标题】一句轻松但准确的副标题
+【维度】表达清晰度|比例|基于原话评价表达是否清楚、是否容易误解
+【维度】互动贡献度|比例|评价他对讨论推进、回应他人、提供信息或制造情绪价值的贡献
+【维度】观点稳定性|比例|评价他的观点是否一致、是否有依据、是否容易被情绪带走
+【维度】社交分寸感|比例|评价玩笑、吐槽、反驳或沉默是否得体
+【总结】一句总结性的个人评语
+（维度3-5个，评价目标成员个人表现；比例总和不超过100；不要评价整群质量）
 
 发言统计：{statsText}{extraContext}
 
@@ -258,6 +261,127 @@ const DEFAULT_GROUP_QUALITY_PROMPT = `请分析以下群聊记录，输出一份
 聊天记录：
 {messageTexts}`
 
+const DEFAULT_GROUP_MEMBER_TOPICS_PROMPT = `请基于以下目标成员聊天记录，提取最多 {maxTopics} 个最能体现目标成员个人表现的话题切片。
+
+要求：
+1. 只输出合法 JSON 数组，不要使用 markdown 代码块，不要添加解释文字
+2. 话题名控制在 10 字以内，必须围绕目标成员本人，不要写成整群热点
+3. contributors 使用群名片/昵称，包含目标成员和必要互动对象，最多5人，不要输出 QQ 号
+4. detail 要说明目标成员说了什么、回应了谁、表达了什么立场/情绪、对讨论有什么影响；少写群聊背景，多写个人证据
+5. 没有明确话题时返回 []，不要为了凑数编造
+
+返回格式：
+[
+  {
+    "topic": "话题名称",
+    "contributors": ["目标成员昵称", "互动对象昵称"],
+    "detail": "围绕目标成员的证据化描述"
+  }
+]
+
+发言统计：
+{statsText}
+
+补充信息：
+{extraContext}
+
+机器人账号资料：
+{botProfile}
+
+聊天记录格式：[HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_MEMBER_HIGHLIGHTS_PROMPT = `请从以下目标成员聊天记录中挑选最多 {maxHighlights} 条最能代表目标成员个人表现的消息精选。
+
+要求：
+1. 只输出合法 JSON 数组，不要使用 markdown 代码块，不要添加解释文字
+2. 只能精选目标成员本人发出的消息；其他人的内容只可作为理解上下文，不要喧宾夺主
+3. sender 使用目标成员群名片/昵称，不要输出 QQ 号；time 尽量使用原始时间
+4. content 保留原文核心，不要过度改写
+5. roast 要说明这条消息体现了目标成员的行为模式、判断力、表达习惯或互动特点；评价公正克制，可以幽默但不要人身攻击
+
+返回格式：
+[
+  {
+    "time": "19:30",
+    "sender": "目标成员昵称",
+    "content": "目标成员消息原文摘要",
+    "roast": "基于证据的个人表现点评"
+  }
+]
+
+补充信息：
+{extraContext}
+
+聊天记录格式：[HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_MEMBER_USER_PORTRAITS_PROMPT = `请基于以下目标成员聊天记录和用户统计，为最多 {maxPortraits} 位目标成员生成“个人画像与公正评判”。
+
+要求：
+1. 只输出合法 JSON 数组，不要使用 markdown 代码块，不要添加解释文字
+2. 原则上只分析被总结的目标成员；如果记录里有多位目标成员，则每位目标成员各输出一条
+3. name 使用群名片/昵称；user_id 使用聊天记录中的用户ID，无法判断可留空
+4. title 要有梗但不冒犯；keywords 输出 5-7 个具体关键词，避免“活跃、友好”这类空泛词
+5. summary 必须结合发言证据评价角色定位、兴趣焦点、表达风格、互动方式、稳定优点和可能短板；不要写整群氛围
+
+返回格式：
+[
+  {
+    "name": "目标成员昵称",
+    "user_id": "123456",
+    "title": "称号",
+    "mbti": "可选MBTI",
+    "keywords": ["关键词1", "关键词2", "关键词3", "关键词4", "关键词5"],
+    "summary": "证据化个人画像"
+  }
+]
+
+用户统计：
+{userStatsText}
+
+补充信息：
+{extraContext}
+
+聊天记录格式：[HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_MEMBER_QUALITY_PROMPT = `请分析以下目标成员聊天记录，输出一份“个人表现锐评”，不要写成整群质量评价。
+
+要求：
+1. 只输出合法 JSON 对象，不要使用 markdown 代码块，不要添加解释文字
+2. dimensions 需要 3-5 个个人表现维度，优先使用“表达清晰度、互动贡献度、观点稳定性、社交分寸感、信息价值”这类维度
+3. percentage 是大致占比，总和不超过 100
+4. comment 必须基于目标成员原话或行为，既指出亮点，也指出局限或风险；幽默可以，但不要人身攻击
+5. title、subtitle、summary 都要围绕目标成员个人表现，不要评价整群质量
+
+返回格式：
+{
+  "title": "目标成员表现标题",
+  "subtitle": "一句轻松但准确的副标题",
+  "dimensions": [
+    {
+      "name": "表达清晰度",
+      "percentage": 25,
+      "comment": "基于原话的点评"
+    }
+  ],
+  "summary": "一句总结性的个人评语"
+}
+
+发言统计：
+{statsText}
+
+补充信息：
+{extraContext}
+
+聊天记录格式：[HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
 function clampInteger(value, min, max, fallback) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) {
@@ -298,6 +422,16 @@ function parseCronToTime(cron, fallback = DEFAULT_SCHEDULED_SUMMARY_TIME) {
 
 function shouldMigrateLegacyGroupPrompt(prompt = '', type = 'groupChat') {
   const text = String(prompt || '')
+  if (
+    type === 'groupMember'
+    && text.includes('请分析以下群聊中指定成员的聊天记录')
+    && text.includes('目标成员主页资料')
+    && text.includes('评价目标成员相关互动质量和发言风格')
+    && !text.includes('个人画像与公正评判')
+  ) {
+    return true
+  }
+
   if (!text.trim() || text.includes('===今日话题===') || text.includes('===用户画像===') || text.includes('===群聊质量锐评===')) {
     return false
   }
@@ -526,7 +660,11 @@ const DEFAULT_CONFIG = {
     groupTopics: DEFAULT_GROUP_TOPICS_PROMPT,
     groupHighlights: DEFAULT_GROUP_HIGHLIGHTS_PROMPT,
     groupUserPortraits: DEFAULT_GROUP_USER_PORTRAITS_PROMPT,
-    groupQualityReview: DEFAULT_GROUP_QUALITY_PROMPT
+    groupQualityReview: DEFAULT_GROUP_QUALITY_PROMPT,
+    groupMemberTopics: DEFAULT_GROUP_MEMBER_TOPICS_PROMPT,
+    groupMemberHighlights: DEFAULT_GROUP_MEMBER_HIGHLIGHTS_PROMPT,
+    groupMemberUserPortraits: DEFAULT_GROUP_MEMBER_USER_PORTRAITS_PROMPT,
+    groupMemberQualityReview: DEFAULT_GROUP_MEMBER_QUALITY_PROMPT
   },
   fileRequest: {
     imageMaxPerRequest: 10,
@@ -563,6 +701,7 @@ const DEFAULT_CONFIG = {
     maxMessageCount: 500,
     docMaxChars: 2000,
     historyHoursLimit: 24,
+    memberHistoryHoursLimit: null,
     historyFetch: {
       paginationEnabled: true,
       batchSize: 100,

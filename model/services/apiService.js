@@ -241,6 +241,67 @@ function extractResponseText(json = {}) {
   return dedupeStrings(parts).join('\n').trim()
 }
 
+function normalizeUsageObject(usage = null) {
+  if (!usage || typeof usage !== 'object') {
+    return null
+  }
+
+  const promptTokens = Number(
+    usage.prompt_tokens
+      ?? usage.promptTokens
+      ?? usage.input_tokens
+      ?? usage.inputTokens
+      ?? 0
+  ) || 0
+  const completionTokens = Number(
+    usage.completion_tokens
+      ?? usage.completionTokens
+      ?? usage.output_tokens
+      ?? usage.outputTokens
+      ?? 0
+  ) || 0
+  const totalTokens = Number(
+    usage.total_tokens
+      ?? usage.totalTokens
+      ?? (promptTokens + completionTokens)
+      ?? 0
+  ) || 0
+
+  if (promptTokens <= 0 && completionTokens <= 0 && totalTokens <= 0) {
+    return null
+  }
+
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens
+  }
+}
+
+function extractResponseUsage(json = {}) {
+  const candidates = [
+    json?.usage,
+    json?.response?.usage,
+    json?.choices?.[0]?.usage
+  ]
+
+  if (Array.isArray(json?.output)) {
+    for (const item of json.output) {
+      candidates.push(item?.usage)
+      candidates.push(item?.response?.usage)
+    }
+  }
+
+  for (const candidate of candidates) {
+    const normalized = normalizeUsageObject(candidate)
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  return null
+}
+
 function pushCitationUrls(value, urls, depth = 0) {
   if (depth > 8 || value === undefined || value === null) {
     return
@@ -359,6 +420,8 @@ function buildStreamResponseJson(state = {}) {
     || state.snapshotText
     || dedupeStrings(state.rawTextParts || []).join('\n')
   const citations = dedupeStrings(state.citations || [])
+  const usage = extractResponseUsage(state.lastChunk || {})
+    || (state.events || []).map(item => extractResponseUsage(item)).find(Boolean)
   const message = {
     role: 'assistant',
     content
@@ -380,7 +443,8 @@ function buildStreamResponseJson(state = {}) {
         finish_reason: state.lastChunk?.choices?.[0]?.finish_reason || (state.done ? 'stop' : null)
       }
     ],
-    output: state.events || []
+    output: state.events || [],
+    ...(usage ? { usage } : {})
   }
 }
 
@@ -1666,6 +1730,7 @@ class ApiService {
 
           return {
             ...result,
+            usage: extractResponseUsage(result.json),
             candidate: {
               index: candidateIndex + 1,
               total: validCandidates.length,
@@ -1733,16 +1798,24 @@ class ApiService {
       return null
     }
 
-    const { json } = await this.requestChatCompletion('summary', [
+    const response = await this.requestChatCompletion('summary', [
       { role: 'system', content: systemPromptOverride || promptConfig.summaryDefault || '' },
       { role: 'user', content: actualContent }
     ], options)
 
-    const result = extractResponseText(json) || null
+    const result = extractResponseText(response.json) || null
     if (!result) {
       return null
     }
-    return options.beautify === false ? result.trim() : beautifyText(result)
+    const text = options.beautify === false ? result.trim() : beautifyText(result)
+    if (options.returnMeta) {
+      return {
+        text,
+        usage: response.usage || null,
+        candidate: response.candidate || null
+      }
+    }
+    return text
   }
 
   async callImageAPI(content, imageFiles = [], systemPromptOverride = null) {

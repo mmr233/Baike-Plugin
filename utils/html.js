@@ -39,6 +39,59 @@ function getFooterText() {
   return footerTextCache
 }
 
+function formatFooterTime(timestamp = Date.now()) {
+  const date = new Date(Number(timestamp) || Date.now())
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+}
+
+function normalizeUsageInfo(usage = null) {
+  if (!usage || typeof usage !== 'object') {
+    return null
+  }
+
+  const promptTokens = Number(usage.promptTokens ?? usage.prompt_tokens ?? usage.inputTokens ?? usage.input_tokens ?? 0) || 0
+  const completionTokens = Number(usage.completionTokens ?? usage.completion_tokens ?? usage.outputTokens ?? usage.output_tokens ?? 0) || 0
+  const totalTokens = Number(usage.totalTokens ?? usage.total_tokens ?? (promptTokens + completionTokens) ?? 0) || 0
+  if (promptTokens <= 0 && completionTokens <= 0 && totalTokens <= 0) {
+    return null
+  }
+
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens
+  }
+}
+
+function renderJournalFooter(meta = {}) {
+  const usage = normalizeUsageInfo(meta.usage)
+  const generatedAt = formatFooterTime(meta.generatedAt || Date.now())
+  const modelText = [meta.modelLabel, meta.model].filter(Boolean).join(' · ')
+  const items = [
+    getFooterText(),
+    generatedAt ? `生成时间 ${generatedAt}` : '',
+    modelText ? `模型 ${modelText}` : '',
+    usage ? `Token ${usage.totalTokens}${usage.promptTokens || usage.completionTokens ? `（输入 ${usage.promptTokens} / 输出 ${usage.completionTokens}）` : ''}` : ''
+  ].filter(Boolean)
+
+  return `
+    <div class="journal-footer">
+      ${items.map(item => `<span>${escapeHtml(item)}</span>`).join('')}
+    </div>
+  `
+}
+
 function normalizeTheme(theme = 'light') {
   return String(theme || '').toLowerCase() === 'night' ? 'night' : 'light'
 }
@@ -250,6 +303,15 @@ function getNightJournalCSS() {
       border-color: rgba(242,197,119,0.52);
       background: #10131b;
     }
+    body.theme-night .user-chip {
+      border-color: rgba(225,182,107,0.36);
+      background: rgba(32,40,57,0.86);
+      color: #f4ead8;
+      box-shadow: 1px 1px 0 rgba(106,141,189,0.3);
+    }
+    body.theme-night .user-chip-avatar {
+      background: #202839;
+    }
     body.theme-night .journal-footer {
       background: linear-gradient(90deg, #182033, #232b3e, #182033);
       border-top-color: rgba(225,182,107,0.36);
@@ -438,6 +500,36 @@ function getJournalCSS(theme = 'light') {
     .billing-profile-main {
       flex: 1;
       min-width: 0;
+    }
+    .user-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 150px;
+      padding: 1px 7px 1px 2px;
+      margin: 0 2px;
+      border: 1px solid rgba(123,92,68,0.22);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.82);
+      color: #6a4b35;
+      font-size: 12px;
+      line-height: 18px;
+      vertical-align: -3px;
+      box-shadow: 1px 1px 0 rgba(211,190,167,0.45);
+    }
+    .user-chip-avatar {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: #fff;
+      flex-shrink: 0;
+    }
+    .user-chip-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .quote-section {
       background: linear-gradient(135deg, rgba(255,248,213,0.96), rgba(255,252,240,0.96));
@@ -1178,14 +1270,18 @@ function getJournalCSS(theme = 'light') {
     .journal-footer {
       background: linear-gradient(90deg, #f5ead9, #fffdf7, #f5ead9);
       padding: 12px 24px 14px 52px;
-      text-align: center;
       border-top: 1px dashed #d4a574;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px 14px;
     }
     .journal-footer span {
       color: #a98769;
       font-family: var(--font-hand);
       font-size: 12px;
       letter-spacing: 0.5px;
+      white-space: nowrap;
     }
     .pin {
       display: inline-block;
@@ -1254,19 +1350,75 @@ function getPreviewText(text = '', maxLength = 150) {
     : normalized
 }
 
-function renderListHtml(items = []) {
+function normalizeUserMap(userMap = {}) {
+  if (userMap instanceof Map) {
+    return Object.fromEntries(userMap.entries())
+  }
+  return userMap && typeof userMap === 'object' ? userMap : {}
+}
+
+function getUserChipData(userId = '', options = {}) {
+  const actualUserId = String(userId || '').trim()
+  if (!actualUserId) {
+    return null
+  }
+
+  const userMap = normalizeUserMap(options.userMap)
+  const user = userMap[actualUserId] || {}
+  const name = String(user.nickname || user.name || user.card || actualUserId).trim()
+  return {
+    userId: actualUserId,
+    name,
+    avatar: user.avatar || getAvatarUrl(actualUserId)
+  }
+}
+
+function renderUserChip(userId = '', options = {}) {
+  const user = getUserChipData(userId, options)
+  if (!user) {
+    return escapeHtml(userId)
+  }
+
+  return `
+    <span class="user-chip" title="${escapeHtml(`${user.name} (${user.userId})`)}">
+      ${user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : ''}
+      <span class="user-chip-name">${escapeHtml(user.name)}</span>
+    </span>
+  `
+}
+
+function renderInlineRichText(text = '', options = {}) {
+  const source = String(text || '')
+  const pattern = /(\[(\d{5,12})\]|@(\d{5,12}))/g
+  let html = ''
+  let lastIndex = 0
+  let match = pattern.exec(source)
+
+  while (match) {
+    html += escapeHtml(source.slice(lastIndex, match.index))
+    const userId = match[2] || match[3] || ''
+    html += renderUserChip(userId, options)
+    lastIndex = match.index + match[0].length
+    match = pattern.exec(source)
+  }
+
+  html += escapeHtml(source.slice(lastIndex))
+  return html
+}
+
+function renderListHtml(items = [], options = {}) {
   if (items.length === 0) {
     return ''
   }
 
   return `
     <ul class="rich-list">
-      ${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+      ${items.map(item => `<li>${renderInlineRichText(item, options)}</li>`).join('')}
     </ul>
   `
 }
 
-function renderTextBlock(block = '') {
+function renderTextBlock(block = '', options = {}) {
   const lines = String(block || '')
     .split('\n')
     .map(item => item.trim())
@@ -1284,7 +1436,7 @@ function renderTextBlock(block = '') {
     if (paragraphLines.length === 0) {
       return
     }
-    segments.push(`<div class="rich-paragraph">${escapeHtml(paragraphLines.join('\n'))}</div>`)
+    segments.push(`<div class="rich-paragraph">${renderInlineRichText(paragraphLines.join('\n'), options)}</div>`)
     paragraphLines = []
   }
 
@@ -1292,7 +1444,7 @@ function renderTextBlock(block = '') {
     if (listItems.length === 0) {
       return
     }
-    segments.push(renderListHtml(listItems))
+    segments.push(renderListHtml(listItems, options))
     listItems = []
   }
 
@@ -1312,13 +1464,13 @@ function renderTextBlock(block = '') {
   return segments.join('')
 }
 
-function renderRichTextHtml(text = '') {
+function renderRichTextHtml(text = '', options = {}) {
   const blocks = normalizeTextBlocks(text)
   if (blocks.length === 0) {
     return '<div class="empty-state">暂无内容</div>'
   }
 
-  return blocks.map(renderTextBlock).join('')
+  return blocks.map(block => renderTextBlock(block, options)).join('')
 }
 
 function parseBracketSections(text = '') {
@@ -1440,7 +1592,7 @@ function renderJournalHeader(title, eyebrow = '胡桃的观察手帐') {
   `
 }
 
-function renderJournalShell({ title = '', eyebrow = '', variant = 'summary', theme = 'light', body = '' } = {}) {
+function renderJournalShell({ title = '', eyebrow = '', variant = 'summary', theme = 'light', body = '', footerMeta = {} } = {}) {
   const normalizedTheme = normalizeTheme(theme)
   const bodyClass = normalizedTheme === 'night' ? 'theme-night' : 'theme-light'
   const journalClass = `journal journal-${variant || 'summary'}`
@@ -1451,7 +1603,7 @@ function renderJournalShell({ title = '', eyebrow = '', variant = 'summary', the
       <div class="journal-body">
         ${body}
       </div>
-      <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
+      ${renderJournalFooter(footerMeta)}
     </div></body></html>`
 }
 
@@ -1537,16 +1689,16 @@ function renderSection({ title = '', content = '', className = '', stamp = '' } 
   `
 }
 
-function renderInfoCard(title = '', content = '') {
+function renderInfoCard(title = '', content = '', options = {}) {
   return `
     <div class="info-card">
       <div class="info-card-title">${escapeHtml(title || '内容')}</div>
-      ${renderRichTextHtml(content)}
+      ${renderRichTextHtml(content, options)}
     </div>
   `
 }
 
-function renderStructuredContentSection(content = '', title = '核心内容', stamp = 'NOTE') {
+function renderStructuredContentSection(content = '', title = '核心内容', stamp = 'NOTE', options = {}) {
   const actualContent = String(content || '').trim()
   if (!actualContent) {
     return ''
@@ -1556,10 +1708,10 @@ function renderStructuredContentSection(content = '', title = '核心内容', st
   const contentHtml = sections.length > 0
     ? `
       <div class="card-stack">
-        ${sections.map(item => renderInfoCard(item.title, item.content)).join('')}
+        ${sections.map(item => renderInfoCard(item.title, item.content, options)).join('')}
       </div>
     `
-    : renderRichTextHtml(actualContent)
+    : renderRichTextHtml(actualContent, options)
 
   return renderSection({
     title,
@@ -1614,7 +1766,7 @@ function renderSourceSection(citations = [], hiddenSourceCount = 0) {
   })
 }
 
-function renderSupplementSections(extraSections = []) {
+function renderSupplementSections(extraSections = [], options = {}) {
   const items = Array.isArray(extraSections) ? extraSections.filter(item => item?.title || item?.content) : []
   if (items.length === 0) {
     return ''
@@ -1629,7 +1781,7 @@ function renderSupplementSections(extraSections = []) {
         ${items.map(item => `
           <div class="supplement-card">
             <div class="supplement-card-title">${escapeHtml(item.title || '补充信息')}</div>
-            ${renderRichTextHtml(item.content || '')}
+            ${renderRichTextHtml(item.content || '', options)}
           </div>
         `).join('')}
       </div>
@@ -1637,7 +1789,7 @@ function renderSupplementSections(extraSections = []) {
   })
 }
 
-function renderTopicSection(topics = [], topicSummary = '', isMemberMode = false) {
+function renderTopicSection(topics = [], topicSummary = '', isMemberMode = false, options = {}) {
   const items = (Array.isArray(topics) ? topics : [])
     .filter(item => item?.topic || item?.detail)
     .slice(0, 5)
@@ -1647,14 +1799,14 @@ function renderTopicSection(topics = [], topicSummary = '', isMemberMode = false
         title: isMemberMode ? '成员话题总结' : '话题总结',
         className: 'paper-section',
         stamp: 'TOPIC',
-        content: renderRichTextHtml(topicSummary)
+        content: renderRichTextHtml(topicSummary, options)
       })
       : ''
   }
 
   const summaryHtml = topicSummary ? `
     <div class="topic-summary">
-      ${renderRichTextHtml(topicSummary)}
+      ${renderRichTextHtml(topicSummary, options)}
     </div>
   ` : ''
 
@@ -1672,7 +1824,7 @@ function renderTopicSection(topics = [], topicSummary = '', isMemberMode = false
               ${(item.contributors || []).length > 0
                 ? `<div class="topic-contributors">${item.contributors.slice(0, 5).map(name => `<span class="topic-contributor">${escapeHtml(name)}</span>`).join('')}</div>`
                 : ''}
-              <div class="topic-detail">${escapeHtml(item.detail || '')}</div>
+              <div class="topic-detail">${renderInlineRichText(item.detail || '', options)}</div>
             </div>
           </div>
         `).join('')}
@@ -1682,7 +1834,7 @@ function renderTopicSection(topics = [], topicSummary = '', isMemberMode = false
   })
 }
 
-function renderHighlightSection(highlights = [], isMemberMode = false) {
+function renderHighlightSection(highlights = [], isMemberMode = false, options = {}) {
   const items = Array.isArray(highlights) ? highlights : []
   if (items.length === 0) {
     return ''
@@ -1701,11 +1853,11 @@ function renderHighlightSection(highlights = [], isMemberMode = false) {
               <span class="quote-author">${escapeHtml(item.sender || '匿名')}</span>
               <span>${escapeHtml(item.time || '')}</span>
             </div>
-            <div class="quote-content">${renderRichTextHtml(item.content || '')}</div>
+            <div class="quote-content">${renderRichTextHtml(item.content || '', options)}</div>
             ${item.roast ? `
               <div class="quote-note">
                 <div class="quote-note-label">胡桃锐评</div>
-                ${renderRichTextHtml(item.roast)}
+                ${renderRichTextHtml(item.roast, options)}
               </div>
             ` : ''}
           </div>
@@ -1715,7 +1867,7 @@ function renderHighlightSection(highlights = [], isMemberMode = false) {
   })
 }
 
-function renderQualityReviewSection(qualityReview = null, isMemberMode = false) {
+function renderQualityReviewSection(qualityReview = null, isMemberMode = false, options = {}) {
   const review = qualityReview && typeof qualityReview === 'object' ? qualityReview : null
   if (!review) {
     return ''
@@ -1742,7 +1894,7 @@ function renderQualityReviewSection(qualityReview = null, isMemberMode = false) 
   })
 
   return renderSection({
-    title: isMemberMode ? '互动质量锐评' : '群聊质量锐评',
+    title: isMemberMode ? '个人表现锐评' : '群聊质量锐评',
     className: 'source-section quality-section',
     stamp: 'RATE',
     content: `
@@ -1769,19 +1921,19 @@ function renderQualityReviewSection(qualityReview = null, isMemberMode = false) 
                     <div class="quality-dimension-name">${escapeHtml(item.name || '观察项')}</div>
                     ${item.percentage > 0 ? `<div class="quality-percent">${escapeHtml(`${item.percentage}%`)}</div>` : ''}
                   </div>
-                  <div class="quality-dimension-comment">${escapeHtml(item.comment || '')}</div>
+                  <div class="quality-dimension-comment">${renderInlineRichText(item.comment || '', options)}</div>
                 </div>
               `).join('')}
             </div>
           `
           : ''}
-        ${review.summary ? `<div class="quality-summary">${escapeHtml(review.summary)}</div>` : ''}
+        ${review.summary ? `<div class="quality-summary">${renderInlineRichText(review.summary, options)}</div>` : ''}
       </div>
     `
   })
 }
 
-function renderUserPortraits(portraits = [], isMemberMode = false) {
+function renderUserPortraits(portraits = [], isMemberMode = false, options = {}) {
   const items = (Array.isArray(portraits) ? portraits : []).filter(item => item?.nickname || item?.userId)
   if (items.length === 0) {
     return ''
@@ -1804,7 +1956,7 @@ function renderUserPortraits(portraits = [], isMemberMode = false) {
                 item.mbti ? `MBTI ${item.mbti}` : '',
                 item.latestTime ? `最近 ${item.latestTime}` : ''
               ].filter(Boolean).join(' · '))}</div>
-              <div class="portrait-summary">${escapeHtml(item.summary || '')}</div>
+              <div class="portrait-summary">${renderInlineRichText(item.summary || '', options)}</div>
               ${(item.tags || []).length > 0
                 ? `<div class="portrait-tags">${item.tags.map(tag => `<span class="portrait-tag">${escapeHtml(tag)}</span>`).join('')}</div>`
                 : ''}
@@ -1819,6 +1971,7 @@ function renderUserPortraits(portraits = [], isMemberMode = false) {
 export function generateHutaoHTML(title, content, stats = null, notices = [], options = {}) {
   const billingText = String(options?.billingText || '').trim()
   const theme = normalizeTheme(options?.theme)
+  const footerMeta = options?.footerMeta || options?.generationInfo || {}
   const previewText = getPreviewText(content)
   const body = [
     renderSnapshotNote(previewText, '摘要快照'),
@@ -1832,7 +1985,8 @@ export function generateHutaoHTML(title, content, stats = null, notices = [], op
     eyebrow: '内容总结 · 摘要手帐',
     variant: 'summary',
     theme,
-    body
+    body,
+    footerMeta
   })
 }
 
@@ -1840,6 +1994,7 @@ export function generateSearchHTML(keyword, content, citations = [], options = {
   const billingText = String(options?.billingText || '').trim()
   const hiddenSourceCount = Math.max(0, Number(options?.hiddenSourceCount) || 0)
   const theme = normalizeTheme(options?.theme)
+  const footerMeta = options?.footerMeta || options?.generationInfo || {}
   const previewText = getPreviewText(content)
   const body = [
     renderSnapshotNote(previewText, '检索快照'),
@@ -1853,7 +2008,8 @@ export function generateSearchHTML(keyword, content, citations = [], options = {
     eyebrow: '百科搜索 · 来源整理',
     variant: 'search',
     theme,
-    body
+    body,
+    footerMeta
   })
 }
 
@@ -1867,9 +2023,12 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
     isMemberMode = false,
     billingText = '',
     userPortraits = [],
+    userMap = {},
+    generationInfo = {},
     theme = 'light'
   } = data
   const normalizedTheme = normalizeTheme(theme)
+  const richOptions = { userMap }
   const {
     topicSummary = '',
     topics = [],
@@ -1916,11 +2075,11 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
       </div>
     `
 
-  const topicHtml = renderTopicSection(topics, topicSummary, isMemberMode)
-  const qualityHtml = renderQualityReviewSection(qualityReview, isMemberMode)
-  const highlightsHtml = renderHighlightSection(highlights, isMemberMode)
-  const extraSectionsHtml = renderSupplementSections(extraSections)
-  const userPortraitsHtml = renderUserPortraits(userPortraits, isMemberMode)
+  const topicHtml = renderTopicSection(topics, topicSummary, isMemberMode, richOptions)
+  const qualityHtml = renderQualityReviewSection(qualityReview, isMemberMode, richOptions)
+  const highlightsHtml = renderHighlightSection(highlights, isMemberMode, richOptions)
+  const extraSectionsHtml = renderSupplementSections(extraSections, richOptions)
+  const userPortraitsHtml = renderUserPortraits(userPortraits, isMemberMode, richOptions)
   const billingHtml = renderBillingSection(billingText)
   const body = isMemberMode
     ? [
@@ -1950,6 +2109,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
     eyebrow: isMemberMode ? '成员发言日报 · 群友画像' : '群聊日报 · 今日切片',
     variant: 'group',
     theme: normalizedTheme,
-    body
+    body,
+    footerMeta: generationInfo
   })
 }

@@ -346,6 +346,18 @@ const summarySchemaRaw = [
     }
   },
   {
+    field: 'chatSummary.memberHistoryHoursLimit',
+    label: '群友总结历史时间范围（小时）',
+    bottomHelpMessage: '仅 @成员总结使用；留空表示跟随“历史时间范围”，0 表示不限制时间范围',
+    component: 'InputNumber',
+    componentProps: {
+      min: 0,
+      max: 720,
+      step: 1,
+      placeholder: '跟随群聊总结'
+    }
+  },
+  {
     field: 'chatSummary.historyFetch.paginationEnabled',
     label: '分页回溯拉取历史',
     bottomHelpMessage: '开启后按批次回溯群历史消息，类似 AstrBot 的 OneBot 拉取方式；协议端不支持分页时会自动回退到一次性拉取',

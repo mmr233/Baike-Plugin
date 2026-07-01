@@ -175,6 +175,82 @@ class BaikeService {
     return actualUserId ? `https://q1.qlogo.cn/g?b=qq&s=0&nk=${actualUserId}` : ''
   }
 
+  buildSummaryUserMap(formattedMessages = [], extraUsers = []) {
+    const userMap = {}
+    const addUser = (userId = '', nickname = '') => {
+      const actualUserId = String(userId || '').trim()
+      if (!actualUserId) {
+        return
+      }
+      const name = String(nickname || actualUserId).trim()
+      userMap[actualUserId] = {
+        userId: actualUserId,
+        nickname: name,
+        name,
+        avatar: this.getAvatarUrl(actualUserId)
+      }
+    }
+
+    for (const item of formattedMessages || []) {
+      addUser(item.user_id, item.nickname || item.card)
+      for (const content of item.contents || []) {
+        if (content?.type === 'at') {
+          addUser(content.userId, content.name)
+        }
+      }
+    }
+
+    for (const item of extraUsers || []) {
+      addUser(item.userId || item.user_id, item.nickname || item.name || item.sender)
+    }
+
+    return userMap
+  }
+
+  buildGenerationInfo(meta = {}) {
+    const candidate = meta.candidate || {}
+    return {
+      generatedAt: meta.generatedAt || Date.now(),
+      usage: meta.usage || null,
+      model: candidate.model || meta.model || '',
+      modelLabel: candidate.label || meta.modelLabel || ''
+    }
+  }
+
+  mergeUsageInfo(...usages) {
+    const total = {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0
+    }
+    let hasUsage = false
+
+    for (const usage of usages) {
+      if (!usage || typeof usage !== 'object') {
+        continue
+      }
+      const promptTokens = Number(usage.promptTokens ?? usage.prompt_tokens ?? usage.inputTokens ?? usage.input_tokens ?? 0) || 0
+      const completionTokens = Number(usage.completionTokens ?? usage.completion_tokens ?? usage.outputTokens ?? usage.output_tokens ?? 0) || 0
+      const totalTokens = Number(usage.totalTokens ?? usage.total_tokens ?? (promptTokens + completionTokens) ?? 0) || 0
+      if (promptTokens <= 0 && completionTokens <= 0 && totalTokens <= 0) {
+        continue
+      }
+      hasUsage = true
+      total.promptTokens += promptTokens
+      total.completionTokens += completionTokens
+      total.totalTokens += totalTokens
+    }
+
+    return hasUsage ? total : null
+  }
+
+  mergeGenerationUsage(generationInfo = {}, ...usages) {
+    return {
+      ...generationInfo,
+      usage: this.mergeUsageInfo(generationInfo?.usage, ...usages)
+    }
+  }
+
   normalizeMatchText(text = '') {
     return String(text || '')
       .replace(/\s+/g, '')
@@ -316,6 +392,8 @@ class BaikeService {
     const parsed = parseSummaryContent(cached.result)
     const parsedForHtml = cached.parsedContent || parsed
     const userPortraits = Array.isArray(cached.userPortraits) ? cached.userPortraits : []
+    const userMap = cached.userMap || {}
+    const generationInfo = cached.generationInfo || this.buildGenerationInfo({ generatedAt: cached.generatedAt || cached.statsData?.generatedAt || Date.now() })
     const userInfo = this.messageService.getUserInfo(e)
     const billingText = this.buildSummaryBillingText(chargeResult, e)
     const fallbackText = this.appendSummaryBillingText(`${cached.title}：\n\n${cached.result}`, billingText)
@@ -338,7 +416,9 @@ class BaikeService {
           ...cached.statsData,
           isMemberMode: cached.isMemberMode,
           billingText,
-          userPortraits
+          userPortraits,
+          userMap,
+          generationInfo
         })),
         cached.isMemberMode ? 'memberSummary' : 'groupChatSummary'
       )
@@ -1446,17 +1526,23 @@ class BaikeService {
           ].join('\n')
 
       try {
-        lastText = await this.apiService.callSummaryTextAPI(
+        const response = await this.apiService.callSummaryTextAPI(
           actualPrompt,
           ENHANCED_SUMMARY_SYSTEM_PROMPT,
           {
             temperature: attempt === 0 ? 0.2 : 0,
-            beautify: false
+            beautify: false,
+            returnMeta: true
           }
         )
+        lastText = response?.text || ''
         const parsed = parseJsonLoose(lastText)
         if (parsed !== null) {
-          return parsed
+          return {
+            value: parsed,
+            usage: response?.usage || null,
+            candidate: response?.candidate || null
+          }
         }
         lastError = new Error('模型输出不是合法 JSON')
       } catch (error) {
@@ -1502,23 +1588,44 @@ class BaikeService {
       tasks.push({
         key,
         label,
-        run: async () => normalize(await this.callEnhancedJsonModule(label, prompt, {
-          repairRetries: config.schemaRepairRetries
-        }))
+        run: async () => {
+          const response = await this.callEnhancedJsonModule(label, prompt, {
+            repairRetries: config.schemaRepairRetries
+          })
+          return {
+            value: normalize(response?.value),
+            usage: response?.usage || null,
+            candidate: response?.candidate || null
+          }
+        }
       })
     }
 
+    const promptKeys = isMemberMode
+      ? {
+          topics: 'groupMemberTopics',
+          highlights: 'groupMemberHighlights',
+          userPortraits: 'groupMemberUserPortraits',
+          qualityReview: 'groupMemberQualityReview'
+        }
+      : {
+          topics: 'groupTopics',
+          highlights: 'groupHighlights',
+          userPortraits: 'groupUserPortraits',
+          qualityReview: 'groupQualityReview'
+        }
+
     if (config.topics) {
-      pushTask('topics', '今日话题', 'groupTopics', value => this.normalizeEnhancedTopics(value, commonValues.maxTopics))
+      pushTask('topics', isMemberMode ? '成员话题' : '今日话题', promptKeys.topics, value => this.normalizeEnhancedTopics(value, commonValues.maxTopics))
     }
     if (config.highlights) {
-      pushTask('highlights', '消息精选', 'groupHighlights', value => this.normalizeEnhancedHighlights(value, config.maxHighlights))
+      pushTask('highlights', isMemberMode ? '成员消息精选' : '消息精选', promptKeys.highlights, value => this.normalizeEnhancedHighlights(value, config.maxHighlights))
     }
     if (config.userPortraits && maxPortraits > 0) {
-      pushTask('userPortraits', '用户画像', 'groupUserPortraits', value => this.normalizeEnhancedUserPortraits(value, maxPortraits))
+      pushTask('userPortraits', isMemberMode ? '成员画像' : '用户画像', promptKeys.userPortraits, value => this.normalizeEnhancedUserPortraits(value, maxPortraits))
     }
     if (config.qualityReview) {
-      pushTask('qualityReview', '群聊质量锐评', 'groupQualityReview', value => this.normalizeEnhancedQualityReview(value))
+      pushTask('qualityReview', isMemberMode ? '个人表现锐评' : '群聊质量锐评', promptKeys.qualityReview, value => this.normalizeEnhancedQualityReview(value))
     }
 
     if (tasks.length === 0) {
@@ -1534,9 +1641,12 @@ class BaikeService {
 
     const settled = await this.mapWithConcurrency(tasks, config.maxConcurrent, async task => {
       try {
+        const result = await task.run()
         return {
           key: task.key,
-          value: await task.run()
+          value: result?.value,
+          usage: result?.usage || null,
+          candidate: result?.candidate || null
         }
       } catch (error) {
         logger.warn(`[${pluginName}] 增强总结${task.label}模块失败，已跳过：${this.apiService.formatErrorWithCause?.(error) || error.message}`)
@@ -1551,15 +1661,20 @@ class BaikeService {
       topics: [],
       highlights: [],
       userPortraits: [],
-      qualityReview: null
+      qualityReview: null,
+      usage: null
     }
     const errors = []
+    const usages = []
     for (const item of settled) {
       if (!item || item.error) {
         if (item?.error) {
           errors.push(item.error)
         }
         continue
+      }
+      if (item.usage) {
+        usages.push(item.usage)
       }
       if (item.key === 'topics' && Array.isArray(item.value)) {
         enhanced.topics = item.value
@@ -1572,6 +1687,7 @@ class BaikeService {
       }
     }
     enhanced.errors = errors
+    enhanced.usage = this.mergeUsageInfo(...usages)
 
     const hasAny = enhanced.topics.length > 0
       || enhanced.highlights.length > 0
@@ -2749,7 +2865,6 @@ class BaikeService {
     }
 
     const chatConfig = Config.get('chatSummary', {})
-    const timeRangeHours = Math.max(0, Number(chatConfig.historyHoursLimit) || 0)
     const messageCount = Number(options.messageCountOverride)
       || (atMembers.length > 0 ? chatConfig.atMemberMessageCount : chatConfig.defaultMessageCount)
     let actualMembers = [...new Set((atMembers || []).map(String))]
@@ -2766,6 +2881,14 @@ class BaikeService {
     }
     const shouldFilterBotMessages = chatConfig.filterBotMessages !== false
       && !(botUserId && actualMembers.includes(botUserId))
+    const groupHistoryHours = Math.max(0, Number(chatConfig.historyHoursLimit) || 0)
+    const hasMemberHistoryHours = chatConfig.memberHistoryHoursLimit !== undefined
+      && chatConfig.memberHistoryHoursLimit !== null
+      && String(chatConfig.memberHistoryHoursLimit).trim() !== ''
+    const memberHistoryHours = hasMemberHistoryHours
+      ? Math.max(0, Number(chatConfig.memberHistoryHoursLimit) || 0)
+      : groupHistoryHours
+    const timeRangeHours = actualMembers.length > 0 ? memberHistoryHours : groupHistoryHours
     const cacheType = actualMembers.length > 0 ? 'member' : 'group'
     const cacheId = `${e.group_id}:${actualMembers.sort().join('_') || 'all'}:count:${messageCount}:hours:${timeRangeHours || 'all'}:filterBot:${shouldFilterBotMessages ? 1 : 0}`
     const cacheKey = this.getCacheKey(cacheType, cacheId)
@@ -2966,9 +3089,14 @@ class BaikeService {
       }
       let result = ''
       let degraded = false
+      let generationInfo = this.buildGenerationInfo()
 
       try {
-        result = await this.apiService.callSummaryTextAPI(prompt)
+        const summaryResponse = await this.apiService.callSummaryTextAPI(prompt, null, {
+          returnMeta: true
+        })
+        result = summaryResponse?.text || ''
+        generationInfo = this.buildGenerationInfo(summaryResponse || {})
       } catch (error) {
         degraded = true
         logger.warn(`[${pluginName}] ${title}模型总结失败，已降级为规则摘要：${this.apiService.formatErrorWithCause?.(error) || error.message}`)
@@ -3006,11 +3134,18 @@ class BaikeService {
             maxPortraits: chatConfig.userPortraitMaxCount ?? 4
           })
         : null
+      if (enhanced?.usage) {
+        generationInfo = this.mergeGenerationUsage(generationInfo, enhanced.usage)
+      }
       const parsed = this.mergeEnhancedSummaryParsed(parseSummaryContent(result), enhanced)
       const parsedForHtml = this.enrichGroupSummaryParsed(parsed, formattedMessages)
       const userPortraits = this.buildSelectedUserPortraits(parsedForHtml, formattedMessages, sortedMembers, {
         maxCount: chatConfig.userPortraitMaxCount ?? 4
       })
+      const userMap = this.buildSummaryUserMap(formattedMessages, [
+        ...(parsedForHtml.highlights || []),
+        ...userPortraits
+      ])
       if (!degraded) {
         this.setCache(cacheKey, {
           result,
@@ -3018,7 +3153,9 @@ class BaikeService {
           title,
           isMemberMode,
           parsedContent: parsedForHtml,
-          userPortraits
+          userPortraits,
+          userMap,
+          generationInfo
         })
       } else {
         await this.refundSummaryUsage(chargeResult, 'group_summary_degraded')
@@ -3040,7 +3177,7 @@ class BaikeService {
           }]
         }],
         fallbackText,
-        generateGroupSummaryHTML(title, parsedForHtml, this.getCardRenderOptions({ ...statsData, isMemberMode, billingText, userPortraits })),
+        generateGroupSummaryHTML(title, parsedForHtml, this.getCardRenderOptions({ ...statsData, isMemberMode, billingText, userPortraits, userMap, generationInfo })),
         isMemberMode ? 'memberSummary' : 'groupChatSummary'
       )
       if (!degraded) {
