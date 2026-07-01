@@ -168,6 +168,10 @@ function pushTextParts(value, parts, depth = 0) {
     pushTextParts(value.message.content ?? value.message, parts, depth + 1)
   }
 
+  if (value.content?.parts) {
+    pushTextParts(value.content.parts, parts, depth + 1)
+  }
+
   for (const field of ['content', 'output', 'parts', 'items']) {
     const nested = value[field]
     if (nested !== undefined && typeof nested !== 'string') {
@@ -213,6 +217,10 @@ function pushSequentialTextParts(value, parts, depth = 0) {
     pushSequentialTextParts(value.message.content ?? value.message, parts, depth + 1)
   }
 
+  if (value.content?.parts) {
+    pushSequentialTextParts(value.content.parts, parts, depth + 1)
+  }
+
   for (const field of ['content', 'output', 'parts', 'items']) {
     const nested = value[field]
     if (nested !== undefined && typeof nested !== 'string') {
@@ -232,7 +240,8 @@ function extractResponseText(json = {}) {
     json?.output_text,
     json?.output,
     json?.content,
-    json?.delta?.text
+    json?.delta?.text,
+    json?.candidates
   ]
 
   for (const candidate of candidates) {
@@ -252,6 +261,8 @@ function normalizeUsageObject(usage = null) {
       ?? usage.promptTokens
       ?? usage.input_tokens
       ?? usage.inputTokens
+      ?? usage.promptTokenCount
+      ?? usage.cachedContentTokenCount
       ?? 0
   ) || 0
   const completionTokens = Number(
@@ -259,11 +270,13 @@ function normalizeUsageObject(usage = null) {
       ?? usage.completionTokens
       ?? usage.output_tokens
       ?? usage.outputTokens
+      ?? usage.candidatesTokenCount
       ?? 0
   ) || 0
   const totalTokens = Number(
     usage.total_tokens
       ?? usage.totalTokens
+      ?? usage.totalTokenCount
       ?? (promptTokens + completionTokens)
       ?? 0
   ) || 0
@@ -284,7 +297,8 @@ function extractResponseUsage(json = {}) {
     json?.usage,
     json?.response?.usage,
     json?.choices?.[0]?.usage,
-    json?.message?.usage
+    json?.message?.usage,
+    json?.usageMetadata
   ]
 
   if (Array.isArray(json?.output)) {
@@ -306,12 +320,12 @@ function extractResponseUsage(json = {}) {
 
 function normalizeEndpointType(value = '', fallback = 'openai-chat') {
   const normalized = String(value || '').trim().toLowerCase()
-  return ['openai-chat', 'openai-responses', 'anthropic-messages', 'inherit'].includes(normalized)
+  return ['openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-native', 'inherit'].includes(normalized)
     ? normalized
     : fallback
 }
 
-function appendEndpointPath(baseUrl = '', endpointType = 'openai-chat') {
+function appendEndpointPath(baseUrl = '', endpointType = 'openai-chat', model = '', requestMode = 'response') {
   const base = String(baseUrl || '').replace(/\/$/, '')
   if (!base) {
     return ''
@@ -325,7 +339,39 @@ function appendEndpointPath(baseUrl = '', endpointType = 'openai-chat') {
     return /\/messages$/i.test(base) ? base : `${base}/messages`
   }
 
+  if (endpointType === 'gemini-native') {
+    if (/\/models\/[^/]+:(?:streamGenerateContent|generateContent)$/i.test(base)) {
+      return requestMode === 'stream' ? appendQueryParam(base, 'alt', 'sse') : base
+    }
+    const action = requestMode === 'stream' ? 'streamGenerateContent' : 'generateContent'
+    const resource = buildGeminiModelResource(model)
+    const url = `${base}/${resource}:${action}`
+    return requestMode === 'stream' ? appendQueryParam(url, 'alt', 'sse') : url
+  }
+
   return /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`
+}
+
+function appendQueryParam(url = '', key = '', value = '') {
+  const source = String(url || '')
+  const separator = source.includes('?') ? '&' : '?'
+  if (new RegExp(`(?:[?&])${key}=`).test(source)) {
+    return source
+  }
+  return `${source}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`
+}
+
+function buildGeminiModelResource(model = '') {
+  const value = String(model || '').trim().replace(/^\/+/, '')
+  if (!value) {
+    return 'models/'
+  }
+
+  if (/^(models|tunedModels)\//i.test(value)) {
+    return value.split('/').map(part => encodeURIComponent(part)).join('/')
+  }
+
+  return `models/${encodeURIComponent(value)}`
 }
 
 function isDataUrl(value = '') {
@@ -455,6 +501,65 @@ function toAnthropicContent(content) {
   }).filter(part => part.text || part.source)
 }
 
+function toGeminiParts(content) {
+  if (typeof content === 'string') {
+    return content ? [{ text: content }] : []
+  }
+
+  if (!Array.isArray(content)) {
+    const text = String(content || '')
+    return text ? [{ text }] : []
+  }
+
+  return content.map(part => {
+    if (typeof part === 'string') {
+      return part ? { text: part } : null
+    }
+    if (part?.type === 'text') {
+      const text = String(part.text || '')
+      return text ? { text } : null
+    }
+    if (part?.type === 'image_url') {
+      const url = part.image_url?.url || part.url || ''
+      if (isDataUrl(url)) {
+        const parsed = parseDataUrl(url)
+        return {
+          inlineData: {
+            mimeType: parsed.mediaType || 'image/jpeg',
+            data: parsed.data
+          }
+        }
+      }
+      return { fileData: { fileUri: url, mimeType: 'image/jpeg' } }
+    }
+    if (part?.type === 'video_url') {
+      const url = part.video_url?.url || part.url || ''
+      if (isDataUrl(url)) {
+        const parsed = parseDataUrl(url)
+        return {
+          inlineData: {
+            mimeType: parsed.mediaType || 'video/mp4',
+            data: parsed.data
+          }
+        }
+      }
+      return { fileData: { fileUri: url, mimeType: 'video/mp4' } }
+    }
+    if (part?.type === 'input_audio') {
+      const audio = part.input_audio || {}
+      const format = String(audio.format || 'mp3').replace(/^audio\//, '')
+      return {
+        inlineData: {
+          mimeType: `audio/${format === 'mp3' ? 'mpeg' : format}`,
+          data: String(audio.data || '')
+        }
+      }
+    }
+    const text = normalizeMessageContentToText([part])
+    return text ? { text } : null
+  }).filter(Boolean)
+}
+
 function splitSystemAndMessages(messages = []) {
   const systemParts = []
   const conversation = []
@@ -524,6 +629,24 @@ function buildEndpointRequest(candidate = {}, messages = [], options = {}, reque
       headers: {
         'anthropic-version': options.anthropicVersion || candidate.anthropicVersion || '2023-06-01'
       }
+    }
+  }
+
+  if (endpointType === 'gemini-native') {
+    const split = splitSystemAndMessages(messages)
+    return {
+      payload: {
+        contents: split.messages.map(message => ({
+          role: message.role === 'assistant' ? 'model' : 'user',
+          parts: toGeminiParts(message.content)
+        })).filter(item => item.parts.length > 0),
+        ...(split.system ? { systemInstruction: { parts: [{ text: split.system }] } } : {}),
+        generationConfig: {
+          temperature,
+          topP
+        }
+      },
+      headers: {}
     }
   }
 
@@ -646,6 +769,12 @@ function extractStreamDeltaText(chunk = {}) {
       parts.push(chunk.delta)
     } else if (type === 'content_block_delta') {
       pushSequentialTextParts(chunk?.delta?.text, parts)
+    }
+  }
+
+  if (parts.length === 0 && Array.isArray(chunk?.candidates)) {
+    for (const candidate of chunk.candidates) {
+      pushSequentialTextParts(candidate?.content?.parts, parts)
     }
   }
 
@@ -1939,7 +2068,9 @@ class ApiService {
               'Content-Type': 'application/json',
               ...(candidate.endpointType === 'anthropic-messages'
                 ? { 'x-api-key': candidate.apiKey }
-                : { Authorization: `Bearer ${candidate.apiKey}` }),
+                : candidate.endpointType === 'gemini-native'
+                  ? { Authorization: `Bearer ${candidate.apiKey}`, 'x-goog-api-key': candidate.apiKey }
+                  : { Authorization: `Bearer ${candidate.apiKey}` }),
               ...endpointRequest.headers
             },
             body: JSON.stringify(endpointRequest.payload),
@@ -1950,7 +2081,7 @@ class ApiService {
             fetchOptions.dispatcher = dispatcher
           }
 
-          const response = await fetch(appendEndpointPath(candidate.baseUrl, candidate.endpointType), fetchOptions)
+          const response = await fetch(appendEndpointPath(candidate.baseUrl, candidate.endpointType, candidate.model, actualRequestMode), fetchOptions)
 
           if (!response.ok) {
             const text = await response.text()

@@ -13,7 +13,8 @@ const fallbackRequestModeOptions = [
 const endpointTypeOptions = [
   { label: 'OpenAI Chat Completions', value: 'openai-chat' },
   { label: 'OpenAI Responses', value: 'openai-responses' },
-  { label: 'Claude Messages', value: 'anthropic-messages' }
+  { label: 'Claude Messages', value: 'anthropic-messages' },
+  { label: 'Gemini Native', value: 'gemini-native' }
 ]
 
 const fallbackEndpointTypeOptions = [
@@ -76,7 +77,7 @@ function createModelConfigSchemas({
     {
       field: 'endpointType',
       label: `${modelLabel.replace('模型名', '')}接口格式`,
-      bottomHelpMessage: '不同服务商端口请求体不同：OpenAI Chat 使用 /chat/completions，OpenAI Responses 使用 /responses，Claude Messages 使用 /messages',
+      bottomHelpMessage: '不同服务商端口请求体不同：OpenAI Chat 使用 /chat/completions，OpenAI Responses 使用 /responses，Claude Messages 使用 /messages，Gemini Native 使用 /models/{model}:generateContent',
       component: 'Select',
       defaultValue: 'openai-chat',
       componentProps: {
