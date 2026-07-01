@@ -77,12 +77,10 @@ function normalizeUsageInfo(usage = null) {
 function renderJournalFooter(meta = {}) {
   const usage = normalizeUsageInfo(meta.usage)
   const generatedAt = formatFooterTime(meta.generatedAt || Date.now())
-  const modelText = [meta.modelLabel, meta.model].filter(Boolean).join(' · ')
   const items = [
     getFooterText(),
     generatedAt ? `生成时间 ${generatedAt}` : '',
-    modelText ? `模型 ${modelText}` : '',
-    usage ? `Token ${usage.totalTokens}${usage.promptTokens || usage.completionTokens ? `（输入 ${usage.promptTokens} / 输出 ${usage.completionTokens}）` : ''}` : ''
+    usage ? `上下文 Token ${usage.totalTokens}` : ''
   ].filter(Boolean)
 
   return `
@@ -1373,6 +1371,36 @@ function getUserChipData(userId = '', options = {}) {
   }
 }
 
+function getUserChipDataByName(name = '', options = {}) {
+  const actualName = String(name || '').trim()
+  if (!actualName) {
+    return null
+  }
+
+  const userMap = normalizeUserMap(options.userMap)
+  const matches = Object.values(userMap)
+    .filter(user => {
+      const nickname = String(user?.nickname || user?.name || user?.card || '').trim()
+      return nickname && nickname === actualName
+    })
+
+  if (matches.length !== 1) {
+    return null
+  }
+
+  const user = matches[0]
+  const userId = String(user.userId || user.user_id || '').trim()
+  if (!userId) {
+    return null
+  }
+
+  return {
+    userId,
+    name: actualName,
+    avatar: user.avatar || getAvatarUrl(userId)
+  }
+}
+
 function renderUserChip(userId = '', options = {}) {
   const user = getUserChipData(userId, options)
   if (!user) {
@@ -1381,6 +1409,20 @@ function renderUserChip(userId = '', options = {}) {
 
   return `
     <span class="user-chip" title="${escapeHtml(`${user.name} (${user.userId})`)}">
+      ${user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : ''}
+      <span class="user-chip-name">${escapeHtml(user.name)}</span>
+    </span>
+  `
+}
+
+function renderUserChipByName(name = '', options = {}) {
+  const user = getUserChipDataByName(name, options)
+  if (!user) {
+    return `<span class="topic-contributor">${escapeHtml(name)}</span>`
+  }
+
+  return `
+    <span class="topic-contributor user-chip" title="${escapeHtml(`${user.name} (${user.userId})`)}">
       ${user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : ''}
       <span class="user-chip-name">${escapeHtml(user.name)}</span>
     </span>
@@ -1822,7 +1864,7 @@ function renderTopicSection(topics = [], topicSummary = '', isMemberMode = false
             <div class="topic-main">
               <div class="topic-name">${escapeHtml(item.topic || `话题 ${index + 1}`)}</div>
               ${(item.contributors || []).length > 0
-                ? `<div class="topic-contributors">${item.contributors.slice(0, 5).map(name => `<span class="topic-contributor">${escapeHtml(name)}</span>`).join('')}</div>`
+                ? `<div class="topic-contributors">${item.contributors.slice(0, 5).map(name => renderUserChipByName(name, options)).join('')}</div>`
                 : ''}
               <div class="topic-detail">${renderInlineRichText(item.detail || '', options)}</div>
             </div>

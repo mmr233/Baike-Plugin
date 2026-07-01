@@ -353,6 +353,41 @@ function appendEndpointPath(baseUrl = '', endpointType = 'openai-chat', model = 
   return /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`
 }
 
+function stripEndpointSuffix(baseUrl = '', suffixes = []) {
+  let base = String(baseUrl || '').replace(/\/+$/, '')
+  if (!base || /\/models$/i.test(base)) {
+    return base
+  }
+
+  for (const suffix of suffixes) {
+    base = base.replace(suffix, '').replace(/\/+$/, '')
+  }
+
+  return base
+}
+
+function appendModelListEndpoint(baseUrl = '', endpointType = 'openai-chat') {
+  const base = String(baseUrl || '').replace(/\/+$/, '')
+  if (!base) {
+    return ''
+  }
+
+  if (endpointType === 'gemini-native') {
+    const geminiBase = normalizeGeminiNativeBaseUrl(base)
+      .replace(/\/models\/[^/]+:(?:streamGenerateContent|generateContent)$/i, '')
+      .replace(/\/+$/, '')
+    return /\/models$/i.test(geminiBase) ? geminiBase : `${geminiBase}/models`
+  }
+
+  const suffixes = endpointType === 'openai-responses'
+    ? [/\/responses$/i]
+    : endpointType === 'anthropic-messages'
+      ? [/\/messages$/i]
+      : [/\/chat\/completions$/i]
+  const root = stripEndpointSuffix(base, suffixes)
+  return /\/models$/i.test(root) ? root : `${root}/models`
+}
+
 function normalizeGeminiNativeBaseUrl(baseUrl = '') {
   return String(baseUrl || '').replace(/\/v1(?=(?:\/models\/|$))/i, '/v1beta')
 }
@@ -377,6 +412,76 @@ function buildGeminiModelResource(model = '') {
   }
 
   return `models/${encodeURIComponent(value)}`
+}
+
+function stripGeminiModelPrefix(model = '') {
+  const value = String(model || '').trim()
+  return value.replace(/^models\//i, '')
+}
+
+function buildModelAuthHeaders(endpointType = 'openai-chat', apiKey = '') {
+  if (endpointType === 'anthropic-messages') {
+    return {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    }
+  }
+
+  if (endpointType === 'gemini-native') {
+    return {
+      Authorization: `Bearer ${apiKey}`,
+      'x-goog-api-key': apiKey
+    }
+  }
+
+  return {
+    Authorization: `Bearer ${apiKey}`
+  }
+}
+
+function collectModelIdsFromValue(value, endpointType = 'openai-chat', collector = []) {
+  if (value === undefined || value === null) {
+    return collector
+  }
+
+  if (typeof value === 'string') {
+    const modelId = endpointType === 'gemini-native' ? stripGeminiModelPrefix(value) : value.trim()
+    if (modelId) {
+      collector.push(modelId)
+    }
+    return collector
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectModelIdsFromValue(item, endpointType, collector)
+    }
+    return collector
+  }
+
+  if (typeof value !== 'object') {
+    return collector
+  }
+
+  const directId = value.id ?? value.name ?? value.model
+  if (typeof directId === 'string') {
+    collectModelIdsFromValue(directId, endpointType, collector)
+    return collector
+  }
+
+  for (const field of ['data', 'models', 'items']) {
+    if (Array.isArray(value[field])) {
+      collectModelIdsFromValue(value[field], endpointType, collector)
+    }
+  }
+
+  return collector
+}
+
+function extractModelIdsFromResponse(json = {}, endpointType = 'openai-chat') {
+  return dedupeStrings(collectModelIdsFromValue(json, endpointType))
+    .filter(item => !/^(?:list|model)$/i.test(item))
+    .sort((a, b) => a.localeCompare(b, 'en'))
 }
 
 function isDataUrl(value = '') {
@@ -1734,6 +1839,85 @@ class ApiService {
     })
   }
 
+  async fetchModelList(sourceConfig = {}, options = {}) {
+    const apiConfig = options.apiConfig || Config.get('api', {})
+    const inherited = options.inherited || {}
+    const resolvedApi = this.resolveApiReference(apiConfig, sourceConfig, inherited)
+    const endpointType = this.normalizeEndpointType(resolvedApi.endpointType, 'openai-chat')
+    const baseUrl = String(resolvedApi.baseUrl || '').trim().replace(/\/+$/, '')
+    const apiKey = String(resolvedApi.apiKey || '').trim()
+    const timeoutMs = this.normalizeTimeoutMs(
+      sourceConfig.timeoutMs ?? options.timeoutMs,
+      this.normalizeTimeoutMs(options.defaultTimeoutMs, 30000)
+    )
+    const connectTimeoutMs = this.normalizeConnectTimeoutMs(
+      sourceConfig.connectTimeoutMs ?? options.connectTimeoutMs,
+      DEFAULT_CONNECT_TIMEOUT_MS
+    )
+
+    if (!baseUrl) {
+      throw new Error('接口地址未填写，请先选择接口预设或填写自定义接口地址')
+    }
+    if (!apiKey) {
+      throw new Error('接口密钥未填写，请先选择可用密钥分组或填写自定义接口密钥')
+    }
+
+    const requestUrl = appendModelListEndpoint(baseUrl, endpointType)
+    const controller = new AbortController()
+    const timer = this.createAbortTimer(controller, timeoutMs)
+
+    try {
+      debugLog('api.models.request', '准备获取模型列表', {
+        baseUrl,
+        endpointType,
+        timeout: timeoutMs,
+        connectTimeout: connectTimeoutMs,
+        apiPresetId: resolvedApi.apiPresetId,
+        apiKeyGroupId: resolvedApi.apiKeyGroupId
+      })
+
+      const fetchOptions = {
+        method: 'GET',
+        headers: buildModelAuthHeaders(endpointType, apiKey),
+        signal: controller.signal
+      }
+      const dispatcher = await this.getFetchDispatcher(connectTimeoutMs)
+      if (dispatcher) {
+        fetchOptions.dispatcher = dispatcher
+      }
+
+      const response = await fetch(requestUrl, fetchOptions)
+      const text = await response.text()
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
+        error.status = response.status
+        error.retryable = this.isRetryableStatus(response.status)
+        throw error
+      }
+
+      const json = parseJson(text, '模型列表响应')
+      const models = extractModelIdsFromResponse(json, endpointType)
+      debugLog('api.models.response', '模型列表获取完成', {
+        ok: response.ok,
+        status: response.status,
+        endpointType,
+        modelCount: models.length,
+        preview: models.slice(0, 8).join(', ')
+      })
+
+      return {
+        models,
+        endpointType,
+        baseUrl,
+        apiPresetId: resolvedApi.apiPresetId,
+        apiKeyGroupId: resolvedApi.apiKeyGroupId,
+        requestUrl
+      }
+    } finally {
+      timer.clear()
+    }
+  }
+
   isRetryableStatus(status) {
     return [408, 409, 425, 429].includes(status) || status >= 500
   }
@@ -2339,8 +2523,9 @@ class ApiService {
     if (!actualContent) {
       return null
     }
+    const modelType = String(options.modelType || 'summary').trim() || 'summary'
 
-    const response = await this.requestChatCompletion('summary', [
+    const response = await this.requestChatCompletion(modelType, [
       { role: 'system', content: systemPromptOverride || promptConfig.summaryDefault || '' },
       { role: 'user', content: actualContent }
     ], options)

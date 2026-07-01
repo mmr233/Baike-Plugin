@@ -546,6 +546,14 @@ const DEFAULT_CONFIG = {
         ]
       }
     ],
+    modelOptionsCache: {
+      search: [],
+      image: [],
+      summary: [],
+      jsonRepair: [],
+      video: [],
+      audio: []
+    },
     search: {
       apiPresetId: '',
       apiKeyGroupId: '',
@@ -569,6 +577,19 @@ const DEFAULT_CONFIG = {
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 120000,
+      connectTimeoutMs: 30000,
+      retryCount: 1
+    },
+    jsonRepair: {
+      apiPresetId: '',
+      apiKeyGroupId: '',
+      baseUrl: '',
+      apiKey: '',
+      model: 'gemini-flash-latest',
+      endpointType: 'inherit',
+      requestMode: 'response',
+      fallbackModels: [],
+      timeoutMs: 60000,
       connectTimeoutMs: 30000,
       retryCount: 1
     },

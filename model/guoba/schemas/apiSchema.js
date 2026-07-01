@@ -1,6 +1,8 @@
 import { enhanceSchemas } from './schemaHelpers.js'
 import Config from '../../Config.js'
 
+const MAX_MODEL_OPTIONS_PER_ENTRY = 500
+
 const requestModeOptions = [
   { label: '流式请求', value: 'stream' },
   { label: '等待一次性输出', value: 'response' }
@@ -104,6 +106,93 @@ function buildApiSelectionOptions() {
   }
 }
 
+function normalizeModelCacheEntries(value = []) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map(item => ({
+      baseUrl: normalizeText(item?.baseUrl),
+      endpointType: normalizeText(item?.endpointType),
+      apiPresetId: normalizeText(item?.apiPresetId),
+      apiKeyGroupId: normalizeText(item?.apiKeyGroupId),
+      updatedAt: Number(item?.updatedAt) || 0,
+      models: Array.isArray(item?.models)
+        ? [...new Set(item.models.map(model => normalizeText(model)).filter(Boolean))]
+          .slice(0, MAX_MODEL_OPTIONS_PER_ENTRY)
+        : []
+    }))
+    .filter(item => item.models.length > 0)
+}
+
+function formatModelCacheSource(entry = {}) {
+  if (entry.apiPresetId && entry.apiKeyGroupId) {
+    return `${entry.apiPresetId}/${entry.apiKeyGroupId}`
+  }
+  if (entry.apiPresetId) {
+    return entry.apiPresetId
+  }
+  if (entry.baseUrl) {
+    return entry.baseUrl.replace(/^https?:\/\//i, '')
+  }
+  return entry.endpointType || '模型列表'
+}
+
+function buildModelOptions(modelType = '') {
+  const cache = Config.get(`api.modelOptionsCache.${modelType}`, [])
+  const entries = normalizeModelCacheEntries(cache)
+  const seen = new Set()
+  const options = []
+
+  for (const entry of entries) {
+    const source = formatModelCacheSource(entry)
+    for (const model of entry.models) {
+      if (seen.has(model)) {
+        continue
+      }
+      seen.add(model)
+      options.push({
+        value: model,
+        label: source ? `${model}（${source}）` : model
+      })
+    }
+  }
+
+  return options
+}
+
+function createRefreshModelOptionsSchema(modelType = '', scope = 'primary') {
+  return {
+    field: `__refreshModelOptions_${modelType}_${scope}`,
+    label: '模型列表',
+    bottomHelpMessage: '按当前接口预设、密钥分组、自定义地址和接口格式获取模型列表；获取后刷新或重新打开配置页即可在模型名输入框中选择，仍可手动输入自定义模型',
+    component: 'GButtons',
+    runtimeOnly: true,
+    save: false,
+    componentProps: {
+      buttons: [
+        {
+          label: '刷新模型列表',
+          type: 'primary',
+          action: 'refreshModelOptions',
+          args: [
+            modelType,
+            scope,
+            '#{apiPresetId}',
+            '#{apiKeyGroupId}',
+            '#{baseUrl}',
+            '#{apiKey}',
+            '#{endpointType}',
+            '#{connectTimeoutMs}',
+            '#{timeoutMs}'
+          ]
+        }
+      ]
+    }
+  }
+}
+
 function createSingleConfigForm(field, label, bottomHelpMessage, schemas) {
   return {
     field,
@@ -121,6 +210,7 @@ function createSingleConfigForm(field, label, bottomHelpMessage, schemas) {
 }
 
 function createModelConfigSchemas({
+  modelType,
   modelLabel,
   modelPlaceholder,
   timeoutLabel,
@@ -131,13 +221,18 @@ function createModelConfigSchemas({
   apiPresetOptions,
   apiKeyGroupOptions
 }) {
+  const modelOptions = buildModelOptions(modelType)
+
   return [
     {
       field: 'model',
       label: modelLabel,
-      component: 'Input',
+      bottomHelpMessage: '可手动输入模型名；也可先刷新模型列表，再从候选项中快速选择',
+      component: 'AutoComplete',
       componentProps: {
-        placeholder: modelPlaceholder
+        placeholder: modelPlaceholder,
+        options: modelOptions,
+        allowClear: true
       }
     },
     {
@@ -194,6 +289,7 @@ function createModelConfigSchemas({
         options: modelEndpointTypeOptions
       }
     },
+    createRefreshModelOptionsSchema(modelType, 'primary'),
     {
       field: 'requestMode',
       label: `${modelLabel.replace('模型名', '')}请求方式`,
@@ -378,15 +474,19 @@ function createApiPresetsSchema() {
   }
 }
 
-function createFallbackModelItemSchemas({ apiPresetOptions, apiKeyGroupOptions }) {
+function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGroupOptions }) {
+  const modelOptions = buildModelOptions(modelType)
+
   return [
   {
     field: 'model',
     label: '模型名',
-    bottomHelpMessage: '降级时要切换到的模型名',
-    component: 'Input',
+    bottomHelpMessage: '降级时要切换到的模型名；可手动输入，也可使用已刷新缓存中的候选项',
+    component: 'AutoComplete',
     componentProps: {
-      placeholder: '例如：grok-4.2'
+      placeholder: '例如：grok-4.2',
+      options: modelOptions,
+      allowClear: true
     }
   },
   {
@@ -443,6 +543,7 @@ function createFallbackModelItemSchemas({ apiPresetOptions, apiKeyGroupOptions }
       options: fallbackEndpointTypeOptions
     }
   },
+  createRefreshModelOptionsSchema(modelType, 'fallback'),
   {
     field: 'requestMode',
     label: '请求方式',
@@ -467,7 +568,7 @@ function createFallbackModelsSchema(modelType, label, selectionOptions) {
       multiple: true,
       showAdd: true,
       showRemove: true,
-      schemas: createFallbackModelItemSchemas(selectionOptions),
+      schemas: createFallbackModelItemSchemas({ modelType, ...selectionOptions }),
       removeConfirm: {
         title: '确认删除',
         content: '确定要删除这条下级模型配置吗？',
@@ -514,6 +615,7 @@ function buildApiSchemaRaw() {
     '搜索主模型配置',
     '点击行内编辑按钮打开弹窗，统一编辑搜索模型、地址、密钥、请求方式、超时和重试',
     createModelConfigSchemas({
+      modelType: 'search',
       modelLabel: '搜索模型名',
       modelPlaceholder: 'perplexity-search',
       timeoutLabel: '搜索请求超时（毫秒）',
@@ -538,6 +640,7 @@ function buildApiSchemaRaw() {
     '图片主模型配置',
     '点击行内编辑按钮打开弹窗，统一编辑图片模型、地址、密钥、请求方式、超时和重试',
     createModelConfigSchemas({
+      modelType: 'image',
       modelLabel: '图片模型名',
       modelPlaceholder: 'gemini-flash-latest',
       timeoutLabel: '图片请求超时（毫秒）',
@@ -562,6 +665,7 @@ function buildApiSchemaRaw() {
     '总结主模型配置',
     '点击行内编辑按钮打开弹窗，统一编辑总结模型、地址、密钥、请求方式、超时和重试',
     createModelConfigSchemas({
+      modelType: 'summary',
       modelLabel: '总结模型名',
       modelPlaceholder: 'gemini-flash-latest',
       timeoutLabel: '总结请求超时（毫秒）',
@@ -575,6 +679,31 @@ function buildApiSchemaRaw() {
   createFallbackModelsSchema('summary', '总结', selectionOptions),
   {
     component: 'Divider',
+    label: 'JSON修复模型',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  createSingleConfigForm(
+    '_apiJsonRepairConfig',
+    'JSON修复模型配置',
+    '点击行内编辑按钮打开弹窗，单独编辑增强总结 JSON 修复使用的模型、地址、密钥、请求方式、超时和重试',
+    createModelConfigSchemas({
+      modelType: 'jsonRepair',
+      modelLabel: 'JSON修复模型名',
+      modelPlaceholder: 'gemini-flash-latest',
+      timeoutLabel: 'JSON修复请求超时（毫秒）',
+      timeoutHelp: '增强总结模块输出不是合法 JSON 时，修复请求默认使用此超时',
+      timeoutDefault: 60000,
+      retryLabel: 'JSON修复重试次数',
+      retryHelp: '单次 JSON 修复请求失败后的额外重试次数；结构修复轮数仍由“JSON修复重试次数”控制',
+      ...selectionOptions
+    })
+  ),
+  createFallbackModelsSchema('jsonRepair', 'JSON修复', selectionOptions),
+  {
+    component: 'Divider',
     label: '视频模型',
     componentProps: {
       orientation: 'left',
@@ -586,6 +715,7 @@ function buildApiSchemaRaw() {
     '视频主模型配置',
     '点击行内编辑按钮打开弹窗，统一编辑视频模型、地址、密钥、请求方式、超时和重试',
     createModelConfigSchemas({
+      modelType: 'video',
       modelLabel: '视频模型名',
       modelPlaceholder: 'qwen3-vl-plus',
       timeoutLabel: '视频请求超时（毫秒）',
@@ -610,6 +740,7 @@ function buildApiSchemaRaw() {
     '音频主模型配置',
     '点击行内编辑按钮打开弹窗，统一编辑音频模型、地址、密钥、请求方式、超时和重试',
     createModelConfigSchemas({
+      modelType: 'audio',
       modelLabel: '音频模型名',
       modelPlaceholder: 'grok-4.1-fast',
       timeoutLabel: '音频请求超时（毫秒）',
@@ -628,6 +759,7 @@ const apiRecommendationMap = {
   'api.search.fallbackModels': '按需添加 1-3 个备用搜索模型',
   'api.image.fallbackModels': '按需添加 1-3 个备用图片模型',
   'api.summary.fallbackModels': '按需添加 1-3 个备用总结模型',
+  'api.jsonRepair.fallbackModels': '按需添加 1-2 个备用 JSON 修复模型',
   'api.video.fallbackModels': '按需添加 1-2 个备用视频模型',
   'api.audio.fallbackModels': '按需添加 1-2 个备用音频模型'
 }

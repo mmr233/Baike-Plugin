@@ -1530,6 +1530,7 @@ class BaikeService {
           actualPrompt,
           ENHANCED_SUMMARY_SYSTEM_PROMPT,
           {
+            modelType: attempt === 0 ? 'summary' : 'jsonRepair',
             temperature: attempt === 0 ? 0.2 : 0,
             beautify: false,
             returnMeta: true
@@ -1724,28 +1725,38 @@ class BaikeService {
     const messageSender = String(message.nickname || message.user_id || '').trim()
     const highlightContent = this.normalizeMatchText(highlight.content)
     const messageContent = this.normalizeMatchText(message.text)
+    const highlightTime = String(highlight.time || '').trim()
+    const messageTime = String(message.time || '').trim()
     let score = 0
+    let hasStrongSignal = false
 
-    if (highlightSender && messageSender && (highlightSender === messageSender || highlightSender.includes(messageSender) || messageSender.includes(highlightSender))) {
-      score += 5
+    if (highlightSender && messageSender) {
+      if (highlightSender === messageSender) {
+        score += 3
+      } else if (highlightSender.includes(messageSender) || messageSender.includes(highlightSender)) {
+        score += 1
+      }
     }
 
-    if (highlight.time && message.time && String(highlight.time).includes(String(message.time).slice(0, 16))) {
+    if (highlightTime && messageTime && (highlightTime.includes(messageTime.slice(0, 16)) || messageTime.includes(highlightTime))) {
       score += 4
+      hasStrongSignal = true
     }
 
     if (highlightContent && messageContent) {
       if (messageContent.includes(highlightContent) || highlightContent.includes(messageContent)) {
-        score += 8
+        score += 10
+        hasStrongSignal = true
       } else {
-        const shortContent = highlightContent.slice(0, 24)
+        const shortContent = highlightContent.slice(0, Math.min(24, Math.max(8, highlightContent.length)))
         if (shortContent && messageContent.includes(shortContent)) {
-          score += 4
+          score += 6
+          hasStrongSignal = true
         }
       }
     }
 
-    return score
+    return hasStrongSignal ? score : 0
   }
 
   findBestHighlightMessage(highlight = {}, formattedMessages = []) {
@@ -1760,7 +1771,7 @@ class BaikeService {
       }
     }
 
-    return bestScore > 0 ? best : null
+    return bestScore >= 4 ? best : null
   }
 
   buildMessageUserEntries(formattedMessages = []) {

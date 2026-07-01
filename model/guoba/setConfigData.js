@@ -10,14 +10,17 @@ const MODEL_DEFAULTS = {
   search: { model: 'perplexity-search', endpointType: 'inherit', requestMode: 'response', timeoutMs: 100000, connectTimeoutMs: 30000, retryCount: 1 },
   image: { model: 'gemini-flash-latest', endpointType: 'inherit', requestMode: 'response', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1 },
   summary: { model: 'gemini-flash-latest', endpointType: 'inherit', requestMode: 'response', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1 },
+  jsonRepair: { model: 'gemini-flash-latest', endpointType: 'inherit', requestMode: 'response', timeoutMs: 60000, connectTimeoutMs: 30000, retryCount: 1 },
   video: { model: 'qwen3-vl-plus', endpointType: 'inherit', requestMode: 'response', timeoutMs: 180000, connectTimeoutMs: 30000, retryCount: 1 },
   audio: { model: 'grok-4.1-fast', endpointType: 'inherit', requestMode: 'response', timeoutMs: 60000, connectTimeoutMs: 30000, retryCount: 1 }
 }
+const MAX_MODEL_OPTIONS_PER_ENTRY = 500
 
 const MODEL_FORM_FIELD_MAP = {
   _apiSearchConfig: { type: 'search', ...MODEL_DEFAULTS.search },
   _apiImageConfig: { type: 'image', ...MODEL_DEFAULTS.image },
   _apiSummaryConfig: { type: 'summary', ...MODEL_DEFAULTS.summary },
+  _apiJsonRepairConfig: { type: 'jsonRepair', ...MODEL_DEFAULTS.jsonRepair },
   _apiVideoConfig: { type: 'video', ...MODEL_DEFAULTS.video },
   _apiAudioConfig: { type: 'audio', ...MODEL_DEFAULTS.audio }
 }
@@ -109,6 +112,31 @@ function normalizeApiPresets(value = []) {
       }
     })
     .filter(item => item.id || item.name || item.baseUrl || item.keyGroups.length > 0)
+}
+
+function normalizeModelOptionsCache(value = {}) {
+  const source = value && typeof value === 'object' ? value : {}
+  const cache = {}
+
+  for (const modelType of Object.keys(MODEL_DEFAULTS)) {
+    const entries = Array.isArray(source[modelType]) ? source[modelType] : []
+    cache[modelType] = entries
+      .map(item => ({
+        baseUrl: String(item?.baseUrl || '').trim(),
+        endpointType: normalizeEndpointType(item?.endpointType, 'openai-chat'),
+        apiPresetId: String(item?.apiPresetId || '').trim(),
+        apiKeyGroupId: String(item?.apiKeyGroupId || '').trim(),
+        updatedAt: Number(item?.updatedAt) || 0,
+        models: Array.isArray(item?.models)
+          ? [...new Set(item.models.map(model => String(model || '').trim()).filter(Boolean))]
+            .slice(0, MAX_MODEL_OPTIONS_PER_ENTRY)
+          : []
+      }))
+      .filter(item => item.models.length > 0)
+      .slice(0, 12)
+  }
+
+  return cache
 }
 
 function normalizeFallbackModels(value = []) {
@@ -237,6 +265,7 @@ export async function setConfigData(data, { Result }) {
     nextConfig.api.primaryBaseUrl = String(nextConfig.api.primaryBaseUrl || '').trim()
     nextConfig.api.primaryApiKey = String(nextConfig.api.primaryApiKey || '').trim()
     nextConfig.api.presets = normalizeApiPresets(nextConfig.api.presets)
+    nextConfig.api.modelOptionsCache = normalizeModelOptionsCache(nextConfig.api.modelOptionsCache)
 
     for (const modelType of Object.keys(MODEL_DEFAULTS)) {
       const defaults = MODEL_DEFAULTS[modelType]

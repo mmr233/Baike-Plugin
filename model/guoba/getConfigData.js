@@ -1,18 +1,21 @@
 import Config from '../Config.js'
 
-const MODEL_TYPES = ['search', 'image', 'summary', 'video', 'audio']
+const MODEL_TYPES = ['search', 'image', 'summary', 'jsonRepair', 'video', 'audio']
 const MODEL_FORM_FIELD_MAP = {
   search: '_apiSearchConfig',
   image: '_apiImageConfig',
   summary: '_apiSummaryConfig',
+  jsonRepair: '_apiJsonRepairConfig',
   video: '_apiVideoConfig',
   audio: '_apiAudioConfig'
 }
+const MAX_MODEL_OPTIONS_PER_ENTRY = 500
 
 const MODEL_DEFAULTS = {
   search: { model: 'perplexity-search', timeoutMs: 100000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
   image: { model: 'gemini-flash-latest', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
   summary: { model: 'gemini-flash-latest', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
+  jsonRepair: { model: 'gemini-flash-latest', timeoutMs: 60000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
   video: { model: 'qwen3-vl-plus', timeoutMs: 180000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
   audio: { model: 'grok-4.1-fast', timeoutMs: 60000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' }
 }
@@ -90,6 +93,31 @@ function normalizeApiPresets(value = []) {
     .filter(item => item.id || item.name || item.baseUrl || item.keyGroups.length > 0)
 }
 
+function normalizeModelOptionsCache(value = {}) {
+  const source = value && typeof value === 'object' ? value : {}
+  const cache = {}
+
+  for (const modelType of MODEL_TYPES) {
+    const entries = Array.isArray(source[modelType]) ? source[modelType] : []
+    cache[modelType] = entries
+      .map(item => ({
+        baseUrl: String(item?.baseUrl || '').trim(),
+        endpointType: normalizeEndpointType(item?.endpointType, 'openai-chat'),
+        apiPresetId: String(item?.apiPresetId || '').trim(),
+        apiKeyGroupId: String(item?.apiKeyGroupId || '').trim(),
+        updatedAt: Number(item?.updatedAt) || 0,
+        models: Array.isArray(item?.models)
+          ? [...new Set(item.models.map(model => String(model || '').trim()).filter(Boolean))]
+            .slice(0, MAX_MODEL_OPTIONS_PER_ENTRY)
+          : []
+      }))
+      .filter(item => item.models.length > 0)
+      .slice(0, 12)
+  }
+
+  return cache
+}
+
 function normalizeFallbackModels(value = []) {
   if (!Array.isArray(value)) {
     return []
@@ -112,6 +140,7 @@ export async function getConfigData() {
   const config = Config.getAll()
   const api = { ...(config.api || {}) }
   api.presets = normalizeApiPresets(api.presets)
+  api.modelOptionsCache = normalizeModelOptionsCache(api.modelOptionsCache)
   const modelFormConfigs = {}
 
   for (const modelType of MODEL_TYPES) {
