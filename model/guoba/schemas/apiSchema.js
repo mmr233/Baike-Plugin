@@ -10,6 +10,17 @@ const fallbackRequestModeOptions = [
   ...requestModeOptions
 ]
 
+const endpointTypeOptions = [
+  { label: 'OpenAI Chat Completions', value: 'openai-chat' },
+  { label: 'OpenAI Responses', value: 'openai-responses' },
+  { label: 'Claude Messages', value: 'anthropic-messages' }
+]
+
+const fallbackEndpointTypeOptions = [
+  { label: '继承主配置', value: 'inherit' },
+  ...endpointTypeOptions
+]
+
 function createSingleConfigForm(field, label, bottomHelpMessage, schemas) {
   return {
     field,
@@ -60,6 +71,16 @@ function createModelConfigSchemas({
       component: 'InputPassword',
       componentProps: {
         placeholder: '留空使用主接口密钥'
+      }
+    },
+    {
+      field: 'endpointType',
+      label: `${modelLabel.replace('模型名', '')}接口格式`,
+      bottomHelpMessage: '不同服务商端口请求体不同：OpenAI Chat 使用 /chat/completions，OpenAI Responses 使用 /responses，Claude Messages 使用 /messages',
+      component: 'Select',
+      defaultValue: 'openai-chat',
+      componentProps: {
+        options: endpointTypeOptions
       }
     },
     {
@@ -157,6 +178,16 @@ const fallbackModelItemSchemas = [
     component: 'InputPassword',
     componentProps: {
       placeholder: '留空继承当前配置'
+    }
+  },
+  {
+    field: 'endpointType',
+    label: '接口格式',
+    bottomHelpMessage: '默认继承当前类型主配置；下级模型接入不同服务商时可单独指定',
+    component: 'Select',
+    defaultValue: 'inherit',
+    componentProps: {
+      options: fallbackEndpointTypeOptions
     }
   },
   {

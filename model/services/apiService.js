@@ -231,7 +231,8 @@ function extractResponseText(json = {}) {
     json?.choices?.[0]?.delta?.content,
     json?.output_text,
     json?.output,
-    json?.content
+    json?.content,
+    json?.delta?.text
   ]
 
   for (const candidate of candidates) {
@@ -282,7 +283,8 @@ function extractResponseUsage(json = {}) {
   const candidates = [
     json?.usage,
     json?.response?.usage,
-    json?.choices?.[0]?.usage
+    json?.choices?.[0]?.usage,
+    json?.message?.usage
   ]
 
   if (Array.isArray(json?.output)) {
@@ -300,6 +302,249 @@ function extractResponseUsage(json = {}) {
   }
 
   return null
+}
+
+function normalizeEndpointType(value = '', fallback = 'openai-chat') {
+  const normalized = String(value || '').trim().toLowerCase()
+  return ['openai-chat', 'openai-responses', 'anthropic-messages', 'inherit'].includes(normalized)
+    ? normalized
+    : fallback
+}
+
+function appendEndpointPath(baseUrl = '', endpointType = 'openai-chat') {
+  const base = String(baseUrl || '').replace(/\/$/, '')
+  if (!base) {
+    return ''
+  }
+
+  if (endpointType === 'openai-responses') {
+    return /\/responses$/i.test(base) ? base : `${base}/responses`
+  }
+
+  if (endpointType === 'anthropic-messages') {
+    return /\/messages$/i.test(base) ? base : `${base}/messages`
+  }
+
+  return /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`
+}
+
+function isDataUrl(value = '') {
+  return /^data:[^;]+;base64,/i.test(String(value || ''))
+}
+
+function parseDataUrl(value = '') {
+  const match = String(value || '').match(/^data:([^;]+);base64,(.*)$/i)
+  if (!match) {
+    return {
+      mediaType: '',
+      data: ''
+    }
+  }
+
+  return {
+    mediaType: match[1],
+    data: match[2]
+  }
+}
+
+function normalizeMessageContentToText(content) {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (!Array.isArray(content)) {
+    return String(content || '')
+  }
+
+  return content
+    .map(part => {
+      if (typeof part === 'string') {
+        return part
+      }
+      if (part?.type === 'text') {
+        return part.text || ''
+      }
+      if (part?.type === 'image_url') {
+        return '[图片]'
+      }
+      if (part?.type === 'video_url') {
+        return '[视频]'
+      }
+      if (part?.type === 'input_audio') {
+        return '[音频]'
+      }
+      return ''
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function toOpenAIResponsesContent(content) {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (!Array.isArray(content)) {
+    return String(content || '')
+  }
+
+  return content.map(part => {
+    if (typeof part === 'string') {
+      return { type: 'input_text', text: part }
+    }
+    if (part?.type === 'text') {
+      return { type: 'input_text', text: String(part.text || '') }
+    }
+    if (part?.type === 'image_url') {
+      return {
+        type: 'input_image',
+        image_url: part.image_url?.url || part.url || ''
+      }
+    }
+    if (part?.type === 'input_audio') {
+      return {
+        type: 'input_audio',
+        input_audio: part.input_audio || {}
+      }
+    }
+    if (part?.type === 'video_url') {
+      return { type: 'input_text', text: '[视频]' }
+    }
+    return { type: 'input_text', text: normalizeMessageContentToText([part]) }
+  }).filter(part => part.text || part.image_url || part.input_audio)
+}
+
+function toAnthropicContent(content) {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (!Array.isArray(content)) {
+    return String(content || '')
+  }
+
+  return content.map(part => {
+    if (typeof part === 'string') {
+      return { type: 'text', text: part }
+    }
+    if (part?.type === 'text') {
+      return { type: 'text', text: String(part.text || '') }
+    }
+    if (part?.type === 'image_url') {
+      const url = part.image_url?.url || part.url || ''
+      if (isDataUrl(url)) {
+        const parsed = parseDataUrl(url)
+        return {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: parsed.mediaType || 'image/jpeg',
+            data: parsed.data
+          }
+        }
+      }
+      return { type: 'text', text: `[图片: ${url || '未提供'}]` }
+    }
+    if (part?.type === 'video_url') {
+      return { type: 'text', text: '[视频]' }
+    }
+    if (part?.type === 'input_audio') {
+      return { type: 'text', text: '[音频]' }
+    }
+    return { type: 'text', text: normalizeMessageContentToText([part]) }
+  }).filter(part => part.text || part.source)
+}
+
+function splitSystemAndMessages(messages = []) {
+  const systemParts = []
+  const conversation = []
+
+  for (const message of messages || []) {
+    const role = String(message?.role || 'user').trim() || 'user'
+    if (role === 'system') {
+      const text = normalizeMessageContentToText(message.content).trim()
+      if (text) {
+        systemParts.push(text)
+      }
+      continue
+    }
+    conversation.push({
+      ...message,
+      role: role === 'assistant' ? 'assistant' : 'user'
+    })
+  }
+
+  return {
+    system: systemParts.join('\n\n'),
+    messages: conversation
+  }
+}
+
+function buildEndpointRequest(candidate = {}, messages = [], options = {}, requestMode = 'response') {
+  const endpointType = candidate.endpointType || 'openai-chat'
+  const stream = requestMode === 'stream'
+  const temperature = options.temperature ?? 0.3
+  const topP = options.topP ?? 1
+
+  if (endpointType === 'openai-responses') {
+    const split = splitSystemAndMessages(messages)
+    const input = split.messages.map(message => ({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: toOpenAIResponsesContent(message.content)
+    }))
+
+    return {
+      payload: {
+        model: candidate.model,
+        input,
+        ...(split.system ? { instructions: split.system } : {}),
+        stream,
+        temperature,
+        top_p: topP
+      },
+      headers: {}
+    }
+  }
+
+  if (endpointType === 'anthropic-messages') {
+    const split = splitSystemAndMessages(messages)
+    return {
+      payload: {
+        model: candidate.model,
+        max_tokens: Math.max(1, Number(options.maxTokens || options.max_tokens || 4096) || 4096),
+        messages: split.messages.map(message => ({
+          role: message.role === 'assistant' ? 'assistant' : 'user',
+          content: toAnthropicContent(message.content)
+        })),
+        ...(split.system ? { system: split.system } : {}),
+        ...(stream ? { stream: true } : {}),
+        temperature,
+        top_p: topP
+      },
+      headers: {
+        'anthropic-version': options.anthropicVersion || candidate.anthropicVersion || '2023-06-01'
+      }
+    }
+  }
+
+  const payload = {
+    model: candidate.model,
+    group: 'default',
+    messages,
+    stream,
+    temperature,
+    top_p: topP
+  }
+
+  if (!/grok-(3|4)/i.test(String(candidate.model || ''))) {
+    payload.frequency_penalty = options.frequencyPenalty ?? 0
+    payload.presence_penalty = options.presencePenalty ?? 0
+  }
+
+  return {
+    payload,
+    headers: {}
+  }
 }
 
 function pushCitationUrls(value, urls, depth = 0) {
@@ -395,6 +640,15 @@ function extractStreamDeltaText(chunk = {}) {
     }
   }
 
+  if (parts.length === 0) {
+    const type = String(chunk?.type || '')
+    if (type === 'response.output_text.delta' && typeof chunk.delta === 'string') {
+      parts.push(chunk.delta)
+    } else if (type === 'content_block_delta') {
+      pushSequentialTextParts(chunk?.delta?.text, parts)
+    }
+  }
+
   return parts.join('')
 }
 
@@ -410,6 +664,7 @@ function extractStreamSnapshotText(chunk = {}) {
   if (parts.length === 0) {
     pushSequentialTextParts(chunk?.output_text, parts)
     pushSequentialTextParts(chunk?.content, parts)
+    pushSequentialTextParts(chunk?.message?.content, parts)
   }
 
   return parts.join('')
@@ -1090,6 +1345,16 @@ class ApiService {
     return ['inherit', 'response', 'stream'].includes(normalized) ? normalized : fallback
   }
 
+  normalizeFallbackEndpointType(value, fallback = 'inherit') {
+    const normalized = normalizeEndpointType(value, fallback)
+    return ['inherit', 'openai-chat', 'openai-responses', 'anthropic-messages'].includes(normalized) ? normalized : fallback
+  }
+
+  normalizeEndpointType(value, fallback = 'openai-chat') {
+    const normalized = normalizeEndpointType(value, fallback)
+    return normalized === 'inherit' ? fallback : normalized
+  }
+
   normalizeRequestMode(value, fallback = 'response') {
     const normalized = String(value || '').trim().toLowerCase()
     return ['response', 'stream'].includes(normalized) ? normalized : fallback
@@ -1129,6 +1394,7 @@ class ApiService {
         model: String(item?.model || '').trim(),
         baseUrl: String(item?.baseUrl || '').trim(),
         apiKey: String(item?.apiKey || '').trim(),
+        endpointType: this.normalizeFallbackEndpointType(item?.endpointType, 'inherit'),
         requestMode: this.normalizeFallbackRequestMode(item?.requestMode, 'inherit')
       }))
       .filter(item => item.model || item.baseUrl || item.apiKey)
@@ -1143,6 +1409,7 @@ class ApiService {
       this.normalizeConnectTimeoutMs(modelConfig.connectTimeoutMs, DEFAULT_CONNECT_TIMEOUT_MS)
     )
     const maxRetries = this.normalizeRetryCount(options.retryCount, this.normalizeRetryCount(modelConfig.retryCount, 0))
+    const primaryEndpointType = this.normalizeEndpointType(options.endpointType, modelConfig.endpointType || 'openai-chat')
     const primaryRequestMode = this.normalizeRequestMode(options.requestMode, modelConfig.requestMode || 'response')
     const inheritedBaseUrl = (modelConfig.baseUrl || apiConfig.primaryBaseUrl || '').replace(/\/$/, '')
     const inheritedApiKey = modelConfig.apiKey || apiConfig.primaryApiKey || ''
@@ -1154,6 +1421,7 @@ class ApiService {
         model: String(modelConfig.model || '').trim(),
         baseUrl: String(modelConfig.baseUrl || '').trim(),
         apiKey: String(modelConfig.apiKey || '').trim(),
+        endpointType: primaryEndpointType,
         requestMode: primaryRequestMode
       },
       ...this.normalizeFallbackModels(modelConfig.fallbackModels).map((item, index) => ({
@@ -1168,6 +1436,9 @@ class ApiService {
       const requestMode = candidate.source === 'fallback' && candidate.requestMode === 'inherit'
         ? primaryRequestMode
         : this.normalizeRequestMode(candidate.requestMode, primaryRequestMode)
+      const endpointType = candidate.source === 'fallback' && candidate.endpointType === 'inherit'
+        ? primaryEndpointType
+        : this.normalizeEndpointType(candidate.endpointType, primaryEndpointType)
       const baseUrl = (candidate.baseUrl || inheritedBaseUrl).replace(/\/$/, '')
       const apiKey = candidate.apiKey || inheritedApiKey
       const model = String(candidate.model || '').trim()
@@ -1180,6 +1451,7 @@ class ApiService {
         model,
         baseUrl,
         apiKey,
+        endpointType,
         requestMode,
         timeoutMs: requestTimeout,
         connectTimeoutMs: connectTimeout,
@@ -1647,6 +1919,7 @@ class ApiService {
           debugLog('api.request', `准备请求 ${modelType}`, {
             baseUrl: candidate.baseUrl,
             model: candidate.model,
+            endpointType: candidate.endpointType,
             requestMode: actualRequestMode,
             timeout: requestTimeout,
             connectTimeout,
@@ -1658,27 +1931,18 @@ class ApiService {
             messageCount: Array.isArray(messages) ? messages.length : 0
           })
 
-          const payload = {
-            model: candidate.model,
-            group: 'default',
-            messages,
-            stream: actualRequestMode === 'stream',
-            temperature: options.temperature ?? 0.3,
-            top_p: options.topP ?? 1
-          }
-
-          if (!this.isPenaltyUnsupportedModel(candidate.model)) {
-            payload.frequency_penalty = options.frequencyPenalty ?? 0
-            payload.presence_penalty = options.presencePenalty ?? 0
-          }
+          const endpointRequest = buildEndpointRequest(candidate, messages, options, actualRequestMode)
 
           const fetchOptions = {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${candidate.apiKey}`
+              ...(candidate.endpointType === 'anthropic-messages'
+                ? { 'x-api-key': candidate.apiKey }
+                : { Authorization: `Bearer ${candidate.apiKey}` }),
+              ...endpointRequest.headers
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(endpointRequest.payload),
             signal: controller.signal
           }
           const dispatcher = await this.getFetchDispatcher(connectTimeout)
@@ -1686,13 +1950,14 @@ class ApiService {
             fetchOptions.dispatcher = dispatcher
           }
 
-          const response = await fetch(`${candidate.baseUrl}/chat/completions`, fetchOptions)
+          const response = await fetch(appendEndpointPath(candidate.baseUrl, candidate.endpointType), fetchOptions)
 
           if (!response.ok) {
             const text = await response.text()
             debugLog('api.response', `${modelType} 响应`, {
               ok: response.ok,
               status: response.status,
+              endpointType: candidate.endpointType,
               requestMode: actualRequestMode,
               attempt: attempt + 1,
               candidateIndex: candidateIndex + 1,
@@ -1720,6 +1985,7 @@ class ApiService {
           debugLog('api.response', `${modelType} 响应`, {
             ok: response.ok,
             status: response.status,
+            endpointType: candidate.endpointType,
             requestMode: actualRequestMode,
             attempt: attempt + 1,
             candidateIndex: candidateIndex + 1,
@@ -1736,6 +2002,7 @@ class ApiService {
               total: validCandidates.length,
               label: candidate.label,
               model: candidate.model,
+              endpointType: candidate.endpointType,
               requestMode: actualRequestMode,
               isFallback: candidate.source === 'fallback'
             }
