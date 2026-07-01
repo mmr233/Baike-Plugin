@@ -563,6 +563,8 @@ const DEFAULT_CONFIG = {
     maxMessageCount: 500,
     docMaxChars: 2000,
     historyHoursLimit: 24,
+    filterBotMessages: true,
+    skipBotMemberSummary: true,
     userPortraitMaxCount: 4,
     enhancedMode: {
       mode: 'economy',

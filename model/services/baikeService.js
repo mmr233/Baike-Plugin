@@ -2749,9 +2749,22 @@ class BaikeService {
     const timeRangeHours = Math.max(0, Number(chatConfig.historyHoursLimit) || 0)
     const messageCount = Number(options.messageCountOverride)
       || (atMembers.length > 0 ? chatConfig.atMemberMessageCount : chatConfig.defaultMessageCount)
-    const actualMembers = [...new Set((atMembers || []).map(String))]
+    let actualMembers = [...new Set((atMembers || []).map(String))]
+    const botUserId = this.messageService.getBotUserId(e)
+    if (chatConfig.skipBotMemberSummary !== false && botUserId && actualMembers.includes(botUserId)) {
+      const nonBotMembers = actualMembers.filter(userId => userId !== botUserId)
+      if (nonBotMembers.length === 0) {
+        await e.reply('已跳过机器人账号的群友总结。如需分析机器人消息，可在锅巴配置中关闭“群友总结跳过机器人”。')
+        return true
+      }
+
+      actualMembers = nonBotMembers
+      await e.reply('已跳过机器人账号，将只总结其他被 @ 的群友。')
+    }
+    const shouldFilterBotMessages = chatConfig.filterBotMessages !== false
+      && !(botUserId && actualMembers.includes(botUserId))
     const cacheType = actualMembers.length > 0 ? 'member' : 'group'
-    const cacheId = `${e.group_id}:${actualMembers.sort().join('_') || 'all'}:count:${messageCount}:hours:${timeRangeHours || 'all'}`
+    const cacheId = `${e.group_id}:${actualMembers.sort().join('_') || 'all'}:count:${messageCount}:hours:${timeRangeHours || 'all'}:filterBot:${shouldFilterBotMessages ? 1 : 0}`
     const cacheKey = this.getCacheKey(cacheType, cacheId)
     const moduleName = actualMembers.length > 0 ? '群成员总结' : '群聊总结'
     const cached = this.tryGetCache(cacheKey, moduleName)
@@ -2803,12 +2816,26 @@ class BaikeService {
         return true
       }
 
-      const messages = this.messageService.filterMessagesByTimeRange(rawMessages, timeRangeHours)
-      if (messages.length === 0 && timeRangeHours > 0) {
+      const timeFilteredMessages = this.messageService.filterMessagesByTimeRange(rawMessages, timeRangeHours)
+      if (timeFilteredMessages.length === 0 && timeRangeHours > 0) {
         await e.reply(`最近 ${timeRangeHours} 小时内没有可分析的群消息`)
         this.finishGroupSummaryInflight(cacheKey, inflightEntry, {
           ok: false,
           reason: 'empty_time_range'
+        })
+        return true
+      }
+
+      const messages = this.messageService.filterBotMessagesForSummary(timeFilteredMessages, e, shouldFilterBotMessages)
+      if (messages.length === 0) {
+        await e.reply(
+          shouldFilterBotMessages
+            ? '过滤机器人消息后没有可分析的群消息'
+            : '没有可分析的群消息'
+        )
+        this.finishGroupSummaryInflight(cacheKey, inflightEntry, {
+          ok: false,
+          reason: shouldFilterBotMessages ? 'empty_after_bot_filter' : 'empty_messages'
         })
         return true
       }

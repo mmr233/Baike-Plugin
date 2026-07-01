@@ -346,6 +346,20 @@ const summarySchemaRaw = [
     }
   },
   {
+    field: 'chatSummary.filterBotMessages',
+    label: '过滤机器人消息',
+    bottomHelpMessage: '群聊总结时过滤机器人本人发送的消息；机器人消息里图片/视频较多时可明显减少媒体分析量。@机器人做成员总结时会自动保留机器人消息',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'chatSummary.skipBotMemberSummary',
+    label: '群友总结跳过机器人',
+    bottomHelpMessage: '开启后，群友总结 @ 到机器人本人时会直接跳过并提示；如果同时 @ 了其他群友，则只总结其他群友，避免分析机器人自产生的大量媒体消息',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
     field: 'chatSummary.userPortraitMaxCount',
     label: '精选用户画像数量',
     bottomHelpMessage: '群聊总结卡片中最多展示多少个精选用户画像，0 表示不显示；优先展示消息精选中出现的用户',

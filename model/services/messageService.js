@@ -595,6 +595,53 @@ class MessageService {
     return ''
   }
 
+  isBotOwnMessage(e, messageData) {
+    const botUserId = this.getBotUserId(e)
+    if (!botUserId || !messageData) {
+      return false
+    }
+
+    const senderId = String(this.getMessageSender(messageData).userId || '').trim()
+    return Boolean(senderId) && senderId === botUserId
+  }
+
+  filterBotMessagesForSummary(messages = [], e, enabled = true) {
+    const list = Array.isArray(messages) ? messages : []
+    if (!enabled) {
+      return list
+    }
+
+    const botUserId = this.getBotUserId(e)
+    if (!botUserId) {
+      debugLog('message.groupHistory', '群总结机器人消息过滤跳过', {
+        filterBotMessages: true,
+        reason: 'missingBotUserId',
+        beforeCount: list.length,
+        afterCount: list.length
+      })
+      return list
+    }
+
+    let filteredCount = 0
+    const filtered = list.filter(item => {
+      if (this.isBotOwnMessage(e, item)) {
+        filteredCount += 1
+        return false
+      }
+      return true
+    })
+
+    debugLog('message.groupHistory', '群总结机器人消息过滤完成', {
+      filterBotMessages: true,
+      botUserId,
+      beforeCount: list.length,
+      afterCount: filtered.length,
+      filteredCount
+    })
+
+    return filtered
+  }
+
   async getBotProfileData(e) {
     const botUserId = this.getBotUserId(e)
     if (!botUserId) {
