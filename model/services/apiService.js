@@ -340,16 +340,21 @@ function appendEndpointPath(baseUrl = '', endpointType = 'openai-chat', model = 
   }
 
   if (endpointType === 'gemini-native') {
-    if (/\/models\/[^/]+:(?:streamGenerateContent|generateContent)$/i.test(base)) {
-      return requestMode === 'stream' ? appendQueryParam(base, 'alt', 'sse') : base
+    const geminiBase = normalizeGeminiNativeBaseUrl(base)
+    if (/\/models\/[^/]+:(?:streamGenerateContent|generateContent)$/i.test(geminiBase)) {
+      return requestMode === 'stream' ? appendQueryParam(geminiBase, 'alt', 'sse') : geminiBase
     }
     const action = requestMode === 'stream' ? 'streamGenerateContent' : 'generateContent'
     const resource = buildGeminiModelResource(model)
-    const url = `${base}/${resource}:${action}`
+    const url = `${geminiBase}/${resource}:${action}`
     return requestMode === 'stream' ? appendQueryParam(url, 'alt', 'sse') : url
   }
 
   return /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`
+}
+
+function normalizeGeminiNativeBaseUrl(baseUrl = '') {
+  return String(baseUrl || '').replace(/\/v1(?=(?:\/models\/|$))/i, '/v1beta')
 }
 
 function appendQueryParam(url = '', key = '', value = '') {
