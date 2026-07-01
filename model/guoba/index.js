@@ -1,5 +1,5 @@
 import { pluginInfo } from './schemas/pluginInfo.js'
-import { apiSchema } from './schemas/apiSchema.js'
+import { getApiSchema } from './schemas/apiSchema.js'
 import { runtimeSchema } from './schemas/runtimeSchema.js'
 import { summarySchema } from './schemas/summarySchema.js'
 import { taskSchema } from './schemas/taskSchema.js'
@@ -28,7 +28,7 @@ export function supportGuoba() {
     pluginInfo,
     configInfo: {
       schemas: [
-        ...apiSchema,
+        ...getApiSchema(),
         ...runtimeSchema,
         ...summarySchema,
         ...taskSchema,

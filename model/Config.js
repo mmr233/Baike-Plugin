@@ -531,11 +531,28 @@ const DEFAULT_CONFIG = {
   api: {
     primaryBaseUrl: 'https://your-api.example.com/v1',
     primaryApiKey: 'your-primary-api-key',
+    presets: [
+      {
+        id: 'default',
+        name: '默认接口',
+        baseUrl: '',
+        endpointType: 'openai-chat',
+        keyGroups: [
+          {
+            id: 'default',
+            name: '默认密钥',
+            apiKey: ''
+          }
+        ]
+      }
+    ],
     search: {
+      apiPresetId: '',
+      apiKeyGroupId: '',
       baseUrl: '',
       apiKey: '',
       model: 'perplexity-search',
-      endpointType: 'openai-chat',
+      endpointType: 'inherit',
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 100000,
@@ -543,10 +560,12 @@ const DEFAULT_CONFIG = {
       retryCount: 1
     },
     summary: {
+      apiPresetId: '',
+      apiKeyGroupId: '',
       baseUrl: '',
       apiKey: '',
       model: 'gemini-flash-latest',
-      endpointType: 'openai-chat',
+      endpointType: 'inherit',
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 120000,
@@ -554,10 +573,12 @@ const DEFAULT_CONFIG = {
       retryCount: 1
     },
     image: {
+      apiPresetId: '',
+      apiKeyGroupId: '',
       baseUrl: '',
       apiKey: '',
       model: 'gemini-flash-latest',
-      endpointType: 'openai-chat',
+      endpointType: 'inherit',
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 120000,
@@ -565,10 +586,12 @@ const DEFAULT_CONFIG = {
       retryCount: 1
     },
     video: {
+      apiPresetId: '',
+      apiKeyGroupId: '',
       baseUrl: '',
       apiKey: '',
       model: 'qwen3-vl-plus',
-      endpointType: 'openai-chat',
+      endpointType: 'inherit',
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 180000,
@@ -576,10 +599,12 @@ const DEFAULT_CONFIG = {
       retryCount: 1
     },
     audio: {
+      apiPresetId: '',
+      apiKeyGroupId: '',
       baseUrl: '',
       apiKey: '',
       model: 'grok-4.1-fast',
-      endpointType: 'openai-chat',
+      endpointType: 'inherit',
       requestMode: 'response',
       fallbackModels: [],
       timeoutMs: 60000,

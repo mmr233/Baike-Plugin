@@ -10,11 +10,11 @@ const MODEL_FORM_FIELD_MAP = {
 }
 
 const MODEL_DEFAULTS = {
-  search: { model: 'perplexity-search', timeoutMs: 100000, connectTimeoutMs: 30000, retryCount: 1, requestMode: 'response' },
-  image: { model: 'gemini-flash-latest', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1, requestMode: 'response' },
-  summary: { model: 'gemini-flash-latest', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1, requestMode: 'response' },
-  video: { model: 'qwen3-vl-plus', timeoutMs: 180000, connectTimeoutMs: 30000, retryCount: 1, requestMode: 'response' },
-  audio: { model: 'grok-4.1-fast', timeoutMs: 60000, connectTimeoutMs: 30000, retryCount: 1, requestMode: 'response' }
+  search: { model: 'perplexity-search', timeoutMs: 100000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
+  image: { model: 'gemini-flash-latest', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
+  summary: { model: 'gemini-flash-latest', timeoutMs: 120000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
+  video: { model: 'qwen3-vl-plus', timeoutMs: 180000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
+  audio: { model: 'grok-4.1-fast', timeoutMs: 60000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' }
 }
 
 function normalizeRequestMode(value, fallback = 'response') {
@@ -43,6 +43,53 @@ function normalizeFallbackRequestMode(value, fallback = 'inherit') {
   return ['inherit', 'response', 'stream'].includes(normalized) ? normalized : fallback
 }
 
+function normalizeEndpointType(value, fallback = 'openai-chat') {
+  const normalized = String(value || '').trim().toLowerCase()
+  return ['inherit', 'openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-native'].includes(normalized) ? normalized : fallback
+}
+
+function normalizeFallbackEndpointType(value, fallback = 'inherit') {
+  return normalizeEndpointType(value, fallback)
+}
+
+function formatApiKeyGroupFormValue(apiPresetId = '', apiKeyGroupId = '') {
+  const presetId = String(apiPresetId || '').trim()
+  const keyGroupId = String(apiKeyGroupId || '').trim()
+  if (presetId && keyGroupId) {
+    return `${presetId}::${keyGroupId}`
+  }
+  return keyGroupId
+}
+
+function normalizeApiPresets(value = []) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((item, index) => {
+      const id = String(item?.id || item?.name || `preset-${index + 1}`).trim()
+      const keyGroups = Array.isArray(item?.keyGroups)
+        ? item.keyGroups
+          .map((group, groupIndex) => ({
+            id: String(group?.id || group?.name || `key-${groupIndex + 1}`).trim(),
+            name: String(group?.name || group?.id || `密钥${groupIndex + 1}`).trim(),
+            apiKey: String(group?.apiKey || '').trim()
+          }))
+          .filter(group => group.id || group.name || group.apiKey)
+        : []
+
+      return {
+        id,
+        name: String(item?.name || id || `接口${index + 1}`).trim(),
+        baseUrl: String(item?.baseUrl || '').trim(),
+        endpointType: normalizeEndpointType(item?.endpointType, 'openai-chat'),
+        keyGroups
+      }
+    })
+    .filter(item => item.id || item.name || item.baseUrl || item.keyGroups.length > 0)
+}
+
 function normalizeFallbackModels(value = []) {
   if (!Array.isArray(value)) {
     return []
@@ -51,16 +98,20 @@ function normalizeFallbackModels(value = []) {
   return value
     .map(item => ({
       model: String(item?.model || '').trim(),
+      apiPresetId: String(item?.apiPresetId || '').trim(),
+      apiKeyGroupId: formatApiKeyGroupFormValue(item?.apiPresetId, item?.apiKeyGroupId),
       baseUrl: String(item?.baseUrl || '').trim(),
       apiKey: String(item?.apiKey || '').trim(),
+      endpointType: normalizeFallbackEndpointType(item?.endpointType, 'inherit'),
       requestMode: normalizeFallbackRequestMode(item?.requestMode, 'inherit')
     }))
-    .filter(item => item.model || item.baseUrl || item.apiKey)
+    .filter(item => item.model || item.apiPresetId || item.apiKeyGroupId || item.baseUrl || item.apiKey)
 }
 
 export async function getConfigData() {
   const config = Config.getAll()
   const api = { ...(config.api || {}) }
+  api.presets = normalizeApiPresets(api.presets)
   const modelFormConfigs = {}
 
   for (const modelType of MODEL_TYPES) {
@@ -68,6 +119,9 @@ export async function getConfigData() {
     const modelConfig = { ...(api?.[modelType] || {}) }
     api[modelType] = {
       ...modelConfig,
+      apiPresetId: String(modelConfig.apiPresetId || '').trim(),
+      apiKeyGroupId: String(modelConfig.apiKeyGroupId || '').trim(),
+      endpointType: normalizeEndpointType(modelConfig.endpointType, defaults.endpointType),
       requestMode: normalizeRequestMode(modelConfig.requestMode, defaults.requestMode),
       timeoutMs: normalizeTimeoutMs(modelConfig.timeoutMs, defaults.timeoutMs),
       connectTimeoutMs: normalizeTimeoutMs(modelConfig.connectTimeoutMs, defaults.connectTimeoutMs),
@@ -77,8 +131,11 @@ export async function getConfigData() {
 
     modelFormConfigs[MODEL_FORM_FIELD_MAP[modelType]] = [{
       model: String(api[modelType].model || defaults.model).trim(),
+      apiPresetId: api[modelType].apiPresetId,
+      apiKeyGroupId: formatApiKeyGroupFormValue(api[modelType].apiPresetId, api[modelType].apiKeyGroupId),
       baseUrl: String(api[modelType].baseUrl || '').trim(),
       apiKey: String(api[modelType].apiKey || '').trim(),
+      endpointType: api[modelType].endpointType,
       requestMode: api[modelType].requestMode,
       timeoutMs: api[modelType].timeoutMs,
       connectTimeoutMs: api[modelType].connectTimeoutMs,

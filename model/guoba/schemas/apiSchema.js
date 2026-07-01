@@ -1,4 +1,5 @@
 import { enhanceSchemas } from './schemaHelpers.js'
+import Config from '../../Config.js'
 
 const requestModeOptions = [
   { label: '流式请求', value: 'stream' },
@@ -21,6 +22,87 @@ const fallbackEndpointTypeOptions = [
   { label: '继承主配置', value: 'inherit' },
   ...endpointTypeOptions
 ]
+
+const modelEndpointTypeOptions = [
+  { label: '继承接口预设', value: 'inherit' },
+  ...endpointTypeOptions
+]
+
+const defaultApiPresetOptions = [
+  { label: '自定义/旧主接口', value: '' }
+]
+
+const defaultApiKeyGroupOptions = [
+  { label: '继承接口默认密钥', value: '' }
+]
+
+function normalizeText(value = '') {
+  return String(value || '').trim()
+}
+
+function normalizeApiPresets(value = []) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((item, index) => {
+      const id = normalizeText(item?.id || item?.name || `preset-${index + 1}`)
+      const keyGroups = Array.isArray(item?.keyGroups)
+        ? item.keyGroups
+          .map((group, groupIndex) => ({
+            id: normalizeText(group?.id || group?.name || `key-${groupIndex + 1}`),
+            name: normalizeText(group?.name || group?.id || `密钥${groupIndex + 1}`)
+          }))
+          .filter(group => group.id)
+        : []
+
+      return {
+        id,
+        name: normalizeText(item?.name || id || `接口${index + 1}`),
+        keyGroups
+      }
+    })
+    .filter(item => item.id)
+}
+
+function formatOptionLabel(name = '', id = '') {
+  const normalizedName = normalizeText(name)
+  const normalizedId = normalizeText(id)
+  if (!normalizedName) {
+    return normalizedId
+  }
+  return normalizedName === normalizedId ? normalizedName : `${normalizedName}（${normalizedId}）`
+}
+
+function buildApiSelectionOptions() {
+  const apiConfig = Config.get('api', {})
+  const presets = normalizeApiPresets(apiConfig.presets)
+  const apiPresetOptions = [
+    ...defaultApiPresetOptions,
+    ...presets.map(item => ({
+      label: formatOptionLabel(item.name, item.id),
+      value: item.id
+    }))
+  ]
+  const groupedKeyOptions = presets
+    .map(preset => ({
+      label: formatOptionLabel(preset.name, preset.id),
+      options: preset.keyGroups.map(group => ({
+        label: formatOptionLabel(group.name, group.id),
+        value: `${preset.id}::${group.id}`
+      }))
+    }))
+    .filter(group => group.options.length > 0)
+
+  return {
+    apiPresetOptions,
+    apiKeyGroupOptions: [
+      ...defaultApiKeyGroupOptions,
+      ...groupedKeyOptions
+    ]
+  }
+}
 
 function createSingleConfigForm(field, label, bottomHelpMessage, schemas) {
   return {
@@ -45,7 +127,9 @@ function createModelConfigSchemas({
   timeoutHelp,
   timeoutDefault,
   retryLabel,
-  retryHelp
+  retryHelp,
+  apiPresetOptions,
+  apiKeyGroupOptions
 }) {
   return [
     {
@@ -57,9 +141,35 @@ function createModelConfigSchemas({
       }
     },
     {
+      field: 'apiPresetId',
+      label: `${modelLabel.replace('模型名', '')}接口预设`,
+      bottomHelpMessage: '选择在“接口预设”中配置的接口；留空则使用下面的自定义地址，或回退旧主接口地址',
+      component: 'Select',
+      defaultValue: '',
+      componentProps: {
+        options: apiPresetOptions,
+        showSearch: true,
+        optionFilterProp: 'label',
+        placeholder: '自定义/旧主接口'
+      }
+    },
+    {
+      field: 'apiKeyGroupId',
+      label: `${modelLabel.replace('模型名', '')}密钥分组`,
+      bottomHelpMessage: '选择接口预设下的密钥分组；留空则使用所选接口的第一个可用密钥，或回退旧主接口密钥',
+      component: 'Select',
+      defaultValue: '',
+      componentProps: {
+        options: apiKeyGroupOptions,
+        showSearch: true,
+        optionFilterProp: 'label',
+        placeholder: '继承接口默认密钥'
+      }
+    },
+    {
       field: 'baseUrl',
       label: `${modelLabel.replace('模型名', '')}接口地址`,
-      bottomHelpMessage: '留空则使用主接口地址',
+      bottomHelpMessage: '自定义地址优先级最高；留空则使用所选接口预设，再回退旧主接口地址',
       component: 'Input',
       componentProps: {
         placeholder: 'https://example.com/v1'
@@ -68,20 +178,20 @@ function createModelConfigSchemas({
     {
       field: 'apiKey',
       label: `${modelLabel.replace('模型名', '')}接口密钥`,
-      bottomHelpMessage: '留空则使用主接口密钥',
+      bottomHelpMessage: '自定义密钥优先级最高；留空则使用所选密钥分组，再回退旧主接口密钥',
       component: 'InputPassword',
       componentProps: {
-        placeholder: '留空使用主接口密钥'
+        placeholder: '留空使用所选密钥分组'
       }
     },
     {
       field: 'endpointType',
       label: `${modelLabel.replace('模型名', '')}接口格式`,
-      bottomHelpMessage: '不同服务商端口请求体不同：OpenAI Chat 使用 /chat/completions，OpenAI Responses 使用 /responses，Claude Messages 使用 /messages，Gemini Native 使用 /models/{model}:generateContent',
+      bottomHelpMessage: '默认继承接口预设；需要覆盖时可指定端点格式：OpenAI Chat、OpenAI Responses、Claude Messages、Gemini Native',
       component: 'Select',
-      defaultValue: 'openai-chat',
+      defaultValue: 'inherit',
       componentProps: {
-        options: endpointTypeOptions
+        options: modelEndpointTypeOptions
       }
     },
     {
@@ -136,8 +246,8 @@ function createModelConfigSchemas({
 const primaryApiSchemas = [
   {
     field: 'primaryBaseUrl',
-    label: '主接口地址',
-    bottomHelpMessage: '搜索/图片/总结/视频/音频未单独配置地址时都会回退到这里',
+    label: '旧主接口地址',
+    bottomHelpMessage: '兼容旧配置；模型未选择接口预设且未自定义地址时会回退到这里',
     component: 'Input',
     componentProps: {
       placeholder: 'https://example.com/v1'
@@ -145,15 +255,131 @@ const primaryApiSchemas = [
   },
   {
     field: 'primaryApiKey',
-    label: '主接口密钥',
+    label: '旧主接口密钥',
+    bottomHelpMessage: '兼容旧配置；模型未选择密钥分组且未自定义密钥时会回退到这里',
     component: 'InputPassword',
     componentProps: {
-      placeholder: '请输入主接口密钥'
+      placeholder: '请输入旧主接口密钥'
     }
   }
 ]
 
-const fallbackModelItemSchemas = [
+const apiPresetKeyGroupSchemas = [
+  {
+    field: 'id',
+    label: '分组ID',
+    bottomHelpMessage: '用于模型配置选择密钥分组，建议使用英文、数字、短横线或下划线',
+    component: 'Input',
+    componentProps: {
+      placeholder: 'default'
+    }
+  },
+  {
+    field: 'name',
+    label: '分组名称',
+    component: 'Input',
+    componentProps: {
+      placeholder: '默认密钥'
+    }
+  },
+  {
+    field: 'apiKey',
+    label: '接口密钥',
+    component: 'InputPassword',
+    componentProps: {
+      placeholder: '请输入接口密钥'
+    }
+  }
+]
+
+const apiPresetSchemas = [
+  {
+    field: 'id',
+    label: '接口ID',
+    bottomHelpMessage: '用于模型配置选择接口，建议使用英文、数字、短横线或下划线',
+    component: 'Input',
+    componentProps: {
+      placeholder: 'senerapi'
+    }
+  },
+  {
+    field: 'name',
+    label: '接口名称',
+    component: 'Input',
+    componentProps: {
+      placeholder: 'Sener API'
+    }
+  },
+  {
+    field: 'baseUrl',
+    label: '接口地址',
+    bottomHelpMessage: '按所选接口格式填写基础地址即可，插件会自动拼接具体端点',
+    component: 'Input',
+    componentProps: {
+      placeholder: 'https://example.com/v1'
+    }
+  },
+  {
+    field: 'endpointType',
+    label: '接口格式',
+    bottomHelpMessage: '该接口预设默认使用的端点格式；模型配置选择“继承接口预设”时会使用这里',
+    component: 'Select',
+    defaultValue: 'openai-chat',
+    componentProps: {
+      options: endpointTypeOptions
+    }
+  },
+  {
+    field: 'keyGroups',
+    label: '密钥分组',
+    bottomHelpMessage: '同一个接口可配置多组密钥，模型配置中可按用途选择不同分组',
+    component: 'GSubForm',
+    defaultValue: [],
+    componentProps: {
+      multiple: true,
+      titleField: 'name',
+      summaryFields: ['id', 'name'],
+      searchFields: ['id', 'name'],
+      showAdd: true,
+      showRemove: true,
+      schemas: apiPresetKeyGroupSchemas,
+      removeConfirm: {
+        title: '确认删除',
+        content: '确定要删除这组接口密钥吗？',
+        okText: '确定',
+        cancelText: '取消'
+      }
+    }
+  }
+]
+
+function createApiPresetsSchema() {
+  return {
+    field: 'api.presets',
+    label: '接口预设',
+    bottomHelpMessage: '可配置多个接口；同一接口可配置多组密钥。模型配置选择接口和密钥分组后，会自动使用这里的地址和密钥',
+    component: 'GSubForm',
+    defaultValue: [],
+    componentProps: {
+      multiple: true,
+      titleField: 'name',
+      summaryFields: ['id', 'name', 'endpointType'],
+      searchFields: ['id', 'name', 'baseUrl'],
+      showAdd: true,
+      showRemove: true,
+      schemas: apiPresetSchemas,
+      removeConfirm: {
+        title: '确认删除',
+        content: '确定要删除这条接口预设吗？已选择它的模型会回退到自定义或旧主接口配置。',
+        okText: '确定',
+        cancelText: '取消'
+      }
+    }
+  }
+}
+
+function createFallbackModelItemSchemas({ apiPresetOptions, apiKeyGroupOptions }) {
+  return [
   {
     field: 'model',
     label: '模型名',
@@ -161,6 +387,32 @@ const fallbackModelItemSchemas = [
     component: 'Input',
     componentProps: {
       placeholder: '例如：grok-4.2'
+    }
+  },
+  {
+    field: 'apiPresetId',
+    label: '接口预设',
+    bottomHelpMessage: '留空继承当前类型主配置；也可选择其他接口预设作为下级模型接口',
+    component: 'Select',
+    defaultValue: '',
+    componentProps: {
+      options: apiPresetOptions,
+      showSearch: true,
+      optionFilterProp: 'label',
+      placeholder: '继承主配置'
+    }
+  },
+  {
+    field: 'apiKeyGroupId',
+    label: '密钥分组',
+    bottomHelpMessage: '留空继承当前类型主配置；也可选择其他接口预设下的密钥分组',
+    component: 'Select',
+    defaultValue: '',
+    componentProps: {
+      options: apiKeyGroupOptions,
+      showSearch: true,
+      optionFilterProp: 'label',
+      placeholder: '继承主配置'
     }
   },
   {
@@ -175,7 +427,7 @@ const fallbackModelItemSchemas = [
   {
     field: 'apiKey',
     label: '接口密钥',
-    bottomHelpMessage: '留空则继承当前类型配置的接口密钥，再留空则继续回退到主接口密钥',
+    bottomHelpMessage: '自定义密钥优先级最高；留空则使用所选密钥分组或继承当前类型配置',
     component: 'InputPassword',
     componentProps: {
       placeholder: '留空继承当前配置'
@@ -201,9 +453,10 @@ const fallbackModelItemSchemas = [
       options: fallbackRequestModeOptions
     }
   }
-]
+  ]
+}
 
-function createFallbackModelsSchema(modelType, label) {
+function createFallbackModelsSchema(modelType, label, selectionOptions) {
   return {
     field: `api.${modelType}.fallbackModels`,
     label: `${label}下级模型`,
@@ -214,7 +467,7 @@ function createFallbackModelsSchema(modelType, label) {
       multiple: true,
       showAdd: true,
       showRemove: true,
-      schemas: fallbackModelItemSchemas,
+      schemas: createFallbackModelItemSchemas(selectionOptions),
       removeConfirm: {
         title: '确认删除',
         content: '确定要删除这条下级模型配置吗？',
@@ -225,7 +478,10 @@ function createFallbackModelsSchema(modelType, label) {
   }
 }
 
-const apiSchemaRaw = [
+function buildApiSchemaRaw() {
+  const selectionOptions = buildApiSelectionOptions()
+
+  return [
   {
     component: 'SOFT_GROUP_BEGIN',
     label: '接口配置'
@@ -244,6 +500,7 @@ const apiSchemaRaw = [
     '点击行内编辑按钮打开弹窗，统一配置主接口地址和主接口密钥',
     primaryApiSchemas
   ),
+  createApiPresetsSchema(),
   {
     component: 'Divider',
     label: '搜索模型',
@@ -263,10 +520,11 @@ const apiSchemaRaw = [
       timeoutHelp: '该类型模型所有搜索相关请求默认共用此超时',
       timeoutDefault: 100000,
       retryLabel: '搜索重试次数',
-      retryHelp: '失败后额外重试几次；建议 0-2 次，避免重复扣费'
+      retryHelp: '失败后额外重试几次；建议 0-2 次，避免重复扣费',
+      ...selectionOptions
     })
   ),
-  createFallbackModelsSchema('search', '搜索'),
+  createFallbackModelsSchema('search', '搜索', selectionOptions),
   {
     component: 'Divider',
     label: '图片模型',
@@ -286,10 +544,11 @@ const apiSchemaRaw = [
       timeoutHelp: '图片理解、长图切片理解等请求默认共用此超时',
       timeoutDefault: 120000,
       retryLabel: '图片重试次数',
-      retryHelp: '图片理解失败后的额外重试次数'
+      retryHelp: '图片理解失败后的额外重试次数',
+      ...selectionOptions
     })
   ),
-  createFallbackModelsSchema('image', '图片'),
+  createFallbackModelsSchema('image', '图片', selectionOptions),
   {
     component: 'Divider',
     label: '总结模型',
@@ -309,10 +568,11 @@ const apiSchemaRaw = [
       timeoutHelp: '群聊总结、内容总结、搜索整理等请求默认共用此超时',
       timeoutDefault: 120000,
       retryLabel: '总结重试次数',
-      retryHelp: '群聊总结、内容总结、搜索结果整理等总结模型请求共用该重试次数'
+      retryHelp: '群聊总结、内容总结、搜索结果整理等总结模型请求共用该重试次数',
+      ...selectionOptions
     })
   ),
-  createFallbackModelsSchema('summary', '总结'),
+  createFallbackModelsSchema('summary', '总结', selectionOptions),
   {
     component: 'Divider',
     label: '视频模型',
@@ -332,10 +592,11 @@ const apiSchemaRaw = [
       timeoutHelp: '视频分析通常更耗时，建议结合流式请求一起配置',
       timeoutDefault: 180000,
       retryLabel: '视频重试次数',
-      retryHelp: '视频分析失败后的额外重试次数'
+      retryHelp: '视频分析失败后的额外重试次数',
+      ...selectionOptions
     })
   ),
-  createFallbackModelsSchema('video', '视频'),
+  createFallbackModelsSchema('video', '视频', selectionOptions),
   {
     component: 'Divider',
     label: '音频模型',
@@ -355,11 +616,13 @@ const apiSchemaRaw = [
       timeoutHelp: '语音转写建议结合流式请求一起配置',
       timeoutDefault: 60000,
       retryLabel: '音频重试次数',
-      retryHelp: '语音转写失败后的额外重试次数'
+      retryHelp: '语音转写失败后的额外重试次数',
+      ...selectionOptions
     })
   ),
-  createFallbackModelsSchema('audio', '音频')
-]
+  createFallbackModelsSchema('audio', '音频', selectionOptions)
+  ]
+}
 
 const apiRecommendationMap = {
   'api.search.fallbackModels': '按需添加 1-3 个备用搜索模型',
@@ -369,6 +632,8 @@ const apiRecommendationMap = {
   'api.audio.fallbackModels': '按需添加 1-2 个备用音频模型'
 }
 
-export const apiSchema = enhanceSchemas(apiSchemaRaw, {
-  recommendationMap: apiRecommendationMap
-})
+export function getApiSchema() {
+  return enhanceSchemas(buildApiSchemaRaw(), {
+    recommendationMap: apiRecommendationMap
+  })
+}

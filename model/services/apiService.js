@@ -1476,7 +1476,7 @@ class ApiService {
 
   normalizeFallbackEndpointType(value, fallback = 'inherit') {
     const normalized = normalizeEndpointType(value, fallback)
-    return ['inherit', 'openai-chat', 'openai-responses', 'anthropic-messages'].includes(normalized) ? normalized : fallback
+    return ['inherit', 'openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-native'].includes(normalized) ? normalized : fallback
   }
 
   normalizeEndpointType(value, fallback = 'openai-chat') {
@@ -1521,12 +1521,142 @@ class ApiService {
     return value
       .map(item => ({
         model: String(item?.model || '').trim(),
+        apiPresetId: String(item?.apiPresetId || '').trim(),
+        apiKeyGroupId: String(item?.apiKeyGroupId || '').trim(),
         baseUrl: String(item?.baseUrl || '').trim(),
         apiKey: String(item?.apiKey || '').trim(),
         endpointType: this.normalizeFallbackEndpointType(item?.endpointType, 'inherit'),
         requestMode: this.normalizeFallbackRequestMode(item?.requestMode, 'inherit')
       }))
-      .filter(item => item.model || item.baseUrl || item.apiKey)
+      .filter(item => item.model || item.apiPresetId || item.apiKeyGroupId || item.baseUrl || item.apiKey)
+  }
+
+  normalizeApiPresets(value = []) {
+    if (!Array.isArray(value)) {
+      return []
+    }
+
+    return value
+      .map((item, index) => {
+        const id = String(item?.id || item?.name || `preset-${index + 1}`).trim()
+        const keyGroups = Array.isArray(item?.keyGroups)
+          ? item.keyGroups
+            .map((group, groupIndex) => ({
+              id: String(group?.id || group?.name || `key-${groupIndex + 1}`).trim(),
+              name: String(group?.name || group?.id || `密钥${groupIndex + 1}`).trim(),
+              apiKey: String(group?.apiKey || '').trim()
+            }))
+            .filter(group => group.id || group.apiKey)
+          : []
+
+        return {
+          id,
+          name: String(item?.name || id || `接口${index + 1}`).trim(),
+          baseUrl: String(item?.baseUrl || '').trim(),
+          endpointType: this.normalizeEndpointType(item?.endpointType, 'openai-chat'),
+          keyGroups
+        }
+      })
+      .filter(item => item.id || item.baseUrl || item.keyGroups.length > 0)
+  }
+
+  parseApiKeyGroupRef(value = '') {
+    const raw = String(value || '').trim()
+    if (!raw) {
+      return { presetId: '', keyGroupId: '' }
+    }
+
+    for (const delimiter of ['::', '/', '|']) {
+      if (raw.includes(delimiter)) {
+        const [presetId, ...rest] = raw.split(delimiter)
+        const keyGroupId = rest.join(delimiter)
+        return {
+          presetId: String(presetId || '').trim(),
+          keyGroupId: String(keyGroupId || '').trim()
+        }
+      }
+    }
+
+    return { presetId: '', keyGroupId: raw }
+  }
+
+  findApiPreset(apiConfig = {}, presetId = '') {
+    const normalizedPresetId = String(presetId || '').trim()
+    if (!normalizedPresetId) {
+      return null
+    }
+
+    return this.normalizeApiPresets(apiConfig.presets)
+      .find(item => item.id === normalizedPresetId) || null
+  }
+
+  findApiKeyGroup(preset = null, keyGroupId = '') {
+    if (!preset || !Array.isArray(preset.keyGroups) || preset.keyGroups.length === 0) {
+      return null
+    }
+
+    const normalizedKeyGroupId = String(keyGroupId || '').trim()
+    if (!normalizedKeyGroupId) {
+      return preset.keyGroups.find(item => item.apiKey) || preset.keyGroups[0] || null
+    }
+
+    return preset.keyGroups.find(item => item.id === normalizedKeyGroupId) || null
+  }
+
+  resolveApiReference(apiConfig = {}, sourceConfig = {}, inherited = {}) {
+    const groupRef = this.parseApiKeyGroupRef(sourceConfig.apiKeyGroupId)
+    const explicitPresetId = String(groupRef.presetId || sourceConfig.apiPresetId || '').trim()
+    const explicitKeyGroupId = String(groupRef.keyGroupId || '').trim()
+    const hasExplicitPreset = Boolean(explicitPresetId)
+    const apiPresetId = String(
+      explicitPresetId
+      || inherited.apiPresetId
+      || ''
+    ).trim()
+    const requestedApiKeyGroupId = String(
+      explicitKeyGroupId
+      || (hasExplicitPreset ? '' : inherited.apiKeyGroupId)
+      || ''
+    ).trim()
+    const preset = this.findApiPreset(apiConfig, apiPresetId)
+    const keyGroup = this.findApiKeyGroup(preset, requestedApiKeyGroupId)
+    const apiKeyGroupId = String(keyGroup?.id || requestedApiKeyGroupId || '').trim()
+    const explicitEndpointType = normalizeEndpointType(sourceConfig.endpointType, 'inherit')
+    const presetEndpointType = preset?.endpointType
+      ? this.normalizeEndpointType(preset.endpointType, 'openai-chat')
+      : ''
+    const inheritedEndpointType = inherited.endpointType
+      ? this.normalizeEndpointType(inherited.endpointType, 'openai-chat')
+      : ''
+    const endpointType = explicitEndpointType === 'inherit'
+      ? (hasExplicitPreset
+          ? (presetEndpointType || inheritedEndpointType || 'openai-chat')
+          : (inheritedEndpointType || presetEndpointType || 'openai-chat'))
+      : this.normalizeEndpointType(explicitEndpointType, presetEndpointType || inheritedEndpointType || 'openai-chat')
+    const baseUrl = String(
+      sourceConfig.baseUrl
+      || (hasExplicitPreset ? preset?.baseUrl : inherited.baseUrl)
+      || (hasExplicitPreset ? inherited.baseUrl : preset?.baseUrl)
+      || apiConfig.primaryBaseUrl
+      || ''
+    ).trim().replace(/\/$/, '')
+    const apiKey = String(
+      sourceConfig.apiKey
+      || keyGroup?.apiKey
+      || (hasExplicitPreset ? '' : inherited.apiKey)
+      || apiConfig.primaryApiKey
+      || ''
+    ).trim()
+
+    return {
+      apiPresetId,
+      apiKeyGroupId,
+      preset,
+      keyGroup,
+      baseUrl,
+      apiKey,
+      endpointType
+    }
   }
 
   getModelConfigCandidates(modelType, options = {}) {
@@ -1538,18 +1668,22 @@ class ApiService {
       this.normalizeConnectTimeoutMs(modelConfig.connectTimeoutMs, DEFAULT_CONNECT_TIMEOUT_MS)
     )
     const maxRetries = this.normalizeRetryCount(options.retryCount, this.normalizeRetryCount(modelConfig.retryCount, 0))
-    const primaryEndpointType = this.normalizeEndpointType(options.endpointType, modelConfig.endpointType || 'openai-chat')
     const primaryRequestMode = this.normalizeRequestMode(options.requestMode, modelConfig.requestMode || 'response')
-    const inheritedBaseUrl = (modelConfig.baseUrl || apiConfig.primaryBaseUrl || '').replace(/\/$/, '')
-    const inheritedApiKey = modelConfig.apiKey || apiConfig.primaryApiKey || ''
+    const primaryApi = this.resolveApiReference(apiConfig, {
+      ...modelConfig,
+      endpointType: options.endpointType ?? modelConfig.endpointType
+    })
+    const primaryEndpointType = primaryApi.endpointType
 
     const rawCandidates = [
       {
         label: '主模型',
         source: 'primary',
         model: String(modelConfig.model || '').trim(),
-        baseUrl: String(modelConfig.baseUrl || '').trim(),
-        apiKey: String(modelConfig.apiKey || '').trim(),
+        apiPresetId: String(modelConfig.apiPresetId || '').trim(),
+        apiKeyGroupId: String(modelConfig.apiKeyGroupId || '').trim(),
+        baseUrl: primaryApi.baseUrl,
+        apiKey: primaryApi.apiKey,
         endpointType: primaryEndpointType,
         requestMode: primaryRequestMode
       },
@@ -1565,11 +1699,14 @@ class ApiService {
       const requestMode = candidate.source === 'fallback' && candidate.requestMode === 'inherit'
         ? primaryRequestMode
         : this.normalizeRequestMode(candidate.requestMode, primaryRequestMode)
-      const endpointType = candidate.source === 'fallback' && candidate.endpointType === 'inherit'
-        ? primaryEndpointType
+      const resolvedApi = candidate.source === 'fallback'
+        ? this.resolveApiReference(apiConfig, candidate, primaryApi)
+        : primaryApi
+      const endpointType = candidate.source === 'fallback'
+        ? resolvedApi.endpointType
         : this.normalizeEndpointType(candidate.endpointType, primaryEndpointType)
-      const baseUrl = (candidate.baseUrl || inheritedBaseUrl).replace(/\/$/, '')
-      const apiKey = candidate.apiKey || inheritedApiKey
+      const baseUrl = resolvedApi.baseUrl
+      const apiKey = resolvedApi.apiKey
       const model = String(candidate.model || '').trim()
       const valid = Boolean(baseUrl && apiKey && model)
 
@@ -1580,6 +1717,8 @@ class ApiService {
         model,
         baseUrl,
         apiKey,
+        apiPresetId: resolvedApi.apiPresetId,
+        apiKeyGroupId: resolvedApi.apiKeyGroupId,
         endpointType,
         requestMode,
         timeoutMs: requestTimeout,
