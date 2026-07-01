@@ -1726,7 +1726,7 @@ class ApiService {
     return extractResponseText(json) || null
   }
 
-  async callSummaryTextAPI(content, systemPromptOverride = null) {
+  async callSummaryTextAPI(content, systemPromptOverride = null, options = {}) {
     const promptConfig = Config.get('prompt', {})
     const actualContent = String(content || '').trim()
     if (!actualContent) {
@@ -1736,10 +1736,13 @@ class ApiService {
     const { json } = await this.requestChatCompletion('summary', [
       { role: 'system', content: systemPromptOverride || promptConfig.summaryDefault || '' },
       { role: 'user', content: actualContent }
-    ])
+    ], options)
 
     const result = extractResponseText(json) || null
-    return result ? beautifyText(result) : null
+    if (!result) {
+      return null
+    }
+    return options.beautify === false ? result.trim() : beautifyText(result)
   }
 
   async callImageAPI(content, imageFiles = [], systemPromptOverride = null) {

@@ -28,6 +28,236 @@ const DEFAULT_SCHEDULED_SUMMARY_TIME = {
   second: 0
 }
 
+const DEFAULT_GROUP_CHAT_PROMPT = `请分析以下群聊记录，严格按以下格式输出（不要使用markdown格式）：
+
+额外要求：
+1. 最终输出只能包含“===今日话题===”“===话题总结===”“===消息精选===”“===用户画像===”“===群聊质量锐评===”五部分
+2. 不要在结尾额外输出“发言统计”“群聊图片内容”“文档”“成员资料”等标题
+3. 图片、文档和成员资料只允许融合进今日话题、话题总结、消息精选、用户画像或群聊质量锐评的内容里，不要原样复述这些标题
+4. 如果聊天记录里出现下面提供的机器人账号，请明确把它视为机器人本人发言，不要当作普通群友
+5. 涉及机器人本人发言时，请使用第一人称“我”来评价或吐槽，不要用第三人称代称机器人
+6. @消息请尽量还原为群聊记录里出现的群名片/昵称，不要输出@qq号
+
+===今日话题===
+【话题】10字以内的话题名
+【参与者】主要参与者昵称，最多5人，用、分隔
+【详情】讲清楚这个话题的来龙去脉、关键观点、结论或笑点，提到具体用户时用昵称
+---
+（提取2-4个最有意义的话题；没有明确话题时可少写）
+
+===话题总结===
+（用一小段总结群内讨论的主线、热点内容和整体氛围，语言自然，避免流水账）
+
+===消息精选===
+【时间】消息的原始时间
+【发送者】发送者昵称
+【内容】消息原文摘要
+【吐槽】用幽默毒舌但不攻击个人的语气吐槽为什么选中这条
+---
+（精选3-5条最有趣/最有价值/最离谱的消息，每条之间用---分隔）
+
+===用户画像===
+【用户】用户昵称
+【称号】一个有梗但不冒犯的称号
+【关键词】#关键词1、#关键词2、#关键词3、#关键词4
+【画像】结合发言内容概括此人在本轮聊天中的角色、关注点和互动风格
+---
+（精选2-4位最有代表性的群友，优先选择话题贡献者、精选消息发送者和高频发言者）
+
+===群聊质量锐评===
+【标题】今日群聊主题标题
+【副标题】一句轻松的副标题
+【维度】抽象维度名|比例|一句犀利、幽默或温情的点评
+【维度】抽象维度名|比例|一句犀利、幽默或温情的点评
+【维度】抽象维度名|比例|一句犀利、幽默或温情的点评
+【总结】一句总结性的金句
+（维度3-5个，维度名保持2-6字的抽象概括，不要写具体人名或具体事件；比例总和不超过100）
+
+发言统计（前10名）：{statsText}{extraContext}
+
+机器人账号资料：
+{botProfile}
+
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_MEMBER_PROMPT = `请分析以下群聊中指定成员的聊天记录，严格按以下格式输出（不要使用markdown格式）：
+
+额外要求：
+1. 最终输出只能包含“===今日话题===”“===话题总结===”“===消息精选===”“===用户画像===”“===群聊质量锐评===”五部分
+2. 不要在结尾额外输出“发言统计”“群聊图片内容”“文档”“目标成员主页资料”等标题
+3. 图片、文档和主页资料只允许融合进今日话题、话题总结、消息精选、用户画像或群聊质量锐评的内容里，不要原样复述这些标题
+4. 如果聊天记录里出现下面提供的机器人账号，请明确把它视为机器人本人发言，不要当作普通群友
+5. 涉及机器人本人发言时，请使用第一人称“我”来评价或吐槽，不要用第三人称代称机器人
+6. @消息请尽量还原为群聊记录里出现的群名片/昵称，不要输出@qq号
+
+===今日话题===
+【话题】10字以内的话题名
+【参与者】目标成员和主要互动对象昵称，最多5人，用、分隔
+【详情】讲清楚目标成员在这个话题中说了什么、推动了什么、和谁互动
+---
+（提取1-3个与目标成员最相关的话题；没有明确话题时可少写）
+
+===话题总结===
+（总结目标成员讨论的主要话题、观点、互动情况和发言氛围，用纯文本描述）
+
+===消息精选===
+【时间】消息的原始时间
+【发送者】发送者昵称
+【内容】消息原文摘要
+【吐槽】用幽默毒舌但不攻击个人的语气吐槽为什么选中这条
+---
+（精选3-5条最有趣/最有价值/最离谱的相关消息，每条之间用---分隔）
+
+===用户画像===
+【用户】用户昵称
+【称号】一个有梗但不冒犯的称号
+【关键词】#关键词1、#关键词2、#关键词3、#关键词4
+【画像】结合发言内容概括该成员本轮聊天中的角色、关注点和互动风格
+---
+（优先输出被 @ 的目标成员；如有明显互动对象，可补充1-2位）
+
+===群聊质量锐评===
+【标题】成员互动主题标题
+【副标题】一句轻松的副标题
+【维度】抽象维度名|比例|一句犀利、幽默或温情的点评
+【维度】抽象维度名|比例|一句犀利、幽默或温情的点评
+【维度】抽象维度名|比例|一句犀利、幽默或温情的点评
+【总结】一句总结性的金句
+（维度3-5个，评价目标成员相关互动质量和发言风格；维度名保持2-6字抽象概括，比例总和不超过100）
+
+发言统计：{statsText}{extraContext}
+
+目标成员主页资料：
+{memberProfiles}
+
+机器人账号资料：
+{botProfile}
+
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_TOPICS_PROMPT = `请分析以下群聊记录，提取最多 {maxTopics} 个最有意义的今日话题。
+
+要求：
+1. 只输出合法 JSON 数组，不要使用 markdown 代码块，不要添加解释文字
+2. 话题名控制在 10 字以内，优先选择参与人数多、信息量高、有结论或有笑点的话题
+3. contributors 使用群名片/昵称，不要输出 QQ 号
+4. detail 要讲清前因后果、关键观点、结论或笑点，提到具体用户时使用昵称
+5. 忽略单纯表情、复读、无意义水群；如果没有明确话题，返回 []
+
+返回格式：
+[
+  {
+    "topic": "话题名称",
+    "contributors": ["昵称1", "昵称2"],
+    "detail": "话题详细描述"
+  }
+]
+
+发言统计：
+{statsText}
+
+补充信息：
+{extraContext}
+
+机器人账号资料：
+{botProfile}
+
+聊天记录格式：[HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_HIGHLIGHTS_PROMPT = `请从以下群聊记录中挑选最多 {maxHighlights} 条最值得放进总结卡片的消息精选。
+
+要求：
+1. 只输出合法 JSON 数组，不要使用 markdown 代码块，不要添加解释文字
+2. 优先选择有信息量、有转折、有笑点、有代表性或能体现群聊气质的原始发言
+3. sender 使用群名片/昵称，不要输出 QQ 号；time 尽量使用原始时间
+4. content 保留原文核心，不要过度改写；roast 用幽默、锐利但不攻击个人的语气说明入选原因
+5. 不要把机器人系统提示、扣费信息、重复图片说明选为精选
+
+返回格式：
+[
+  {
+    "time": "19:30",
+    "sender": "昵称",
+    "content": "消息原文摘要",
+    "roast": "入选理由或吐槽"
+  }
+]
+
+补充信息：
+{extraContext}
+
+聊天记录格式：[HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_USER_PORTRAITS_PROMPT = `请基于以下群聊记录和用户统计，为最多 {maxPortraits} 位最有代表性的群友生成用户画像。
+
+要求：
+1. 只输出合法 JSON 数组，不要使用 markdown 代码块，不要添加解释文字
+2. 优先选择话题贡献者、精选消息发送者、高频发言者或互动风格明显的人
+3. name 使用群名片/昵称；user_id 使用聊天记录中的用户ID，无法判断可留空
+4. title 要有梗但不冒犯；keywords 输出 4-6 个具体关键词，避免空泛词
+5. summary 要结合本轮发言说明角色、关注点、互动风格和代表性行为
+
+返回格式：
+[
+  {
+    "name": "昵称",
+    "user_id": "123456",
+    "title": "称号",
+    "mbti": "可选MBTI",
+    "keywords": ["关键词1", "关键词2", "关键词3", "关键词4"],
+    "summary": "画像描述"
+  }
+]
+
+用户统计：
+{userStatsText}
+
+补充信息：
+{extraContext}
+
+聊天记录格式：[HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_QUALITY_PROMPT = `请分析以下群聊记录，输出一份“群聊质量锐评”。
+
+要求：
+1. 只输出合法 JSON 对象，不要使用 markdown 代码块，不要添加解释文字
+2. dimensions 需要 3-5 个高层级抽象维度，name 控制在 2-6 字，不要写具体人名、项目名或细碎事件
+3. percentage 是大致占比，总和不超过 100
+4. comment 可以具体、幽默、犀利或温情，要能对应本轮群聊的真实内容
+5. title 和 subtitle 要适合放在总结卡片中，summary 是一句总结性金句
+
+返回格式：
+{
+  "title": "今日群聊主题",
+  "subtitle": "一句副标题",
+  "dimensions": [
+    {
+      "name": "抽象维度",
+      "percentage": 35,
+      "comment": "锐评内容"
+    }
+  ],
+  "summary": "总结金句"
+}
+
+发言统计：
+{statsText}
+
+补充信息：
+{extraContext}
+
+聊天记录格式：[HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
 function clampInteger(value, min, max, fallback) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) {
@@ -64,6 +294,21 @@ function parseCronToTime(cron, fallback = DEFAULT_SCHEDULED_SUMMARY_TIME) {
     minute: clampInteger(parts[0], 0, 59, fallback.minute),
     second: fallback.second
   }
+}
+
+function shouldMigrateLegacyGroupPrompt(prompt = '', type = 'groupChat') {
+  const text = String(prompt || '')
+  if (!text.trim() || text.includes('===今日话题===') || text.includes('===用户画像===') || text.includes('===群聊质量锐评===')) {
+    return false
+  }
+
+  const hasOldSections = text.includes('===话题总结===') && text.includes('===消息精选===')
+  const hasOldLimiter = text.includes('最终输出只能包含') && text.includes('两部分')
+  const hasPlaceholders = type === 'groupMember'
+    ? text.includes('{memberProfiles}') && text.includes('{messageTexts}')
+    : text.includes('{statsText}') && text.includes('{messageTexts}')
+
+  return hasOldSections && hasOldLimiter && hasPlaceholders
 }
 
 function migrateLegacyConfig(config) {
@@ -132,6 +377,17 @@ function migrateLegacyConfig(config) {
     )
     delete scheduledSummary.cron
     nextConfig.scheduledSummary = scheduledSummary
+  }
+
+  if (isPlainObject(nextConfig.prompt)) {
+    const promptConfig = { ...nextConfig.prompt }
+    if (shouldMigrateLegacyGroupPrompt(promptConfig.groupChat, 'groupChat')) {
+      promptConfig.groupChat = DEFAULT_GROUP_CHAT_PROMPT
+    }
+    if (shouldMigrateLegacyGroupPrompt(promptConfig.groupMember, 'groupMember')) {
+      promptConfig.groupMember = DEFAULT_GROUP_MEMBER_PROMPT
+    }
+    nextConfig.prompt = promptConfig
   }
 
   return nextConfig
@@ -265,63 +521,12 @@ const DEFAULT_CONFIG = {
 2. 描述视频中的主要内容、场景、人物、动作等
 3. 如果有对话或文字，请提取关键信息
 4. 使用简洁清晰的中文表达`,
-    groupChat: `请分析以下群聊记录，严格按以下格式输出（不要使用markdown格式）：
-
-额外要求：
-1. 最终输出只能包含“===话题总结===”和“===消息精选===”两部分
-2. 不要在结尾额外输出“发言统计”“群聊图片内容”“文档”“成员资料”等标题
-3. 图片、文档和成员资料只允许融合进话题总结或消息精选的内容里，不要原样复述这些标题
-4. 如果聊天记录里出现下面提供的机器人账号，请明确把它视为机器人本人发言，不要当作普通群友
-5. 涉及机器人本人发言时，请使用第一人称“我”来评价或吐槽，不要用第三人称代称机器人
-
-===话题总结===
-（总结群内讨论的主要话题、热点内容和整体氛围，用纯文本描述）
-
-===消息精选===
-【时间】消息的原始时间
-【发送者】发送者昵称
-【内容】消息原文摘要
-【吐槽】用幽默毒舌的语气吐槽为什么选中这条
----
-（精选3-5条最有趣/最有价值/最离谱的消息，每条之间用---分隔）
-
-发言统计（前10名）：{statsText}{extraContext}
-
-机器人账号资料：
-{botProfile}
-
-聊天记录：
-{messageTexts}`,
-    groupMember: `请分析以下群聊中指定成员的聊天记录，严格按以下格式输出（不要使用markdown格式）：
-
-额外要求：
-1. 最终输出只能包含“===话题总结===”和“===消息精选===”两部分
-2. 不要在结尾额外输出“发言统计”“群聊图片内容”“文档”“目标成员主页资料”等标题
-3. 图片、文档和主页资料只允许融合进话题总结或消息精选的内容里，不要原样复述这些标题
-4. 如果聊天记录里出现下面提供的机器人账号，请明确把它视为机器人本人发言，不要当作普通群友
-5. 涉及机器人本人发言时，请使用第一人称“我”来评价或吐槽，不要用第三人称代称机器人
-
-===话题总结===
-（总结他们讨论的主要话题、观点和互动情况，用纯文本描述）
-
-===消息精选===
-【时间】消息的原始时间
-【发送者】发送者昵称
-【内容】消息原文摘要
-【吐槽】用幽默毒舌的语气吐槽为什么选中这条
----
-（精选3-5条最有趣/最有价值/最离谱的消息，每条之间用---分隔）
-
-发言统计：{statsText}{extraContext}
-
-目标成员主页资料：
-{memberProfiles}
-
-机器人账号资料：
-{botProfile}
-
-聊天记录：
-{messageTexts}`
+    groupChat: DEFAULT_GROUP_CHAT_PROMPT,
+    groupMember: DEFAULT_GROUP_MEMBER_PROMPT,
+    groupTopics: DEFAULT_GROUP_TOPICS_PROMPT,
+    groupHighlights: DEFAULT_GROUP_HIGHLIGHTS_PROMPT,
+    groupUserPortraits: DEFAULT_GROUP_USER_PORTRAITS_PROMPT,
+    groupQualityReview: DEFAULT_GROUP_QUALITY_PROMPT
   },
   fileRequest: {
     imageMaxPerRequest: 10,
@@ -359,6 +564,18 @@ const DEFAULT_CONFIG = {
     docMaxChars: 2000,
     historyHoursLimit: 24,
     userPortraitMaxCount: 4,
+    enhancedMode: {
+      mode: 'economy',
+      autoMessageThreshold: 220,
+      maxConcurrent: 2,
+      schemaRepairRetries: 1,
+      topics: true,
+      highlights: true,
+      userPortraits: true,
+      qualityReview: true,
+      maxTopics: 4,
+      maxHighlights: 5
+    },
     inflightDedup: {
       enabled: true,
       waitMs: 120000

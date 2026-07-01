@@ -78,6 +78,7 @@ function getNightJournalCSS() {
       box-shadow: 7px 7px 0 rgba(106, 141, 189, 0.35);
     }
     body.theme-night .title-sticker h1,
+    body.theme-night .title-eyebrow,
     body.theme-night .section-title,
     body.theme-night .chart-title,
     body.theme-night .vertical-chart-title,
@@ -85,6 +86,9 @@ function getNightJournalCSS() {
       color: #f2c577;
     }
     body.theme-night .journal-search .title-sticker h1,
+    body.theme-night .topic-name,
+    body.theme-night .quality-title,
+    body.theme-night .quality-dimension-name,
     body.theme-night .portrait-name,
     body.theme-night .source-host,
     body.theme-night .supplement-card-title {
@@ -124,6 +128,10 @@ function getNightJournalCSS() {
     }
     body.theme-night .metric-card,
     body.theme-night .info-card,
+    body.theme-night .topic-card,
+    body.theme-night .quality-shell,
+    body.theme-night .quality-summary,
+    body.theme-night .quality-dimension-card,
     body.theme-night .source-item,
     body.theme-night .quote-card,
     body.theme-night .portrait-card,
@@ -150,6 +158,8 @@ function getNightJournalCSS() {
     body.theme-night .source-url,
     body.theme-night .source-more,
     body.theme-night .portrait-meta,
+    body.theme-night .topic-contributors,
+    body.theme-night .quality-subtitle,
     body.theme-night .empty-state,
     body.theme-night .journal-footer span {
       color: #b9ad9c;
@@ -181,6 +191,9 @@ function getNightJournalCSS() {
     body.theme-night .rich-paragraph,
     body.theme-night .rich-list,
     body.theme-night .chart-label,
+    body.theme-night .topic-detail,
+    body.theme-night .quality-summary,
+    body.theme-night .quality-dimension-comment,
     body.theme-night .portrait-summary,
     body.theme-night .text-content {
       color: #f4ead8;
@@ -205,6 +218,9 @@ function getNightJournalCSS() {
       border-color: rgba(143,214,210,0.35);
     }
     body.theme-night .quote-note,
+    body.theme-night .topic-contributor,
+    body.theme-night .quality-percent,
+    body.theme-night .portrait-title,
     body.theme-night .portrait-tag {
       background: rgba(242,197,119,0.16);
       border-color: rgba(242,197,119,0.46);
@@ -224,6 +240,7 @@ function getNightJournalCSS() {
       background: rgba(16,19,27,0.42);
     }
     body.theme-night .source-index,
+    body.theme-night .topic-index,
     body.theme-night .pin {
       background: #4b8fb1;
     }
@@ -344,6 +361,14 @@ function getJournalCSS(theme = 'light') {
       letter-spacing: 1px;
       word-break: break-word;
     }
+    .title-eyebrow {
+      color: #9d7152;
+      font-family: var(--font-hand);
+      font-size: 12px;
+      line-height: 1;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+    }
     .journal-search .title-sticker h1 {
       color: #4f8fc7;
     }
@@ -363,6 +388,12 @@ function getJournalCSS(theme = 'light') {
       white-space: nowrap;
     }
     .journal-body { padding: 16px 18px 22px 52px; }
+    .journal-body > .section:last-child,
+    .journal-body > .chart-panel:last-child,
+    .journal-body > .vertical-chart-panel:last-child,
+    .journal-body > .metric-row:last-child {
+      margin-bottom: 0;
+    }
     .section {
       background: #fffef9;
       border: 2px solid var(--border-soft);
@@ -418,6 +449,8 @@ function getJournalCSS(theme = 'light') {
       line-height: 1.2;
       margin-bottom: 12px;
       letter-spacing: 0.5px;
+      padding-right: 46px;
+      word-break: break-word;
     }
     .text-content {
       color: #5a4a3a;
@@ -802,7 +835,10 @@ function getJournalCSS(theme = 'light') {
       color: #8d745d;
       font-size: 12px;
       line-height: 1.7;
-      padding: 2px 4px;
+      padding: 9px 12px;
+      background: rgba(255,255,255,0.55);
+      border: 1px dashed rgba(123,92,68,0.28);
+      border-radius: 12px;
     }
     .empty-state {
       color: #a18467;
@@ -870,6 +906,186 @@ function getJournalCSS(theme = 'light') {
       color: #8a6726;
       margin-bottom: 4px;
     }
+    .topic-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .topic-card {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      gap: 12px;
+      padding: 13px 14px;
+      background: rgba(255,255,255,0.86);
+      border: 2px solid #d7cbe8;
+      border-radius: 14px;
+      box-shadow: 4px 4px 0 rgba(199, 188, 220, 0.4);
+      position: relative;
+    }
+    .topic-card:nth-child(even) {
+      transform: rotate(0.45deg);
+    }
+    .topic-card:nth-child(odd) {
+      transform: rotate(-0.35deg);
+    }
+    .topic-index {
+      width: 32px;
+      height: 32px;
+      border-radius: 12px;
+      background: #ff8a5b;
+      color: #fff;
+      font-family: var(--font-title);
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 2px 2px 0 rgba(123,92,68,0.18);
+    }
+    .topic-main {
+      min-width: 0;
+    }
+    .topic-name {
+      color: #b85c2e;
+      font-family: var(--font-title);
+      font-size: 16px;
+      line-height: 1.35;
+      margin-bottom: 6px;
+      word-break: break-word;
+    }
+    .topic-contributors {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      color: #8d745d;
+      font-size: 11px;
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+    .topic-contributor {
+      display: inline-flex;
+      max-width: 100%;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(207,230,251,0.72);
+      border: 1px dashed rgba(95,148,192,0.42);
+      color: #507ea3;
+      word-break: break-word;
+    }
+    .topic-detail {
+      color: #5a4a3a;
+      font-size: 12px;
+      line-height: 1.75;
+      word-break: break-word;
+    }
+    .quality-shell {
+      padding: 14px;
+      border: 2px dashed #d4a574;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.78);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.62);
+    }
+    .quality-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px dashed rgba(123,92,68,0.24);
+    }
+    .quality-title {
+      color: #b85c2e;
+      font-family: var(--font-title);
+      font-size: 17px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .quality-subtitle {
+      color: #8d745d;
+      font-family: var(--font-hand);
+      font-size: 12px;
+      line-height: 1.6;
+      text-align: right;
+      max-width: 42%;
+      word-break: break-word;
+    }
+    .quality-bar {
+      display: flex;
+      height: 28px;
+      overflow: hidden;
+      border: 1px solid rgba(123,92,68,0.25);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.72);
+      margin-bottom: 14px;
+    }
+    .quality-segment {
+      min-width: 7%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 10px;
+      font-weight: bold;
+      line-height: 1;
+      text-shadow: 1px 1px 0 rgba(0,0,0,0.28);
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .quality-dimension-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .quality-dimension-card {
+      padding: 11px 12px;
+      background: rgba(255,250,240,0.92);
+      border: 1px dashed #d4a574;
+      border-radius: 10px;
+      box-shadow: 2px 2px 0 rgba(211,190,167,0.32);
+      min-width: 0;
+    }
+    .quality-dimension-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .quality-dimension-name {
+      color: #b85c2e;
+      font-weight: bold;
+      font-size: 13px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .quality-percent {
+      flex-shrink: 0;
+      color: #8a6726;
+      font-size: 10px;
+      line-height: 1.2;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(255,245,183,0.92);
+      border: 1px dashed #ccb56e;
+    }
+    .quality-dimension-comment {
+      color: #5a4a3a;
+      font-size: 12px;
+      line-height: 1.65;
+      word-break: break-word;
+    }
+    .quality-summary {
+      color: #4c3a29;
+      font-size: 13px;
+      line-height: 1.75;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(255,246,183,0.8), rgba(255,255,255,0.78));
+      border: 1px solid rgba(214,194,119,0.48);
+      word-break: break-word;
+    }
     .portrait-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -897,6 +1113,20 @@ function getJournalCSS(theme = 'light') {
       line-height: 1.3;
       word-break: break-word;
       margin-bottom: 4px;
+    }
+    .portrait-title {
+      display: inline-flex;
+      max-width: 100%;
+      color: #9b5d28;
+      font-family: var(--font-hand);
+      font-size: 12px;
+      line-height: 1.35;
+      padding: 2px 7px;
+      margin-bottom: 5px;
+      border-radius: 999px;
+      background: rgba(255,226,172,0.72);
+      border: 1px dashed rgba(196,108,61,0.36);
+      word-break: break-word;
     }
     .portrait-meta {
       color: #9a806a;
@@ -966,6 +1196,26 @@ function getJournalCSS(theme = 'light') {
       box-shadow: 0 2px 4px rgba(196,69,105,0.4);
       margin-right: 6px;
       vertical-align: middle;
+    }
+    @media (max-width: 560px) {
+      .portrait-grid,
+      .quality-dimension-grid {
+        grid-template-columns: 1fr;
+      }
+      .quality-head {
+        flex-direction: column;
+      }
+      .quality-subtitle {
+        max-width: 100%;
+        text-align: left;
+      }
+      .topic-card {
+        grid-template-columns: 32px minmax(0, 1fr);
+      }
+      .quote-meta {
+        flex-direction: column;
+        gap: 3px;
+      }
     }
     ${normalizeTheme(theme) === 'night' ? getNightJournalCSS() : ''}
   `
@@ -1177,16 +1427,32 @@ function renderVerticalBarChart(items = [], title = '时间分布') {
   `
 }
 
-function renderJournalHeader(title, icon = '') {
+function renderJournalHeader(title, eyebrow = '胡桃的观察手帐') {
   return `
     <div class="journal-header">
       <div class="tape-strip"></div>
       <div class="title-sticker">
+        ${eyebrow ? `<div class="title-eyebrow">${escapeHtml(eyebrow)}</div>` : ''}
         <h1>${escapeHtml(title)}</h1>
         <div class="date-tag">${new Date().toLocaleString('zh-CN')} · 胡桃的手帐</div>
       </div>
     </div>
   `
+}
+
+function renderJournalShell({ title = '', eyebrow = '', variant = 'summary', theme = 'light', body = '' } = {}) {
+  const normalizedTheme = normalizeTheme(theme)
+  const bodyClass = normalizedTheme === 'night' ? 'theme-night' : 'theme-light'
+  const journalClass = `journal journal-${variant || 'summary'}`
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS(normalizedTheme)}</style></head>
+    <body class="${bodyClass}"><div class="${journalClass}">
+      ${renderJournalHeader(title, eyebrow)}
+      <div class="journal-body">
+        ${body}
+      </div>
+      <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
+    </div></body></html>`
 }
 
 function renderSnapshotNote(text = '', kicker = '摘要快照') {
@@ -1256,22 +1522,288 @@ function renderBillingSection(text = '') {
   `
 }
 
-function renderUserPortraits(portraits = []) {
+function renderSection({ title = '', content = '', className = '', stamp = '' } = {}) {
+  const actualContent = String(content || '').trim()
+  if (!actualContent) {
+    return ''
+  }
+
+  return `
+    <div class="section ${className}">
+      ${stamp ? `<div class="stamp">${escapeHtml(stamp)}</div>` : ''}
+      ${title ? `<div class="section-title">${escapeHtml(title)}</div>` : ''}
+      ${actualContent}
+    </div>
+  `
+}
+
+function renderInfoCard(title = '', content = '') {
+  return `
+    <div class="info-card">
+      <div class="info-card-title">${escapeHtml(title || '内容')}</div>
+      ${renderRichTextHtml(content)}
+    </div>
+  `
+}
+
+function renderStructuredContentSection(content = '', title = '核心内容', stamp = 'NOTE') {
+  const actualContent = String(content || '').trim()
+  if (!actualContent) {
+    return ''
+  }
+
+  const sections = parseBracketSections(actualContent)
+  const contentHtml = sections.length > 0
+    ? `
+      <div class="card-stack">
+        ${sections.map(item => renderInfoCard(item.title, item.content)).join('')}
+      </div>
+    `
+    : renderRichTextHtml(actualContent)
+
+  return renderSection({
+    title,
+    className: 'paper-section',
+    stamp,
+    content: contentHtml
+  })
+}
+
+function renderNoticeSection(notices = []) {
+  const actualNotices = Array.isArray(notices) ? notices.filter(Boolean) : []
+  if (actualNotices.length === 0) {
+    return ''
+  }
+
+  return renderSection({
+    title: '处理提示',
+    className: 'source-section',
+    stamp: 'TIP',
+    content: renderRichTextHtml(actualNotices.map(item => `• ${item}`).join('\n'))
+  })
+}
+
+function renderSourceSection(citations = [], hiddenSourceCount = 0) {
+  const items = Array.isArray(citations) ? citations.filter(Boolean) : []
+  if (items.length === 0 && hiddenSourceCount <= 0) {
+    return ''
+  }
+
+  const content = `
+    <div class="source-list">
+      ${items.map((item, index) => `
+        <div class="source-item">
+          <div class="source-index">${index + 1}</div>
+          <div class="source-main">
+            <div class="source-host">${escapeHtml(getHostLabel(item))}</div>
+            <div class="source-url">${escapeHtml(item)}</div>
+          </div>
+        </div>
+      `).join('')}
+      ${hiddenSourceCount > 0
+        ? `<div class="source-more">已隐藏 ${hiddenSourceCount} 个参考来源，可在锅巴调整搜索来源显示上限。</div>`
+        : ''}
+    </div>
+  `
+
+  return renderSection({
+    title: '参考来源',
+    className: 'source-section',
+    stamp: 'SRC',
+    content
+  })
+}
+
+function renderSupplementSections(extraSections = []) {
+  const items = Array.isArray(extraSections) ? extraSections.filter(item => item?.title || item?.content) : []
+  if (items.length === 0) {
+    return ''
+  }
+
+  return renderSection({
+    title: '补充观察',
+    className: 'source-section',
+    stamp: 'MORE',
+    content: `
+      <div class="supplement-list">
+        ${items.map(item => `
+          <div class="supplement-card">
+            <div class="supplement-card-title">${escapeHtml(item.title || '补充信息')}</div>
+            ${renderRichTextHtml(item.content || '')}
+          </div>
+        `).join('')}
+      </div>
+    `
+  })
+}
+
+function renderTopicSection(topics = [], topicSummary = '', isMemberMode = false) {
+  const items = (Array.isArray(topics) ? topics : [])
+    .filter(item => item?.topic || item?.detail)
+    .slice(0, 5)
+  if (items.length === 0) {
+    return topicSummary
+      ? renderSection({
+        title: isMemberMode ? '成员话题总结' : '话题总结',
+        className: 'paper-section',
+        stamp: 'TOPIC',
+        content: renderRichTextHtml(topicSummary)
+      })
+      : ''
+  }
+
+  const summaryHtml = topicSummary ? `
+    <div class="topic-summary">
+      ${renderRichTextHtml(topicSummary)}
+    </div>
+  ` : ''
+
+  return renderSection({
+    title: isMemberMode ? '成员今日话题' : '今日话题',
+    className: 'paper-section',
+    stamp: 'TOPIC',
+    content: `
+      <div class="topic-list">
+        ${items.map((item, index) => `
+          <div class="topic-card">
+            <div class="topic-index">${index + 1}</div>
+            <div class="topic-main">
+              <div class="topic-name">${escapeHtml(item.topic || `话题 ${index + 1}`)}</div>
+              ${(item.contributors || []).length > 0
+                ? `<div class="topic-contributors">${item.contributors.slice(0, 5).map(name => `<span class="topic-contributor">${escapeHtml(name)}</span>`).join('')}</div>`
+                : ''}
+              <div class="topic-detail">${escapeHtml(item.detail || '')}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      ${summaryHtml}
+    `
+  })
+}
+
+function renderHighlightSection(highlights = [], isMemberMode = false) {
+  const items = Array.isArray(highlights) ? highlights : []
+  if (items.length === 0) {
+    return ''
+  }
+
+  return renderSection({
+    title: isMemberMode ? '成员消息精选' : '群消息精选',
+    className: 'quote-section',
+    stamp: 'BEST',
+    content: items.map(item => `
+      <div class="quote-card">
+        <div class="quote-body">
+          ${item.avatar ? `<img class="quote-avatar" src="${escapeHtml(item.avatar)}" alt="">` : ''}
+          <div class="quote-main">
+            <div class="quote-meta">
+              <span class="quote-author">${escapeHtml(item.sender || '匿名')}</span>
+              <span>${escapeHtml(item.time || '')}</span>
+            </div>
+            <div class="quote-content">${renderRichTextHtml(item.content || '')}</div>
+            ${item.roast ? `
+              <div class="quote-note">
+                <div class="quote-note-label">胡桃锐评</div>
+                ${renderRichTextHtml(item.roast)}
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('')
+  })
+}
+
+function renderQualityReviewSection(qualityReview = null, isMemberMode = false) {
+  const review = qualityReview && typeof qualityReview === 'object' ? qualityReview : null
+  if (!review) {
+    return ''
+  }
+
+  const dimensions = (Array.isArray(review.dimensions) ? review.dimensions : [])
+    .map(item => ({
+      name: String(item?.name || '').trim(),
+      percentage: Math.max(0, Math.min(Number(item?.percentage) || 0, 100)),
+      comment: String(item?.comment || '').trim()
+    }))
+    .filter(item => item.name || item.comment)
+    .slice(0, 6)
+  const hasContent = review.title || review.subtitle || review.summary || dimensions.length > 0
+  if (!hasContent) {
+    return ''
+  }
+
+  const colors = ['#ff8a5b', '#6ca9dc', '#4db6ac', '#d980a6', '#d4a574', '#8f90d8']
+  const total = dimensions.reduce((sum, item) => sum + item.percentage, 0)
+  const barItems = dimensions.map((item, index) => {
+    const width = total > 0 ? Math.max(7, Math.round((item.percentage / total) * 100)) : Math.max(12, Math.round(100 / Math.max(dimensions.length, 1)))
+    return { ...item, width, color: colors[index % colors.length] }
+  })
+
+  return renderSection({
+    title: isMemberMode ? '互动质量锐评' : '群聊质量锐评',
+    className: 'source-section quality-section',
+    stamp: 'RATE',
+    content: `
+      <div class="quality-shell">
+        <div class="quality-head">
+          <div class="quality-title">${escapeHtml(review.title || (isMemberMode ? '成员互动观察' : '今日群聊主题'))}</div>
+          ${review.subtitle ? `<div class="quality-subtitle">${escapeHtml(review.subtitle)}</div>` : ''}
+        </div>
+        ${barItems.length > 0
+          ? `
+            <div class="quality-bar">
+              ${barItems.map(item => `
+                <div class="quality-segment" style="width:${item.width}%; background:${item.color};">${escapeHtml(item.name)}</div>
+              `).join('')}
+            </div>
+          `
+          : ''}
+        ${dimensions.length > 0
+          ? `
+            <div class="quality-dimension-grid">
+              ${dimensions.map((item, index) => `
+                <div class="quality-dimension-card" style="border-color:${colors[index % colors.length]};">
+                  <div class="quality-dimension-head">
+                    <div class="quality-dimension-name">${escapeHtml(item.name || '观察项')}</div>
+                    ${item.percentage > 0 ? `<div class="quality-percent">${escapeHtml(`${item.percentage}%`)}</div>` : ''}
+                  </div>
+                  <div class="quality-dimension-comment">${escapeHtml(item.comment || '')}</div>
+                </div>
+              `).join('')}
+            </div>
+          `
+          : ''}
+        ${review.summary ? `<div class="quality-summary">${escapeHtml(review.summary)}</div>` : ''}
+      </div>
+    `
+  })
+}
+
+function renderUserPortraits(portraits = [], isMemberMode = false) {
   const items = (Array.isArray(portraits) ? portraits : []).filter(item => item?.nickname || item?.userId)
   if (items.length === 0) {
     return ''
   }
 
-  return `
-    <div class="section source-section">
-      <div class="section-title">精选用户画像</div>
+  return renderSection({
+    title: isMemberMode ? '群友画像' : '精选用户画像',
+    className: 'source-section',
+    stamp: 'USER',
+    content: `
       <div class="portrait-grid">
         ${items.map(item => `
           <div class="portrait-card">
             ${item.avatar ? `<img class="portrait-avatar" src="${escapeHtml(item.avatar)}" alt="">` : ''}
             <div class="portrait-main">
               <div class="portrait-name">${escapeHtml(item.nickname || item.userId || '未知成员')}</div>
-              <div class="portrait-meta">${escapeHtml(`${item.messageCount || 0} 条消息${item.latestTime ? ` · 最近 ${item.latestTime}` : ''}`)}</div>
+              ${item.title ? `<div class="portrait-title">${escapeHtml(item.title)}</div>` : ''}
+              <div class="portrait-meta">${escapeHtml([
+                Number(item.messageCount) > 0 ? `${item.messageCount} 条消息` : '',
+                item.mbti ? `MBTI ${item.mbti}` : '',
+                item.latestTime ? `最近 ${item.latestTime}` : ''
+              ].filter(Boolean).join(' · '))}</div>
               <div class="portrait-summary">${escapeHtml(item.summary || '')}</div>
               ${(item.tags || []).length > 0
                 ? `<div class="portrait-tags">${item.tags.map(tag => `<span class="portrait-tag">${escapeHtml(tag)}</span>`).join('')}</div>`
@@ -1280,121 +1812,49 @@ function renderUserPortraits(portraits = []) {
           </div>
         `).join('')}
       </div>
-    </div>
-  `
+    `
+  })
 }
 
 export function generateHutaoHTML(title, content, stats = null, notices = [], options = {}) {
-  const actualNotices = Array.isArray(notices) ? notices.filter(Boolean) : []
   const billingText = String(options?.billingText || '').trim()
   const theme = normalizeTheme(options?.theme)
-  const bodyClass = theme === 'night' ? 'theme-night' : 'theme-light'
-  const sections = parseBracketSections(content)
   const previewText = getPreviewText(content)
-  const contentHtml = content
-    ? `
-      <div class="section paper-section">
-        <div class="section-title">核心内容</div>
-        ${sections.length > 0
-          ? `
-            <div class="card-stack">
-              ${sections.map(item => `
-                <div class="info-card">
-                  <div class="info-card-title">${escapeHtml(item.title)}</div>
-                  ${renderRichTextHtml(item.content)}
-                </div>
-              `).join('')}
-            </div>
-          `
-          : renderRichTextHtml(content)}
-      </div>
-    `
-    : ''
-  const noticeHtml = actualNotices.length > 0
-    ? `
-      <div class="section source-section">
-        <div class="section-title">处理提示</div>
-        ${renderRichTextHtml(actualNotices.map(item => `• ${item}`).join('\n'))}
-      </div>
-    `
-    : ''
-  const billingHtml = renderBillingSection(billingText)
+  const body = [
+    renderSnapshotNote(previewText, '摘要快照'),
+    renderStructuredContentSection(content, '核心内容', 'NOTE'),
+    renderNoticeSection(notices),
+    renderBillingSection(billingText)
+  ].join('')
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS(theme)}</style></head>
-    <body class="${bodyClass}"><div class="journal journal-summary">
-      ${renderJournalHeader(title, '🔥')}
-      <div class="journal-body">
-        ${renderSnapshotNote(previewText, '摘要快照')}
-        ${contentHtml}
-        ${noticeHtml}
-        ${billingHtml}
-      </div>
-      <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
-    </div></body></html>`
+  return renderJournalShell({
+    title,
+    eyebrow: '内容总结 · 摘要手帐',
+    variant: 'summary',
+    theme,
+    body
+  })
 }
 
 export function generateSearchHTML(keyword, content, citations = [], options = {}) {
   const billingText = String(options?.billingText || '').trim()
   const hiddenSourceCount = Math.max(0, Number(options?.hiddenSourceCount) || 0)
   const theme = normalizeTheme(options?.theme)
-  const bodyClass = theme === 'night' ? 'theme-night' : 'theme-light'
-  const sections = parseBracketSections(content)
   const previewText = getPreviewText(content)
+  const body = [
+    renderSnapshotNote(previewText, '检索快照'),
+    renderStructuredContentSection(content, '整理结果', 'INFO'),
+    renderSourceSection(citations, hiddenSourceCount),
+    renderBillingSection(billingText)
+  ].join('')
 
-  const contentHtml = content
-    ? `
-      <div class="section paper-section">
-        <div class="section-title">核心内容</div>
-        ${sections.length > 0
-          ? `
-            <div class="card-stack">
-              ${sections.map(item => `
-                <div class="info-card">
-                  <div class="info-card-title">${escapeHtml(item.title)}</div>
-                  ${renderRichTextHtml(item.content)}
-                </div>
-              `).join('')}
-            </div>
-          `
-          : renderRichTextHtml(content)}
-      </div>
-    `
-    : ''
-
-  const citationsHtml = citations.length > 0
-    ? `
-      <div class="section source-section">
-        <div class="section-title">参考来源</div>
-        <div class="source-list">
-          ${citations.map((item, index) => `
-            <div class="source-item">
-              <div class="source-index">${index + 1}</div>
-              <div class="source-main">
-                <div class="source-host">${escapeHtml(getHostLabel(item))}</div>
-                <div class="source-url">${escapeHtml(item)}</div>
-              </div>
-            </div>
-          `).join('')}
-          ${hiddenSourceCount > 0
-            ? `<div class="source-more">已隐藏 ${hiddenSourceCount} 个参考来源，可在锅巴调整搜索来源显示上限。</div>`
-            : ''}
-        </div>
-      </div>
-    `
-    : ''
-  const billingHtml = renderBillingSection(billingText)
-
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS(theme)}</style></head>
-    <body class="${bodyClass}"><div class="journal journal-search">
-      ${renderJournalHeader(keyword, '🔍')}
-      <div class="journal-body">
-        ${renderSnapshotNote(previewText, '摘要快照')}
-        ${contentHtml}
-        ${citationsHtml}
-        ${billingHtml}
-      </div>
-      <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
-    </div></body></html>`
+  return renderJournalShell({
+    title: keyword,
+    eyebrow: '百科搜索 · 来源整理',
+    variant: 'search',
+    theme,
+    body
+  })
 }
 
 export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
@@ -1410,8 +1870,13 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
     theme = 'light'
   } = data
   const normalizedTheme = normalizeTheme(theme)
-  const bodyClass = normalizedTheme === 'night' ? 'theme-night' : 'theme-light'
-  const { topicSummary = '', highlights = [], extraSections = [] } = parsedContent || {}
+  const {
+    topicSummary = '',
+    topics = [],
+    highlights = [],
+    qualityReview = null,
+    extraSections = []
+  } = parsedContent || {}
   const displayTitle = isMemberMode ? '群友画像' : title
   const rankItems = Array.isArray(memberStats) && memberStats.length > 0
     ? memberStats.map(item => [item.nickname || item.userId || '未知成员', item.count || 0])
@@ -1451,75 +1916,40 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
       </div>
     `
 
-  const topicHtml = topicSummary
-    ? `
-      <div class="section paper-section">
-        <div class="stamp">📝</div>
-        <div class="section-title">话题总结</div>
-        ${renderRichTextHtml(topicSummary)}
-      </div>
-    `
-    : ''
-
-  const highlightsHtml = highlights.length > 0
-    ? `
-      <div class="section quote-section">
-        <div class="section-title">${isMemberMode ? '成员消息精选' : '群消息精选'}</div>
-        ${highlights.map(item => `
-          <div class="quote-card">
-            <div class="quote-body">
-              ${item.avatar ? `<img class="quote-avatar" src="${escapeHtml(item.avatar)}" alt="">` : ''}
-              <div class="quote-main">
-                <div class="quote-meta">
-                  <span class="quote-author">${escapeHtml(item.sender || '匿名')}</span>
-                  <span>${escapeHtml(item.time || '')}</span>
-                </div>
-                <div class="quote-content">${renderRichTextHtml(item.content || '')}</div>
-                ${item.roast ? `
-                  <div class="quote-note">
-                    <div class="quote-note-label">胡桃锐评</div>
-                    ${renderRichTextHtml(item.roast)}
-                  </div>
-                ` : ''}
-              </div>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `
-    : ''
-
-  const extraSectionsHtml = extraSections.length > 0
-    ? `
-      <div class="section source-section">
-        <div class="section-title">补充观察</div>
-        <div class="supplement-list">
-          ${extraSections.map(item => `
-            <div class="supplement-card">
-              <div class="supplement-card-title">${escapeHtml(item.title || '补充信息')}</div>
-              ${renderRichTextHtml(item.content || '')}
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `
-    : ''
-  const userPortraitsHtml = renderUserPortraits(userPortraits)
+  const topicHtml = renderTopicSection(topics, topicSummary, isMemberMode)
+  const qualityHtml = renderQualityReviewSection(qualityReview, isMemberMode)
+  const highlightsHtml = renderHighlightSection(highlights, isMemberMode)
+  const extraSectionsHtml = renderSupplementSections(extraSections)
+  const userPortraitsHtml = renderUserPortraits(userPortraits, isMemberMode)
   const billingHtml = renderBillingSection(billingText)
+  const body = isMemberMode
+    ? [
+        statsHtml,
+        topicHtml,
+        userPortraitsHtml,
+        qualityHtml,
+        highlightsHtml,
+        activityChartHtml,
+        extraSectionsHtml,
+        billingHtml
+      ].join('')
+    : [
+        statsHtml,
+        rankChartHtml,
+        activityChartHtml,
+        topicHtml,
+        qualityHtml,
+        highlightsHtml,
+        userPortraitsHtml,
+        extraSectionsHtml,
+        billingHtml
+      ].join('')
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${getJournalCSS(normalizedTheme)}</style></head>
-    <body class="${bodyClass}"><div class="journal journal-group">
-      ${renderJournalHeader(displayTitle, '')}
-      <div class="journal-body">
-        ${statsHtml}
-        ${rankChartHtml}
-        ${activityChartHtml}
-        ${topicHtml}
-        ${highlightsHtml}
-        ${userPortraitsHtml}
-        ${extraSectionsHtml}
-        ${billingHtml}
-      </div>
-      <div class="journal-footer"><span>${escapeHtml(getFooterText())}</span></div>
-    </div></body></html>`
+  return renderJournalShell({
+    title: displayTitle,
+    eyebrow: isMemberMode ? '成员发言日报 · 群友画像' : '群聊日报 · 今日切片',
+    variant: 'group',
+    theme: normalizedTheme,
+    body
+  })
 }

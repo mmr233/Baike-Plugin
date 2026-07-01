@@ -13,6 +13,7 @@ import { generateGroupSummaryHTML, generateHutaoHTML, generateSearchHTML } from 
 
 const SEND_MODE_PRIORITY = ['html', 'forward', 'text']
 const DEFAULT_GROUP_SUMMARY_INFLIGHT_WAIT_MS = 120000
+const ENHANCED_SUMMARY_SYSTEM_PROMPT = '你是一个群聊结构化分析助手。请严格按用户要求输出合法 JSON，不要输出 markdown 代码块、解释文字或额外闲聊。'
 
 function normalizeHour(value, fallback = 0) {
   const number = Number(value)
@@ -47,6 +48,68 @@ function getSendErrorText(error = {}) {
 function getBriefSendError(error = {}) {
   const text = getSendErrorText(error) || String(error || '')
   return text.split('\n').find(Boolean) || '未知错误'
+}
+
+function stripJsonFence(text = '') {
+  return String(text || '')
+    .replace(/^\s*```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim()
+}
+
+function parseJsonLoose(text = '') {
+  const content = stripJsonFence(text)
+  if (!content) {
+    return null
+  }
+
+  const candidates = [content]
+  const fenced = String(text || '').match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fenced?.[1]) {
+    candidates.unshift(fenced[1].trim())
+  }
+
+  const arrayStart = content.indexOf('[')
+  const arrayEnd = content.lastIndexOf(']')
+  if (arrayStart >= 0 && arrayEnd > arrayStart) {
+    candidates.push(content.slice(arrayStart, arrayEnd + 1))
+  }
+
+  const objectStart = content.indexOf('{')
+  const objectEnd = content.lastIndexOf('}')
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    candidates.push(content.slice(objectStart, objectEnd + 1))
+  }
+
+  for (const candidate of [...new Set(candidates.filter(Boolean))]) {
+    try {
+      return JSON.parse(candidate)
+    } catch {}
+  }
+
+  return null
+}
+
+function splitEnhancedList(value = '') {
+  return String(value || '')
+    .split(/[、,，/|；;]\s*|\s{2,}/)
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+function clampIntegerValue(value, min, max, fallback) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return fallback
+  }
+  return Math.min(max, Math.max(min, Math.floor(numeric)))
+}
+
+function fillPromptTemplate(template = '', values = {}) {
+  return String(template || '').replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => {
+    const value = values[key]
+    return value === undefined || value === null ? match : String(value)
+  })
 }
 
 function isAmbiguousSendTimeoutError(error = {}) {
@@ -1207,6 +1270,336 @@ class BaikeService {
     ].join('\n').replace(/\n{3,}/g, '\n\n')
   }
 
+  getEnhancedSummaryConfig(formattedMessages = []) {
+    const config = Config.get('chatSummary.enhancedMode', {}) || {}
+    const mode = String(config.mode || 'economy').trim().toLowerCase()
+    const autoThreshold = clampIntegerValue(config.autoMessageThreshold, 1, 3000, 220)
+    const enabled = mode === 'enhanced'
+      || mode === 'on'
+      || mode === 'true'
+      || (mode === 'auto' && formattedMessages.length <= autoThreshold)
+
+    return {
+      enabled,
+      mode,
+      autoMessageThreshold: autoThreshold,
+      maxConcurrent: clampIntegerValue(config.maxConcurrent, 1, 4, 2),
+      schemaRepairRetries: clampIntegerValue(config.schemaRepairRetries, 0, 2, 1),
+      topics: config.topics !== false,
+      highlights: config.highlights !== false,
+      userPortraits: config.userPortraits !== false,
+      qualityReview: config.qualityReview !== false,
+      maxTopics: clampIntegerValue(config.maxTopics, 1, 8, 4),
+      maxHighlights: clampIntegerValue(config.maxHighlights, 1, 8, 5)
+    }
+  }
+
+  getCompactGroupMessageTexts(formattedMessages = []) {
+    return (formattedMessages || [])
+      .map(item => {
+        const time = item.timestamp
+          ? new Date(item.timestamp * 1000).toLocaleTimeString('zh-CN', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            })
+          : String(item.time || '').slice(0, 16)
+        const userId = String(item.user_id || '').trim()
+        const nickname = String(item.nickname || userId || '未知成员').trim()
+        const text = String(item.text || '').replace(/\s+/g, ' ').trim()
+        return text ? `[${time}] [${userId}] ${nickname}: ${text}` : ''
+      })
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  buildEnhancedUserStatsText(formattedMessages = [], sortedMembers = []) {
+    const entries = this.buildMessageUserEntries(formattedMessages)
+    const byName = new Map(entries.map(item => [item.nickname, item]))
+    const ordered = []
+    for (const [name] of sortedMembers || []) {
+      const entry = byName.get(name)
+      if (entry) {
+        ordered.push(entry)
+      }
+    }
+    for (const entry of entries) {
+      if (!ordered.includes(entry)) {
+        ordered.push(entry)
+      }
+    }
+
+    return ordered.slice(0, 12).map(entry => {
+      const messages = entry.messages || []
+      const messageCount = messages.length
+      const charCount = messages.reduce((sum, item) => sum + String(item.text || '').length, 0)
+      const mediaCount = messages.filter(item => /\[(图片|视频|语音|文档|文件|表情)\]/.test(String(item.text || ''))).length
+      const nightCount = messages.filter(item => {
+        const hour = item.timestamp ? new Date(item.timestamp * 1000).getHours() : -1
+        return hour >= 0 && hour < 6
+      }).length
+      const samples = messages
+        .map(item => String(item.text || '').trim())
+        .filter(Boolean)
+        .slice(-2)
+        .map(item => item.slice(0, 40))
+        .join(' / ')
+      return `- ${entry.nickname} (ID:${entry.userId || '未知'}): 发言${messageCount}条, 平均${messageCount ? Math.round(charCount / messageCount) : 0}字, 媒体${mediaCount}条, 夜间${nightCount}条${samples ? `, 近例：${samples}` : ''}`
+    }).join('\n')
+  }
+
+  buildEnhancedPrompt(templateKey, values = {}) {
+    const template = Config.get(`prompt.${templateKey}`, '')
+    if (!template) {
+      return ''
+    }
+    return fillPromptTemplate(template, values)
+  }
+
+  normalizeEnhancedTopics(value = [], maxCount = 4) {
+    const list = Array.isArray(value) ? value : []
+    return list.map(item => ({
+      topic: String(item?.topic || item?.name || item?.title || '').trim(),
+      contributors: Array.isArray(item?.contributors)
+        ? item.contributors.map(value => String(value || '').trim()).filter(Boolean)
+        : splitEnhancedList(item?.contributors || item?.participants || ''),
+      detail: String(item?.detail || item?.summary || item?.description || '').trim()
+    })).filter(item => item.topic || item.detail).slice(0, maxCount)
+  }
+
+  normalizeEnhancedHighlights(value = [], maxCount = 5) {
+    const list = Array.isArray(value) ? value : []
+    return list.map(item => ({
+      time: String(item?.time || item?.timestamp || '').trim(),
+      sender: String(item?.sender || item?.name || item?.nickname || '').trim(),
+      content: String(item?.content || item?.message || item?.text || '').trim(),
+      roast: String(item?.roast || item?.reason || item?.comment || '').trim()
+    })).filter(item => item.content).slice(0, maxCount)
+  }
+
+  normalizeEnhancedUserPortraits(value = [], maxCount = 4) {
+    const list = Array.isArray(value) ? value : []
+    return list.map(item => {
+      const keywords = Array.isArray(item?.keywords)
+        ? item.keywords
+        : splitEnhancedList(item?.keywords || item?.tags || '')
+      const title = String(item?.title || item?.badge || '').trim()
+      const mbti = String(item?.mbti || item?.MBTI || '').trim()
+      const tags = [
+        title,
+        mbti,
+        ...keywords
+      ].map(value => String(value || '').replace(/^#+/, '').trim()).filter(Boolean)
+
+      return {
+        userId: String(item?.user_id || item?.userId || '').trim(),
+        nickname: String(item?.name || item?.nickname || item?.user || '').trim(),
+        title,
+        mbti,
+        tags: [...new Set(tags)].map(tag => `#${tag}`),
+        summary: String(item?.summary || item?.reason || item?.portrait || '').trim()
+      }
+    }).filter(item => item.nickname || item.userId || item.summary).slice(0, maxCount)
+  }
+
+  normalizeEnhancedQualityReview(value = null) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null
+    }
+    const dimensions = Array.isArray(value.dimensions)
+      ? value.dimensions.map(item => ({
+          name: String(item?.name || item?.title || '').trim(),
+          percentage: Math.max(0, Math.min(Number.parseFloat(item?.percentage) || 0, 100)),
+          comment: String(item?.comment || item?.summary || '').trim()
+        })).filter(item => item.name).slice(0, 5)
+      : []
+    const review = {
+      title: String(value.title || '').trim(),
+      subtitle: String(value.subtitle || '').trim(),
+      dimensions,
+      summary: String(value.summary || '').trim()
+    }
+    return review.title || review.subtitle || review.dimensions.length > 0 || review.summary
+      ? review
+      : null
+  }
+
+  async callEnhancedJsonModule(label, prompt, options = {}) {
+    const repairRetries = Math.max(0, Number(options.repairRetries) || 0)
+    let lastText = ''
+    let lastError = null
+
+    for (let attempt = 0; attempt <= repairRetries; attempt += 1) {
+      const actualPrompt = attempt === 0
+        ? prompt
+        : [
+            prompt,
+            '',
+            '上一次输出不是合法 JSON，或不符合要求。',
+            `解析错误：${lastError?.message || 'unknown_parse_error'}`,
+            '请只返回合法 JSON，不要输出 markdown、解释文字或额外内容。',
+            '上一次输出：',
+            lastText
+          ].join('\n')
+
+      try {
+        lastText = await this.apiService.callSummaryTextAPI(
+          actualPrompt,
+          ENHANCED_SUMMARY_SYSTEM_PROMPT,
+          {
+            temperature: attempt === 0 ? 0.2 : 0,
+            beautify: false
+          }
+        )
+        const parsed = parseJsonLoose(lastText)
+        if (parsed !== null) {
+          return parsed
+        }
+        lastError = new Error('模型输出不是合法 JSON')
+      } catch (error) {
+        lastError = error
+      }
+    }
+
+    throw lastError || new Error(`${label}分析失败`)
+  }
+
+  async runEnhancedGroupSummaryModules(context = {}) {
+    const {
+      formattedMessages = [],
+      sortedMembers = [],
+      statsText = '',
+      extraContext = '',
+      botProfile = {},
+      isMemberMode = false,
+      maxPortraits = 4
+    } = context
+    const config = this.getEnhancedSummaryConfig(formattedMessages)
+    if (!config.enabled) {
+      return null
+    }
+
+    const messageTexts = this.getCompactGroupMessageTexts(formattedMessages)
+    const commonValues = {
+      statsText,
+      extraContext: extraContext || '无',
+      botProfile: botProfile?.promptText || '无',
+      messageTexts,
+      maxTopics: isMemberMode ? Math.min(config.maxTopics, 3) : config.maxTopics,
+      maxHighlights: config.maxHighlights,
+      maxPortraits,
+      userStatsText: this.buildEnhancedUserStatsText(formattedMessages, sortedMembers)
+    }
+    const tasks = []
+    const pushTask = (key, label, promptKey, normalize) => {
+      const prompt = this.buildEnhancedPrompt(promptKey, commonValues)
+      if (!prompt) {
+        return
+      }
+      tasks.push({
+        key,
+        label,
+        run: async () => normalize(await this.callEnhancedJsonModule(label, prompt, {
+          repairRetries: config.schemaRepairRetries
+        }))
+      })
+    }
+
+    if (config.topics) {
+      pushTask('topics', '今日话题', 'groupTopics', value => this.normalizeEnhancedTopics(value, commonValues.maxTopics))
+    }
+    if (config.highlights) {
+      pushTask('highlights', '消息精选', 'groupHighlights', value => this.normalizeEnhancedHighlights(value, config.maxHighlights))
+    }
+    if (config.userPortraits && maxPortraits > 0) {
+      pushTask('userPortraits', '用户画像', 'groupUserPortraits', value => this.normalizeEnhancedUserPortraits(value, maxPortraits))
+    }
+    if (config.qualityReview) {
+      pushTask('qualityReview', '群聊质量锐评', 'groupQualityReview', value => this.normalizeEnhancedQualityReview(value))
+    }
+
+    if (tasks.length === 0) {
+      return null
+    }
+
+    debugLog('summary.enhanced', '开始增强总结模块分析', {
+      mode: config.mode,
+      messageCount: formattedMessages.length,
+      taskCount: tasks.length,
+      maxConcurrent: config.maxConcurrent
+    })
+
+    const settled = await this.mapWithConcurrency(tasks, config.maxConcurrent, async task => {
+      try {
+        return {
+          key: task.key,
+          value: await task.run()
+        }
+      } catch (error) {
+        logger.warn(`[${pluginName}] 增强总结${task.label}模块失败，已跳过：${this.apiService.formatErrorWithCause?.(error) || error.message}`)
+        return {
+          key: task.key,
+          error: error.message
+        }
+      }
+    })
+
+    const enhanced = {
+      topics: [],
+      highlights: [],
+      userPortraits: [],
+      qualityReview: null
+    }
+    const errors = []
+    for (const item of settled) {
+      if (!item || item.error) {
+        if (item?.error) {
+          errors.push(item.error)
+        }
+        continue
+      }
+      if (item.key === 'topics' && Array.isArray(item.value)) {
+        enhanced.topics = item.value
+      } else if (item.key === 'highlights' && Array.isArray(item.value)) {
+        enhanced.highlights = item.value
+      } else if (item.key === 'userPortraits' && Array.isArray(item.value)) {
+        enhanced.userPortraits = item.value
+      } else if (item.key === 'qualityReview' && item.value) {
+        enhanced.qualityReview = item.value
+      }
+    }
+    enhanced.errors = errors
+
+    const hasAny = enhanced.topics.length > 0
+      || enhanced.highlights.length > 0
+      || enhanced.userPortraits.length > 0
+      || Boolean(enhanced.qualityReview)
+
+    debugLog('summary.enhanced', '增强总结模块分析完成', {
+      topics: enhanced.topics.length,
+      highlights: enhanced.highlights.length,
+      userPortraits: enhanced.userPortraits.length,
+      qualityReview: Boolean(enhanced.qualityReview),
+      errors: errors.length
+    })
+
+    return hasAny ? enhanced : null
+  }
+
+  mergeEnhancedSummaryParsed(parsed = {}, enhanced = null) {
+    if (!enhanced) {
+      return parsed
+    }
+
+    return {
+      ...parsed,
+      topics: enhanced.topics?.length ? enhanced.topics : (parsed.topics || []),
+      highlights: enhanced.highlights?.length ? enhanced.highlights : (parsed.highlights || []),
+      userPortraits: enhanced.userPortraits?.length ? enhanced.userPortraits : (parsed.userPortraits || []),
+      qualityReview: enhanced.qualityReview || parsed.qualityReview || null
+    }
+  }
+
   scoreHighlightMatch(highlight = {}, message = {}) {
     const highlightSender = String(highlight.sender || '').trim()
     const messageSender = String(message.nickname || message.user_id || '').trim()
@@ -1251,6 +1644,114 @@ class BaikeService {
     return bestScore > 0 ? best : null
   }
 
+  buildMessageUserEntries(formattedMessages = []) {
+    const messageByUser = new Map()
+    for (const message of formattedMessages || []) {
+      const userId = String(message.user_id || '').trim()
+      const nickname = String(message.nickname || userId || '未知成员').trim()
+      const key = userId || nickname
+      if (!key) {
+        continue
+      }
+      if (!messageByUser.has(key)) {
+        messageByUser.set(key, {
+          userId,
+          nickname,
+          messages: []
+        })
+      }
+      messageByUser.get(key).messages.push(message)
+    }
+
+    return [...messageByUser.values()]
+  }
+
+  scorePortraitMatch(portrait = {}, entry = {}) {
+    const portraitUserId = String(portrait.userId || '').trim()
+    const portraitName = String(portrait.nickname || portrait.name || '').trim()
+    const entryUserId = String(entry.userId || '').trim()
+    const entryName = String(entry.nickname || '').trim()
+    let score = 0
+
+    if (portraitUserId && entryUserId && portraitUserId === entryUserId) {
+      score += 12
+    }
+    if (portraitName && entryName) {
+      if (portraitName === entryName) {
+        score += 8
+      } else if (portraitName.includes(entryName) || entryName.includes(portraitName)) {
+        score += 5
+      } else {
+        const normalizedPortrait = this.normalizeMatchText(portraitName)
+        const normalizedEntry = this.normalizeMatchText(entryName)
+        if (normalizedPortrait && normalizedEntry && (normalizedPortrait.includes(normalizedEntry) || normalizedEntry.includes(normalizedPortrait))) {
+          score += 3
+        }
+      }
+    }
+
+    return score
+  }
+
+  findBestPortraitUser(portrait = {}, formattedMessages = []) {
+    let best = null
+    let bestScore = 0
+    for (const entry of this.buildMessageUserEntries(formattedMessages)) {
+      const score = this.scorePortraitMatch(portrait, entry)
+      if (score > bestScore) {
+        best = entry
+        bestScore = score
+      }
+    }
+
+    return bestScore > 0 ? best : null
+  }
+
+  enrichUserPortraits(portraits = [], formattedMessages = []) {
+    const usedUsers = new Set()
+    return (Array.isArray(portraits) ? portraits : [])
+      .map(item => {
+        const matched = this.findBestPortraitUser(item, formattedMessages)
+        const userId = String(matched?.userId || item.userId || '').trim()
+        const uniqueKey = userId || String(item.nickname || '').trim()
+        if (uniqueKey && usedUsers.has(uniqueKey)) {
+          return null
+        }
+        if (uniqueKey) {
+          usedUsers.add(uniqueKey)
+        }
+
+        const messages = matched?.messages || []
+        const recent = messages[messages.length - 1]
+        const title = String(item.title || '').trim()
+        const mbti = String(item.mbti || '').trim()
+        const rawTags = Array.isArray(item.tags) ? item.tags : []
+        const normalizedTags = rawTags
+          .map(tag => String(tag || '').trim())
+          .filter(Boolean)
+          .map(tag => tag.startsWith('#') ? tag : `#${tag}`)
+        const titleTags = [title, mbti ? `MBTI ${mbti}` : '']
+          .map(tag => String(tag || '').trim())
+          .filter(Boolean)
+          .map(tag => tag.startsWith('#') ? tag : `#${tag}`)
+        const tags = [...new Set([...titleTags, ...normalizedTags])].slice(0, 8)
+
+        return {
+          ...item,
+          userId,
+          nickname: item.nickname || matched?.nickname || userId || '未知成员',
+          title,
+          mbti,
+          avatar: item.avatar || this.getAvatarUrl(userId),
+          messageCount: Number(item.messageCount) || messages.length || 0,
+          latestTime: item.latestTime || recent?.time || '',
+          tags,
+          summary: item.summary || ''
+        }
+      })
+      .filter(Boolean)
+  }
+
   enrichGroupSummaryParsed(parsed = {}, formattedMessages = []) {
     const highlights = Array.isArray(parsed.highlights) ? parsed.highlights : []
     return {
@@ -1266,7 +1767,8 @@ class BaikeService {
           userId,
           avatar: this.getAvatarUrl(userId)
         }
-      })
+      }),
+      userPortraits: this.enrichUserPortraits(parsed.userPortraits, formattedMessages)
     }
   }
 
@@ -1276,21 +1778,15 @@ class BaikeService {
       return []
     }
 
-    const messageByUser = new Map()
-    for (const message of formattedMessages || []) {
-      const userId = String(message.user_id || '').trim()
-      if (!userId) {
-        continue
-      }
-      if (!messageByUser.has(userId)) {
-        messageByUser.set(userId, {
-          userId,
-          nickname: message.nickname || userId,
-          messages: []
-        })
-      }
-      messageByUser.get(userId).messages.push(message)
+    const modelPortraits = (Array.isArray(parsed.userPortraits) ? parsed.userPortraits : [])
+      .filter(item => item?.nickname || item?.userId || item?.summary)
+      .slice(0, maxCount)
+    if (modelPortraits.length > 0) {
+      return modelPortraits
     }
+
+    const entries = this.buildMessageUserEntries(formattedMessages)
+    const messageByUser = new Map(entries.filter(item => item.userId).map(item => [item.userId, item]))
 
     const userOrder = []
     const addUser = userId => {
@@ -2465,7 +2961,18 @@ class BaikeService {
         })
       }
 
-      const parsed = parseSummaryContent(result)
+      const enhanced = !degraded
+        ? await this.runEnhancedGroupSummaryModules({
+            formattedMessages,
+            sortedMembers,
+            statsText,
+            extraContext,
+            botProfile,
+            isMemberMode,
+            maxPortraits: chatConfig.userPortraitMaxCount ?? 4
+          })
+        : null
+      const parsed = this.mergeEnhancedSummaryParsed(parseSummaryContent(result), enhanced)
       const parsedForHtml = this.enrichGroupSummaryParsed(parsed, formattedMessages)
       const userPortraits = this.buildSelectedUserPortraits(parsedForHtml, formattedMessages, sortedMembers, {
         maxCount: chatConfig.userPortraitMaxCount ?? 4

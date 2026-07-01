@@ -358,6 +358,110 @@ const summarySchemaRaw = [
     }
   },
   {
+    component: 'Divider',
+    label: '增强总结模块',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'chatSummary.enhancedMode.mode',
+    label: '增强总结模式',
+    bottomHelpMessage: '经济模式保持单次总结；增强模式会额外并发分析话题、精选、用户画像和质量锐评；自动模式仅在消息数不超过阈值时启用',
+    component: 'Select',
+    defaultValue: 'economy',
+    componentProps: {
+      options: [
+        { label: '经济模式', value: 'economy' },
+        { label: '自动模式', value: 'auto' },
+        { label: '增强模式', value: 'enhanced' }
+      ]
+    }
+  },
+  {
+    field: 'chatSummary.enhancedMode.autoMessageThreshold',
+    label: '自动增强消息阈值',
+    bottomHelpMessage: '增强总结模式为自动时，只有有效消息数不超过该值才会启用模块化分析',
+    component: 'InputNumber',
+    defaultValue: 220,
+    componentProps: {
+      min: 20,
+      max: 3000,
+      step: 20
+    }
+  },
+  {
+    field: 'chatSummary.enhancedMode.maxConcurrent',
+    label: '增强模块并发数',
+    bottomHelpMessage: '限制增强总结额外模型请求的并发数量，建议 1-2；过高会增加接口网关压力',
+    component: 'InputNumber',
+    defaultValue: 2,
+    componentProps: {
+      min: 1,
+      max: 4,
+      step: 1
+    }
+  },
+  {
+    field: 'chatSummary.enhancedMode.schemaRepairRetries',
+    label: 'JSON修复重试次数',
+    bottomHelpMessage: '增强模块输出不是合法 JSON 时，追加修复提示并用低温重试的次数',
+    component: 'InputNumber',
+    defaultValue: 1,
+    componentProps: {
+      min: 0,
+      max: 2,
+      step: 1
+    }
+  },
+  {
+    field: 'chatSummary.enhancedMode.topics',
+    label: '增强今日话题',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'chatSummary.enhancedMode.highlights',
+    label: '增强消息精选',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'chatSummary.enhancedMode.userPortraits',
+    label: '增强用户画像',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'chatSummary.enhancedMode.qualityReview',
+    label: '增强质量锐评',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'chatSummary.enhancedMode.maxTopics',
+    label: '增强话题数量',
+    component: 'InputNumber',
+    defaultValue: 4,
+    componentProps: {
+      min: 1,
+      max: 8,
+      step: 1
+    }
+  },
+  {
+    field: 'chatSummary.enhancedMode.maxHighlights',
+    label: '增强精选数量',
+    component: 'InputNumber',
+    defaultValue: 5,
+    componentProps: {
+      min: 1,
+      max: 8,
+      step: 1
+    }
+  },
+  {
     field: 'chatSummary.inflightDedup.enabled',
     label: '等待同类总结完成',
     bottomHelpMessage: '开启后，同群同范围的群聊总结正在生成时，后续触发会等待前一个结果并复用缓存，避免重复扣费和重复请求模型',
