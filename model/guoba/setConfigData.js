@@ -226,6 +226,10 @@ export async function setConfigData(data, { Result }) {
     nextConfig.api = { ...(nextConfig.api || {}) }
 
     for (const [key, value] of Object.entries(data || {})) {
+      if (key === 'prompt' || key.startsWith('prompt.')) {
+        continue
+      }
+
       if (key === 'scheduledSummary.groups') {
         setByPath(nextConfig, key, toPositiveNumberArray(value))
         continue

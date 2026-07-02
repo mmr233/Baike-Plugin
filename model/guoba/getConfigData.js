@@ -221,6 +221,7 @@ function getModelOptionsCacheForType(api = {}, modelType = '') {
 
 export async function getConfigData() {
   const config = Config.getAll()
+  const { prompt: _prompt, ...configForGuoba } = config
   const api = { ...(config.api || {}) }
   api.modelOptionsCache = normalizeModelOptionsCache(api.modelOptionsCache)
   api.presets = normalizeApiPresets(api.presets, api.modelOptionsCache)
@@ -279,7 +280,7 @@ export async function getConfigData() {
   }
 
   return {
-    ...config,
+    ...configForGuoba,
     api,
     _apiPrimaryConfig: [{
       primaryBaseUrl: String(api.primaryBaseUrl || '').trim(),
