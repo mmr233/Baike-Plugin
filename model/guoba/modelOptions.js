@@ -159,6 +159,107 @@ export function formatModelCacheSource(entry = {}) {
   return entry.endpointType || '模型列表'
 }
 
+function createOptionsForEntries(entries = []) {
+  const seen = new Set()
+  const modelOptions = []
+
+  for (const entry of entries) {
+    const sourceLabel = formatModelCacheSource(entry)
+    for (const model of entry.models || []) {
+      if (seen.has(model)) {
+        continue
+      }
+      seen.add(model)
+      modelOptions.push({
+        value: model,
+        label: sourceLabel ? `${model}（${sourceLabel}）` : model
+      })
+    }
+  }
+
+  return modelOptions
+}
+
+function addOptionsMapEntry(map = {}, key = '', options = []) {
+  const actualKey = normalizeText(key)
+  if (!actualKey || options.length === 0) {
+    return
+  }
+
+  const seen = new Set((map[actualKey] || []).map(item => item?.value).filter(Boolean))
+  const merged = [...(map[actualKey] || [])]
+  for (const option of options) {
+    if (!option?.value || seen.has(option.value)) {
+      continue
+    }
+    seen.add(option.value)
+    merged.push(option)
+  }
+  map[actualKey] = merged
+}
+
+function addEndpointVariants(map = {}, keyPrefix = '', endpointType = '', options = []) {
+  const prefix = normalizeText(keyPrefix)
+  const endpoint = normalizeEndpointType(endpointType, 'openai-chat')
+  if (!prefix) {
+    return
+  }
+
+  addOptionsMapEntry(map, `${prefix}::${endpoint}`, options)
+  addOptionsMapEntry(map, `${prefix}::inherit`, options)
+}
+
+function getDefaultKeyGroupIdByPreset(apiConfig = {}) {
+  const result = {}
+  for (const preset of normalizeApiPresets(apiConfig.presets)) {
+    const keyGroup = findApiKeyGroup(preset, '')
+    if (preset.id && keyGroup?.id) {
+      result[preset.id] = keyGroup.id
+    }
+  }
+  return result
+}
+
+export function buildModelOptionsMapFromCache(cacheEntries = [], options = {}) {
+  const entries = normalizeModelCacheEntries(cacheEntries)
+  const map = {}
+  const defaultKeyGroupIdByPreset = getDefaultKeyGroupIdByPreset(options.apiConfig || {})
+  const entriesByEndpoint = new Map()
+
+  for (const entry of entries) {
+    const entryOptions = createOptionsForEntries([entry])
+    const endpointType = entry.endpointType || 'openai-chat'
+    if (!entriesByEndpoint.has(endpointType)) {
+      entriesByEndpoint.set(endpointType, [])
+    }
+    entriesByEndpoint.get(endpointType).push(entry)
+
+    if (entry.baseUrl) {
+      addEndpointVariants(map, `base:${entry.baseUrl}`, endpointType, entryOptions)
+    }
+
+    if (entry.apiPresetId) {
+      const keyGroupId = entry.apiKeyGroupId || defaultKeyGroupIdByPreset[entry.apiPresetId] || ''
+      if (keyGroupId) {
+        addEndpointVariants(map, `${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
+        addEndpointVariants(map, `${entry.apiPresetId}::${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
+      }
+      if (!entry.apiKeyGroupId || entry.apiKeyGroupId === defaultKeyGroupIdByPreset[entry.apiPresetId]) {
+        addEndpointVariants(map, `${entry.apiPresetId}::`, endpointType, entryOptions)
+      }
+    }
+  }
+
+  const allOptions = createOptionsForEntries(entries)
+  addOptionsMapEntry(map, 'empty:|||', allOptions)
+  addOptionsMapEntry(map, 'empty:|||inherit', allOptions)
+  for (const [endpointType, endpointEntries] of entriesByEndpoint.entries()) {
+    addOptionsMapEntry(map, `empty:|||${endpointType}`, createOptionsForEntries(endpointEntries))
+  }
+
+  return map
+}
+
 function sourceHasIdentity(source = {}) {
   return Boolean(source.apiPresetId || source.apiKeyGroupId || source.baseUrl)
 }
@@ -197,22 +298,6 @@ export function buildModelOptionsFromCache(cacheEntries = [], options = {}) {
   const actualEntries = matchedEntries.length > 0
     ? matchedEntries
     : (fallbackToAll || !sourceHasIdentity(source) ? entries : [])
-  const seen = new Set()
-  const modelOptions = []
 
-  for (const entry of actualEntries) {
-    const sourceLabel = formatModelCacheSource(entry)
-    for (const model of entry.models) {
-      if (seen.has(model)) {
-        continue
-      }
-      seen.add(model)
-      modelOptions.push({
-        value: model,
-        label: sourceLabel ? `${model}（${sourceLabel}）` : model
-      })
-    }
-  }
-
-  return modelOptions
+  return createOptionsForEntries(actualEntries)
 }

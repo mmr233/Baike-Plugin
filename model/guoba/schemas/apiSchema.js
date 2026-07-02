@@ -111,15 +111,65 @@ function buildModelOptions(modelType = '') {
 }
 
 function createModelOptionsRuntimeSchema() {
+  return [
+    {
+      field: '__modelOptions',
+      label: '当前来源模型候选',
+      component: 'InputTextArea',
+      runtimeOnly: true,
+      save: false,
+      show: false,
+      componentProps: {
+        disabled: true
+      }
+    },
+    {
+      field: '__modelOptionsAll',
+      label: '全部模型候选',
+      component: 'InputTextArea',
+      runtimeOnly: true,
+      save: false,
+      show: false,
+      componentProps: {
+        disabled: true
+      }
+    },
+    {
+      field: '__modelOptionsMap',
+      label: '来源模型候选映射',
+      component: 'InputTextArea',
+      runtimeOnly: true,
+      save: false,
+      show: false,
+      componentProps: {
+        disabled: true
+      }
+    }
+  ]
+}
+
+function createModelOptionsBindings(modelOptions = []) {
   return {
-    field: '__modelOptions',
-    label: '当前来源模型候选',
-    component: 'InputTextArea',
-    runtimeOnly: true,
-    save: false,
-    show: false,
-    componentProps: {
-      disabled: true
+    options: {
+      firstOf: [
+        {
+          mapPath: '__modelOptionsMap',
+          keyTemplate: '${apiPresetId}::${apiKeyGroupId}::${endpointType}',
+          fallbackPath: '__modelOptions'
+        },
+        {
+          mapPath: '__modelOptionsMap',
+          keyTemplate: 'base:${baseUrl}::${endpointType}',
+          fallbackPath: '__modelOptions'
+        },
+        {
+          path: '__modelOptions'
+        },
+        {
+          path: '__modelOptionsAll'
+        }
+      ],
+      fallback: modelOptions
     }
   }
 }
@@ -186,18 +236,13 @@ function createModelConfigSchemas({
   const modelOptions = buildModelOptions(modelType)
 
   return [
-    createModelOptionsRuntimeSchema(),
+    ...createModelOptionsRuntimeSchema(),
     {
       field: 'model',
       label: modelLabel,
       bottomHelpMessage: '可手动输入模型名；也可先刷新模型列表，再从候选项中快速选择',
       component: 'AutoComplete',
-      componentPropsBindings: {
-        options: {
-          path: '__modelOptions',
-          fallback: modelOptions
-        }
-      },
+      componentPropsBindings: createModelOptionsBindings(modelOptions),
       componentProps: {
         placeholder: modelPlaceholder,
         options: modelOptions,
@@ -447,18 +492,13 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   const modelOptions = buildModelOptions(modelType)
 
   return [
-  createModelOptionsRuntimeSchema(),
+  ...createModelOptionsRuntimeSchema(),
   {
     field: 'model',
     label: '模型名',
     bottomHelpMessage: '降级时要切换到的模型名；可手动输入，也可使用已刷新缓存中的候选项',
     component: 'AutoComplete',
-    componentPropsBindings: {
-      options: {
-        path: '__modelOptions',
-        fallback: modelOptions
-      }
-    },
+    componentPropsBindings: createModelOptionsBindings(modelOptions),
     componentProps: {
       placeholder: '例如：grok-4.2',
       options: modelOptions,

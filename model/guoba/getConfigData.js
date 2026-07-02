@@ -1,5 +1,5 @@
 import Config from '../Config.js'
-import { buildModelOptionsFromCache } from './modelOptions.js'
+import { buildModelOptionsFromCache, buildModelOptionsMapFromCache } from './modelOptions.js'
 
 const MODEL_TYPES = ['search', 'image', 'summary', 'jsonRepair', 'video', 'audio']
 const MODEL_FORM_FIELD_MAP = {
@@ -160,6 +160,8 @@ export async function getConfigData() {
       fallbackModels
     }
     const modelOptionsCache = api.modelOptionsCache?.[modelType] || []
+    const modelOptionsMap = buildModelOptionsMapFromCache(modelOptionsCache, { apiConfig: api })
+    const modelOptionsAll = buildModelOptionsFromCache(modelOptionsCache)
     const primaryModelOptions = buildModelOptionsFromCache(modelOptionsCache, {
       apiConfig: api,
       sourceConfig: api[modelType],
@@ -167,6 +169,8 @@ export async function getConfigData() {
     })
     api[modelType].fallbackModels = fallbackModels.map(item => ({
       ...item,
+      __modelOptionsAll: modelOptionsAll,
+      __modelOptionsMap: modelOptionsMap,
       __modelOptions: buildModelOptionsFromCache(modelOptionsCache, {
         apiConfig: api,
         sourceConfig: item,
@@ -176,6 +180,8 @@ export async function getConfigData() {
     }))
 
     modelFormConfigs[MODEL_FORM_FIELD_MAP[modelType]] = [{
+      __modelOptionsAll: modelOptionsAll,
+      __modelOptionsMap: modelOptionsMap,
       __modelOptions: primaryModelOptions,
       model: String(api[modelType].model || defaults.model).trim(),
       apiPresetId: api[modelType].apiPresetId,
