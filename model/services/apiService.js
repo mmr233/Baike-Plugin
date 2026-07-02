@@ -1854,6 +1854,10 @@ class ApiService {
       sourceConfig.connectTimeoutMs ?? options.connectTimeoutMs,
       DEFAULT_CONNECT_TIMEOUT_MS
     )
+    const maxRetries = this.normalizeRetryCount(
+      sourceConfig.retryCount ?? options.retryCount,
+      2
+    )
 
     if (!baseUrl) {
       throw new Error('接口地址未填写，请先选择接口预设或填写自定义接口地址')
@@ -1863,59 +1867,84 @@ class ApiService {
     }
 
     const requestUrl = appendModelListEndpoint(baseUrl, endpointType)
-    const controller = new AbortController()
-    const timer = this.createAbortTimer(controller, timeoutMs)
+    let lastError = null
 
-    try {
-      debugLog('api.models.request', '准备获取模型列表', {
-        baseUrl,
-        endpointType,
-        timeout: timeoutMs,
-        connectTimeout: connectTimeoutMs,
-        apiPresetId: resolvedApi.apiPresetId,
-        apiKeyGroupId: resolvedApi.apiKeyGroupId
-      })
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const controller = new AbortController()
+      const timer = this.createAbortTimer(controller, timeoutMs)
 
-      const fetchOptions = {
-        method: 'GET',
-        headers: buildModelAuthHeaders(endpointType, apiKey),
-        signal: controller.signal
+      try {
+        debugLog('api.models.request', '准备获取模型列表', {
+          baseUrl,
+          endpointType,
+          timeout: timeoutMs,
+          connectTimeout: connectTimeoutMs,
+          retryCount: maxRetries,
+          attempt: attempt + 1,
+          apiPresetId: resolvedApi.apiPresetId,
+          apiKeyGroupId: resolvedApi.apiKeyGroupId
+        })
+
+        const fetchOptions = {
+          method: 'GET',
+          headers: buildModelAuthHeaders(endpointType, apiKey),
+          signal: controller.signal
+        }
+        const dispatcher = await this.getFetchDispatcher(connectTimeoutMs)
+        if (dispatcher) {
+          fetchOptions.dispatcher = dispatcher
+        }
+
+        const response = await fetch(requestUrl, fetchOptions)
+        const text = await response.text()
+        if (!response.ok) {
+          const error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
+          error.status = response.status
+          error.retryable = this.isRetryableStatus(response.status)
+          throw error
+        }
+
+        const json = parseJson(text, '模型列表响应')
+        const models = extractModelIdsFromResponse(json, endpointType)
+        debugLog('api.models.response', '模型列表获取完成', {
+          ok: response.ok,
+          status: response.status,
+          endpointType,
+          attempt: attempt + 1,
+          modelCount: models.length,
+          preview: models.slice(0, 8).join(', ')
+        })
+
+        return {
+          models,
+          endpointType,
+          baseUrl,
+          apiPresetId: resolvedApi.apiPresetId,
+          apiKeyGroupId: resolvedApi.apiKeyGroupId,
+          requestUrl
+        }
+      } catch (error) {
+        lastError = error
+        const shouldRetry = attempt < maxRetries && this.isRetryableError(error)
+        if (!shouldRetry) {
+          throw error
+        }
+
+        if (this.isConnectionResetError(error)) {
+          this.resetFetchDispatcher(connectTimeoutMs)
+        }
+
+        const delayMs = this.getRetryDelayMs(attempt, error)
+        logger.warn(
+          `[${pluginName}] 获取模型列表失败，${delayMs}ms 后进行第 ${attempt + 2} 次尝试：${this.formatErrorWithCause(error)}`
+        )
+        await sleep(delayMs)
+      } finally {
+        timer.clear()
       }
-      const dispatcher = await this.getFetchDispatcher(connectTimeoutMs)
-      if (dispatcher) {
-        fetchOptions.dispatcher = dispatcher
-      }
-
-      const response = await fetch(requestUrl, fetchOptions)
-      const text = await response.text()
-      if (!response.ok) {
-        const error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
-        error.status = response.status
-        error.retryable = this.isRetryableStatus(response.status)
-        throw error
-      }
-
-      const json = parseJson(text, '模型列表响应')
-      const models = extractModelIdsFromResponse(json, endpointType)
-      debugLog('api.models.response', '模型列表获取完成', {
-        ok: response.ok,
-        status: response.status,
-        endpointType,
-        modelCount: models.length,
-        preview: models.slice(0, 8).join(', ')
-      })
-
-      return {
-        models,
-        endpointType,
-        baseUrl,
-        apiPresetId: resolvedApi.apiPresetId,
-        apiKeyGroupId: resolvedApi.apiKeyGroupId,
-        requestUrl
-      }
-    } finally {
-      timer.clear()
     }
+
+    throw lastError || new Error('获取模型列表失败')
   }
 
   isRetryableStatus(status) {

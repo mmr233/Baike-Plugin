@@ -125,7 +125,8 @@ async function refreshModelOptions(args, { Result }) {
       apiConfig: currentConfig.api || {},
       inherited: modelConfig,
       defaultTimeoutMs: 30000,
-      connectTimeoutMs: sourceConfig.connectTimeoutMs || modelConfig.connectTimeoutMs || 30000
+      connectTimeoutMs: sourceConfig.connectTimeoutMs || modelConfig.connectTimeoutMs || 30000,
+      retryCount: 2
     })
 
     if (result.models.length === 0) {
@@ -158,7 +159,7 @@ async function refreshModelOptions(args, { Result }) {
     )
   } catch (error) {
     logger.error('[百科查询] 刷新模型列表失败', error)
-    return Result.error(`刷新模型列表失败：${error.message}`)
+    return Result.error(`刷新模型列表失败：${apiService.formatErrorWithCause(error)}`)
   }
 }
 
@@ -207,7 +208,8 @@ async function refreshApiKeyGroupModelOptions(args, { Result }) {
     const result = await apiService.fetchModelList(sourceConfig, {
       apiConfig: currentConfig.api || {},
       defaultTimeoutMs: 30000,
-      connectTimeoutMs: 30000
+      connectTimeoutMs: 30000,
+      retryCount: 2
     })
 
     if (result.models.length === 0) {
@@ -236,7 +238,7 @@ async function refreshApiKeyGroupModelOptions(args, { Result }) {
     )
   } catch (error) {
     logger.error('[百科查询] 获取接口密钥分组模型列表失败', error)
-    return Result.error(`获取模型列表失败：${error.message}`)
+    return Result.error(`获取模型列表失败：${apiService.formatErrorWithCause(error)}`)
   }
 }
 
