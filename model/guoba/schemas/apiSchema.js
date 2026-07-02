@@ -174,6 +174,17 @@ function createModelOptionsBindings(modelOptions = []) {
   }
 }
 
+function createModelAutoCompleteProps(modelOptions = [], placeholder = '') {
+  return {
+    placeholder,
+    options: modelOptions,
+    allowClear: true,
+    optionFilterProp: 'value',
+    filterOption: true,
+    dropdownMatchSelectWidth: false
+  }
+}
+
 function createSingleConfigForm(field, label, bottomHelpMessage, schemas) {
   return {
     field,
@@ -209,14 +220,10 @@ function createModelConfigSchemas({
     {
       field: 'model',
       label: modelLabel,
-      bottomHelpMessage: '可手动输入模型名；也可先在“接口预设 -> 密钥分组”中获取模型列表，再按当前接口和密钥分组快速选择',
+      bottomHelpMessage: '可手动输入模型名；也可先在“接口预设 -> 密钥分组”中获取模型列表，再输入部分模型名称检索候选项',
       component: 'AutoComplete',
       componentPropsBindings: createModelOptionsBindings(modelOptions),
-      componentProps: {
-        placeholder: modelPlaceholder,
-        options: modelOptions,
-        allowClear: true
-      }
+      componentProps: createModelAutoCompleteProps(modelOptions, modelPlaceholder)
     },
     {
       field: 'apiPresetId',
@@ -360,6 +367,19 @@ const apiPresetKeyGroupSchemas = [
     show: false
   },
   {
+    field: '__modelOptionsPreview',
+    label: '已获取模型',
+    bottomHelpMessage: '只显示当前密钥分组最近一次获取到的前 80 个模型；完整列表可在各模型名输入框中检索选择',
+    component: 'InputTextArea',
+    runtimeOnly: true,
+    save: false,
+    componentProps: {
+      disabled: true,
+      rows: 8,
+      placeholder: '暂未获取模型列表'
+    }
+  },
+  {
     field: 'id',
     label: '分组ID',
     bottomHelpMessage: '用于模型配置选择密钥分组，建议使用英文、数字、短横线或下划线',
@@ -497,14 +517,10 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   {
     field: 'model',
     label: '模型名',
-    bottomHelpMessage: '降级时要切换到的模型名；可手动输入，也可使用接口密钥分组已获取的模型候选项',
+    bottomHelpMessage: '降级时要切换到的模型名；可手动输入，也可输入部分模型名称检索接口密钥分组已获取的候选项',
     component: 'AutoComplete',
     componentPropsBindings: createModelOptionsBindings(modelOptions),
-    componentProps: {
-      placeholder: '例如：grok-4.2',
-      options: modelOptions,
-      allowClear: true
-    }
+    componentProps: createModelAutoCompleteProps(modelOptions, '例如：grok-4.2')
   },
   {
     field: 'apiPresetId',

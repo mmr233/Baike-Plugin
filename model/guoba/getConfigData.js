@@ -87,7 +87,43 @@ function createApiKeyGroupModelButtons(keyGroupId = '', presetId = '') {
   ]
 }
 
-function normalizeApiPresets(value = []) {
+function formatModelCacheTime(timestamp = 0) {
+  const date = new Date(Number(timestamp) || 0)
+  if (Number.isNaN(date.getTime()) || date.getTime() <= 0) {
+    return ''
+  }
+
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+}
+
+function createApiKeyGroupModelPreview(modelOptionsCache = {}, presetId = '', keyGroupId = '') {
+  const entries = getModelCacheEntriesForType(modelOptionsCache, '')
+    .filter(item => item.apiPresetId === String(presetId || '').trim() && item.apiKeyGroupId === String(keyGroupId || '').trim())
+
+  if (entries.length === 0) {
+    return '暂未获取模型列表'
+  }
+
+  const latest = entries
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))[0]
+  const models = Array.isArray(latest?.models) ? latest.models : []
+  const updatedAt = formatModelCacheTime(latest?.updatedAt)
+  const preview = models.slice(0, 80).join('\n')
+  const hiddenCount = Math.max(0, models.length - 80)
+  return [
+    `已缓存 ${models.length} 个模型${updatedAt ? `，更新于 ${updatedAt}` : ''}`,
+    preview,
+    hiddenCount > 0 ? `... 还有 ${hiddenCount} 个模型未显示，可在模型名输入框检索选择` : ''
+  ].filter(Boolean).join('\n')
+}
+
+function normalizeApiPresets(value = [], modelOptionsCache = {}) {
   if (!Array.isArray(value)) {
     return []
   }
@@ -102,7 +138,8 @@ function normalizeApiPresets(value = []) {
             name: String(group?.name || group?.id || `密钥${groupIndex + 1}`).trim(),
             apiKey: String(group?.apiKey || '').trim(),
             __presetId: id,
-            __modelOptionsButtons: createApiKeyGroupModelButtons(group?.id || group?.name || `key-${groupIndex + 1}`, id)
+            __modelOptionsButtons: createApiKeyGroupModelButtons(group?.id || group?.name || `key-${groupIndex + 1}`, id),
+            __modelOptionsPreview: createApiKeyGroupModelPreview(modelOptionsCache, id, group?.id || group?.name || `key-${groupIndex + 1}`)
           }))
           .filter(group => group.id || group.name || group.apiKey)
         : []
@@ -185,8 +222,8 @@ function getModelOptionsCacheForType(api = {}, modelType = '') {
 export async function getConfigData() {
   const config = Config.getAll()
   const api = { ...(config.api || {}) }
-  api.presets = normalizeApiPresets(api.presets)
   api.modelOptionsCache = normalizeModelOptionsCache(api.modelOptionsCache)
+  api.presets = normalizeApiPresets(api.presets, api.modelOptionsCache)
   const modelFormConfigs = {}
 
   for (const modelType of MODEL_TYPES) {
