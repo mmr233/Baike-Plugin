@@ -54,6 +54,15 @@ export function normalizeModelCacheEntries(value = []) {
     .filter(item => item.models.length > 0)
 }
 
+export function getModelCacheEntriesForType(modelOptionsCache = {}, modelType = '') {
+  const cache = modelOptionsCache && typeof modelOptionsCache === 'object'
+    ? modelOptionsCache
+    : {}
+  const sharedEntries = normalizeModelCacheEntries(cache.sources)
+  const scopedEntries = normalizeModelCacheEntries(cache[normalizeText(modelType)])
+  return [...sharedEntries, ...scopedEntries]
+}
+
 function normalizeApiPresets(value = []) {
   if (!Array.isArray(value)) {
     return []
@@ -243,6 +252,7 @@ export function buildModelOptionsMapFromCache(cacheEntries = [], options = {}) {
       if (keyGroupId) {
         addEndpointVariants(map, `${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
         addEndpointVariants(map, `${entry.apiPresetId}::${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
+        addEndpointVariants(map, `::${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
       }
       if (!entry.apiKeyGroupId || entry.apiKeyGroupId === defaultKeyGroupIdByPreset[entry.apiPresetId]) {
         addEndpointVariants(map, `${entry.apiPresetId}::`, endpointType, entryOptions)

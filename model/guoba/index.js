@@ -10,12 +10,15 @@ import Config from '../Config.js'
 import ApiService from '../services/apiService.js'
 
 const apiService = new ApiService()
-const MODEL_TYPES = ['search', 'image', 'summary', 'jsonRepair', 'video', 'audio']
 const MAX_MODEL_OPTIONS_PER_ENTRY = 500
 
 function cleanActionArg(value = '') {
   const text = String(value || '').trim()
   return /^#\{[^}]+\}$/.test(text) ? '' : text
+}
+
+function normalizeText(value = '') {
+  return String(value || '').trim()
 }
 
 async function resetDefaultPrompts(_args, { Result }) {
@@ -61,20 +64,20 @@ function parseModelActionArgs(args = []) {
   }
 }
 
-function normalizeModelOptionsCache(value = []) {
+function normalizeModelOptionsEntries(value = []) {
   if (!Array.isArray(value)) {
     return []
   }
 
   return value
     .map(item => ({
-      baseUrl: String(item?.baseUrl || '').trim(),
-      endpointType: String(item?.endpointType || '').trim(),
-      apiPresetId: String(item?.apiPresetId || '').trim(),
-      apiKeyGroupId: String(item?.apiKeyGroupId || '').trim(),
+      baseUrl: normalizeText(item?.baseUrl).replace(/\/+$/, ''),
+      endpointType: normalizeText(item?.endpointType) || 'openai-chat',
+      apiPresetId: normalizeText(item?.apiPresetId),
+      apiKeyGroupId: normalizeText(item?.apiKeyGroupId),
       updatedAt: Number(item?.updatedAt) || 0,
       models: Array.isArray(item?.models)
-        ? [...new Set(item.models.map(model => String(model || '').trim()).filter(Boolean))]
+        ? [...new Set(item.models.map(model => normalizeText(model)).filter(Boolean))]
           .slice(0, MAX_MODEL_OPTIONS_PER_ENTRY)
         : []
     }))
@@ -90,13 +93,32 @@ function createModelOptionsCacheEntryKey(entry = {}) {
   ].join('|')
 }
 
+function upsertModelOptionsCacheEntry(modelOptionsCache = {}, entry = {}, legacyModelType = '') {
+  const cache = modelOptionsCache && typeof modelOptionsCache === 'object'
+    ? { ...modelOptionsCache }
+    : {}
+  const normalizedEntry = normalizeModelOptionsEntries([entry])[0]
+  if (!normalizedEntry) {
+    return cache
+  }
+
+  const entryKey = createModelOptionsCacheEntryKey(normalizedEntry)
+  const sourceEntries = normalizeModelOptionsEntries(cache.sources)
+    .filter(item => createModelOptionsCacheEntryKey(item) !== entryKey)
+  cache.sources = [normalizedEntry, ...sourceEntries].slice(0, 30)
+
+  if (legacyModelType) {
+    const previousEntries = normalizeModelOptionsEntries(cache[legacyModelType])
+      .filter(item => createModelOptionsCacheEntryKey(item) !== entryKey)
+    cache[legacyModelType] = [normalizedEntry, ...previousEntries].slice(0, 12)
+  }
+
+  return cache
+}
+
 async function refreshModelOptions(args, { Result }) {
   try {
     const { modelType, sourceConfig } = parseModelActionArgs(args)
-    if (!MODEL_TYPES.includes(modelType)) {
-      return Result.error('模型类型无效，无法刷新模型列表')
-    }
-
     const currentConfig = Config.getAll()
     const modelConfig = currentConfig.api?.[modelType] || {}
     const result = await apiService.fetchModelList(sourceConfig, {
@@ -114,19 +136,14 @@ async function refreshModelOptions(args, { Result }) {
     nextConfig.api = { ...(nextConfig.api || {}) }
     nextConfig.api.modelOptionsCache = { ...(nextConfig.api.modelOptionsCache || {}) }
 
-    const entry = {
+    nextConfig.api.modelOptionsCache = upsertModelOptionsCacheEntry(nextConfig.api.modelOptionsCache, {
       baseUrl: result.baseUrl,
       endpointType: result.endpointType,
       apiPresetId: result.apiPresetId,
       apiKeyGroupId: result.apiKeyGroupId,
       updatedAt: Date.now(),
       models: result.models.slice(0, MAX_MODEL_OPTIONS_PER_ENTRY)
-    }
-    const entryKey = createModelOptionsCacheEntryKey(entry)
-    const previousEntries = normalizeModelOptionsCache(nextConfig.api.modelOptionsCache[modelType])
-      .filter(item => createModelOptionsCacheEntryKey(item) !== entryKey)
-
-    nextConfig.api.modelOptionsCache[modelType] = [entry, ...previousEntries].slice(0, 12)
+    }, modelType)
 
     if (!Config.setAll(nextConfig)) {
       return Result.error('模型列表获取成功，但写入缓存失败')
@@ -145,6 +162,84 @@ async function refreshModelOptions(args, { Result }) {
   }
 }
 
+function resolveApiKeyGroupSource(args = []) {
+  const [rawKeyGroupId, rawPresetId] = Array.isArray(args) ? args : []
+  const keyGroupId = cleanActionArg(rawKeyGroupId)
+  const presetId = cleanActionArg(rawPresetId)
+  const apiConfig = Config.get('api', {})
+
+  if (presetId) {
+    return { apiPresetId: presetId, apiKeyGroupId: keyGroupId }
+  }
+
+  const presets = Array.isArray(apiConfig.presets) ? apiConfig.presets : []
+  const matches = presets
+    .map(preset => {
+      const matchedGroup = Array.isArray(preset?.keyGroups)
+        ? preset.keyGroups.find(group => normalizeText(group?.id) === keyGroupId)
+        : null
+      return matchedGroup ? { preset, matchedGroup } : null
+    })
+    .filter(Boolean)
+
+  if (matches.length === 1) {
+    return {
+      apiPresetId: normalizeText(matches[0].preset?.id),
+      apiKeyGroupId: keyGroupId
+    }
+  }
+
+  if (matches.length > 1) {
+    throw new Error(`密钥分组 ID「${keyGroupId}」存在于多个接口中，请为密钥分组设置唯一 ID 后再获取模型列表`)
+  }
+
+  return { apiPresetId: '', apiKeyGroupId: keyGroupId }
+}
+
+async function refreshApiKeyGroupModelOptions(args, { Result }) {
+  try {
+    const sourceConfig = resolveApiKeyGroupSource(args)
+    if (!sourceConfig.apiPresetId || !sourceConfig.apiKeyGroupId) {
+      return Result.error('请先保存接口预设和密钥分组，再在对应密钥分组中获取模型列表')
+    }
+
+    const currentConfig = Config.getAll()
+    const result = await apiService.fetchModelList(sourceConfig, {
+      apiConfig: currentConfig.api || {},
+      defaultTimeoutMs: 30000,
+      connectTimeoutMs: 30000
+    })
+
+    if (result.models.length === 0) {
+      return Result.error('接口已连通，但没有解析到可用模型')
+    }
+
+    const nextConfig = Config.getAll()
+    nextConfig.api = { ...(nextConfig.api || {}) }
+    nextConfig.api.modelOptionsCache = upsertModelOptionsCacheEntry(nextConfig.api.modelOptionsCache, {
+      baseUrl: result.baseUrl,
+      endpointType: result.endpointType,
+      apiPresetId: result.apiPresetId,
+      apiKeyGroupId: result.apiKeyGroupId,
+      updatedAt: Date.now(),
+      models: result.models.slice(0, MAX_MODEL_OPTIONS_PER_ENTRY)
+    })
+
+    if (!Config.setAll(nextConfig)) {
+      return Result.error('模型列表获取成功，但写入缓存失败')
+    }
+
+    const sourceText = `${result.apiPresetId}/${result.apiKeyGroupId}`
+    return Result.ok(
+      { count: result.models.length },
+      `接口密钥可用，已获取 ${result.models.length} 个模型（${sourceText}）。刷新或重新打开配置页后即可在各模型配置中选择。`
+    )
+  } catch (error) {
+    logger.error('[百科查询] 获取接口密钥分组模型列表失败', error)
+    return Result.error(`获取模型列表失败：${error.message}`)
+  }
+}
+
 export function supportGuoba() {
   return {
     pluginInfo,
@@ -160,7 +255,8 @@ export function supportGuoba() {
       setConfigData,
       actions: {
         resetDefaultPrompts,
-        refreshModelOptions
+        refreshModelOptions,
+        refreshApiKeyGroupModelOptions
       }
     }
   }

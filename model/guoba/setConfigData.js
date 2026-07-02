@@ -118,6 +118,21 @@ function normalizeModelOptionsCache(value = {}) {
   const source = value && typeof value === 'object' ? value : {}
   const cache = {}
 
+  cache.sources = Array.isArray(source.sources) ? source.sources
+    .map(item => ({
+      baseUrl: String(item?.baseUrl || '').trim(),
+      endpointType: normalizeEndpointType(item?.endpointType, 'openai-chat'),
+      apiPresetId: String(item?.apiPresetId || '').trim(),
+      apiKeyGroupId: String(item?.apiKeyGroupId || '').trim(),
+      updatedAt: Number(item?.updatedAt) || 0,
+      models: Array.isArray(item?.models)
+        ? [...new Set(item.models.map(model => String(model || '').trim()).filter(Boolean))]
+          .slice(0, MAX_MODEL_OPTIONS_PER_ENTRY)
+        : []
+    }))
+    .filter(item => item.models.length > 0)
+    .slice(0, 30) : []
+
   for (const modelType of Object.keys(MODEL_DEFAULTS)) {
     const entries = Array.isArray(source[modelType]) ? source[modelType] : []
     cache[modelType] = entries

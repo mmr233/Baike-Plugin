@@ -411,6 +411,18 @@ const runtimeSchemaRaw = [
     }
   },
   {
+    field: 'send.userChipNameMaxLength',
+    label: '用户胶囊昵称长度',
+    bottomHelpMessage: 'HTML 卡片中用户胶囊昵称的最大显示字数，超出后以省略号显示；完整昵称仍保留在悬浮提示中',
+    component: 'InputNumber',
+    defaultValue: 8,
+    componentProps: {
+      min: 2,
+      max: 32,
+      step: 1
+    }
+  },
+  {
     field: 'send.autoFallback',
     label: '自动降级发送',
     bottomHelpMessage: '按 HTML -> 合并转发 -> 纯文本 的顺序回退',

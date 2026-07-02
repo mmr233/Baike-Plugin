@@ -1,5 +1,5 @@
 import Config from '../Config.js'
-import { buildModelOptionsFromCache, buildModelOptionsMapFromCache } from './modelOptions.js'
+import { buildModelOptionsFromCache, buildModelOptionsMapFromCache, getModelCacheEntriesForType } from './modelOptions.js'
 
 const MODEL_TYPES = ['search', 'image', 'summary', 'jsonRepair', 'video', 'audio']
 const MODEL_FORM_FIELD_MAP = {
@@ -78,7 +78,8 @@ function normalizeApiPresets(value = []) {
           .map((group, groupIndex) => ({
             id: String(group?.id || group?.name || `key-${groupIndex + 1}`).trim(),
             name: String(group?.name || group?.id || `密钥${groupIndex + 1}`).trim(),
-            apiKey: String(group?.apiKey || '').trim()
+            apiKey: String(group?.apiKey || '').trim(),
+            __presetId: id
           }))
           .filter(group => group.id || group.name || group.apiKey)
         : []
@@ -97,6 +98,23 @@ function normalizeApiPresets(value = []) {
 function normalizeModelOptionsCache(value = {}) {
   const source = value && typeof value === 'object' ? value : {}
   const cache = {}
+
+  cache.sources = Array.isArray(source.sources)
+    ? source.sources
+      .map(item => ({
+        baseUrl: String(item?.baseUrl || '').trim(),
+        endpointType: normalizeEndpointType(item?.endpointType, 'openai-chat'),
+        apiPresetId: String(item?.apiPresetId || '').trim(),
+        apiKeyGroupId: String(item?.apiKeyGroupId || '').trim(),
+        updatedAt: Number(item?.updatedAt) || 0,
+        models: Array.isArray(item?.models)
+          ? [...new Set(item.models.map(model => String(model || '').trim()).filter(Boolean))]
+            .slice(0, MAX_MODEL_OPTIONS_PER_ENTRY)
+          : []
+      }))
+      .filter(item => item.models.length > 0)
+      .slice(0, 30)
+    : []
 
   for (const modelType of MODEL_TYPES) {
     const entries = Array.isArray(source[modelType]) ? source[modelType] : []
@@ -137,6 +155,10 @@ function normalizeFallbackModels(value = []) {
     .filter(item => item.model || item.apiPresetId || item.apiKeyGroupId || item.baseUrl || item.apiKey)
 }
 
+function getModelOptionsCacheForType(api = {}, modelType = '') {
+  return getModelCacheEntriesForType(api.modelOptionsCache, modelType)
+}
+
 export async function getConfigData() {
   const config = Config.getAll()
   const api = { ...(config.api || {}) }
@@ -159,7 +181,7 @@ export async function getConfigData() {
       retryCount: normalizeRetryCount(modelConfig.retryCount, defaults.retryCount),
       fallbackModels
     }
-    const modelOptionsCache = api.modelOptionsCache?.[modelType] || []
+    const modelOptionsCache = getModelOptionsCacheForType(api, modelType)
     const modelOptionsMap = buildModelOptionsMapFromCache(modelOptionsCache, { apiConfig: api })
     const modelOptionsAll = buildModelOptionsFromCache(modelOptionsCache)
     const primaryModelOptions = buildModelOptionsFromCache(modelOptionsCache, {

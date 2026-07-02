@@ -1,6 +1,6 @@
 import { enhanceSchemas } from './schemaHelpers.js'
 import Config from '../../Config.js'
-import { buildModelOptionsFromCache } from '../modelOptions.js'
+import { buildModelOptionsFromCache, getModelCacheEntriesForType } from '../modelOptions.js'
 
 const requestModeOptions = [
   { label: '流式请求', value: 'stream' },
@@ -106,7 +106,7 @@ function buildApiSelectionOptions() {
 }
 
 function buildModelOptions(modelType = '') {
-  const cache = Config.get(`api.modelOptionsCache.${modelType}`, [])
+  const cache = getModelCacheEntriesForType(Config.get('api.modelOptionsCache', {}), modelType)
   return buildModelOptionsFromCache(cache)
 }
 
@@ -174,37 +174,6 @@ function createModelOptionsBindings(modelOptions = []) {
   }
 }
 
-function createRefreshModelOptionsSchema(modelType = '', scope = 'primary') {
-  return {
-    field: `__refreshModelOptions_${modelType}_${scope}`,
-    label: '模型列表',
-    bottomHelpMessage: '按当前接口预设、密钥分组、自定义地址和接口格式获取模型列表；获取后刷新或重新打开配置页即可在模型名输入框中选择，仍可手动输入自定义模型',
-    component: 'GButtons',
-    runtimeOnly: true,
-    save: false,
-    componentProps: {
-      buttons: [
-        {
-          label: '刷新模型列表',
-          type: 'primary',
-          action: 'refreshModelOptions',
-          args: [
-            modelType,
-            scope,
-            '#{apiPresetId}',
-            '#{apiKeyGroupId}',
-            '#{baseUrl}',
-            '#{apiKey}',
-            '#{endpointType}',
-            '#{connectTimeoutMs}',
-            '#{timeoutMs}'
-          ]
-        }
-      ]
-    }
-  }
-}
-
 function createSingleConfigForm(field, label, bottomHelpMessage, schemas) {
   return {
     field,
@@ -240,7 +209,7 @@ function createModelConfigSchemas({
     {
       field: 'model',
       label: modelLabel,
-      bottomHelpMessage: '可手动输入模型名；也可先刷新模型列表，再从候选项中快速选择',
+      bottomHelpMessage: '可手动输入模型名；也可先在“接口预设 -> 密钥分组”中获取模型列表，再按当前接口和密钥分组快速选择',
       component: 'AutoComplete',
       componentPropsBindings: createModelOptionsBindings(modelOptions),
       componentProps: {
@@ -303,7 +272,6 @@ function createModelConfigSchemas({
         options: modelEndpointTypeOptions
       }
     },
-    createRefreshModelOptionsSchema(modelType, 'primary'),
     {
       field: 'requestMode',
       label: `${modelLabel.replace('模型名', '')}请求方式`,
@@ -374,7 +342,52 @@ const primaryApiSchemas = [
   }
 ]
 
+function createApiKeyGroupActionProps(ctx = {}) {
+  const row = ctx?.formModel || ctx?.model || ctx?.values || {}
+  const keyGroupId = normalizeText(row.id)
+  const presetId = normalizeText(row.__presetId)
+  const disabled = !keyGroupId
+
+  return {
+    buttons: [
+      {
+        label: '获取模型列表',
+        type: 'primary',
+        action: 'refreshApiKeyGroupModelOptions',
+        args: [
+          keyGroupId,
+          presetId
+        ],
+        disabled,
+        tooltip: disabled
+          ? { title: '请先保存接口预设和密钥分组后再获取模型列表' }
+          : undefined
+      },
+      {
+        label: '检测密钥',
+        action: 'refreshApiKeyGroupModelOptions',
+        args: [
+          keyGroupId,
+          presetId
+        ],
+        disabled,
+        tooltip: disabled
+          ? { title: '请先保存接口预设和密钥分组后再检测密钥' }
+          : undefined
+      }
+    ]
+  }
+}
+
 const apiPresetKeyGroupSchemas = [
+  {
+    field: '__presetId',
+    label: '归属接口',
+    component: 'Input',
+    runtimeOnly: true,
+    save: false,
+    show: false
+  },
   {
     field: 'id',
     label: '分组ID',
@@ -399,6 +412,15 @@ const apiPresetKeyGroupSchemas = [
     componentProps: {
       placeholder: '请输入接口密钥'
     }
+  },
+  {
+    field: '__modelOptionsActions',
+    label: '模型列表',
+    bottomHelpMessage: '请先保存接口预设和密钥分组，再在对应密钥分组中获取模型列表；获取成功也代表接口和密钥基本可用。模型配置页会按接口/密钥分组自动显示对应候选项',
+    component: 'GButtons',
+    runtimeOnly: true,
+    save: false,
+    componentProps: createApiKeyGroupActionProps
   }
 ]
 
@@ -496,7 +518,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   {
     field: 'model',
     label: '模型名',
-    bottomHelpMessage: '降级时要切换到的模型名；可手动输入，也可使用已刷新缓存中的候选项',
+    bottomHelpMessage: '降级时要切换到的模型名；可手动输入，也可使用接口密钥分组已获取的模型候选项',
     component: 'AutoComplete',
     componentPropsBindings: createModelOptionsBindings(modelOptions),
     componentProps: {
@@ -559,7 +581,6 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
       options: fallbackEndpointTypeOptions
     }
   },
-  createRefreshModelOptionsSchema(modelType, 'fallback'),
   {
     field: 'requestMode',
     label: '请求方式',

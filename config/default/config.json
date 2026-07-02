@@ -18,6 +18,7 @@
       }
     ],
     "modelOptionsCache": {
+      "sources": [],
       "search": [],
       "image": [],
       "summary": [],
@@ -254,6 +255,7 @@
     "cardTheme": "auto",
     "cardNightStartHour": 22,
     "cardNightEndHour": 7,
+    "userChipNameMaxLength": 8,
     "autoFallback": true,
     "search": "forward",
     "contentSummary": "",

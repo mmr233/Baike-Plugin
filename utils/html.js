@@ -1383,6 +1383,20 @@ function getPreviewText(text = '', maxLength = 150) {
     : normalized
 }
 
+function truncateDisplayName(name = '', maxLength = 8) {
+  const normalized = getVisibleName(name)
+  const limit = Number(maxLength)
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 8
+  const chars = Array.from(normalized)
+  return chars.length > safeLimit
+    ? `${chars.slice(0, safeLimit).join('')}...`
+    : normalized
+}
+
+function getUserChipDisplayName(name = '', options = {}) {
+  return truncateDisplayName(name, options.userChipNameMaxLength)
+}
+
 function normalizeUserMap(userMap = {}) {
   if (userMap instanceof Map) {
     return Object.fromEntries(userMap.entries())
@@ -1451,10 +1465,11 @@ function renderUserChip(userId = '', options = {}) {
   }
 
   const miniClass = options.mini ? ' mini' : ''
+  const displayName = getUserChipDisplayName(user.name, options)
   return `
     <span class="user-chip${miniClass}" title="${escapeHtml(`${user.name} (${user.userId})`)}">
       ${user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : ''}
-      <span class="user-chip-name">${escapeHtml(user.name)}</span>
+      <span class="user-chip-name">${escapeHtml(displayName)}</span>
     </span>
   `
 }
@@ -1467,10 +1482,11 @@ function renderUserChipByName(name = '', options = {}) {
   }
 
   const miniClass = options.mini ? ' mini' : ''
+  const displayName = getUserChipDisplayName(user.name, options)
   return `
     <span class="topic-contributor user-chip${miniClass}" title="${escapeHtml(`${user.name} (${user.userId})`)}">
       ${user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : ''}
-      <span class="user-chip-name">${escapeHtml(user.name)}</span>
+      <span class="user-chip-name">${escapeHtml(displayName)}</span>
     </span>
   `
 }

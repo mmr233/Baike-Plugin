@@ -528,10 +528,15 @@ class BaikeService {
     const resolvedTheme = theme === 'night' || (theme === 'auto' && isHourInRange(currentHour, startHour, endHour))
       ? 'night'
       : 'light'
+    const userChipNameMaxLength = Number(sendConfig.userChipNameMaxLength)
+    const safeUserChipNameMaxLength = Number.isFinite(userChipNameMaxLength)
+      ? Math.min(32, Math.max(2, Math.floor(userChipNameMaxLength)))
+      : 8
 
     return {
       ...extra,
-      theme: resolvedTheme
+      theme: resolvedTheme,
+      userChipNameMaxLength: safeUserChipNameMaxLength
     }
   }
 

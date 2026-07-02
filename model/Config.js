@@ -469,6 +469,9 @@ function migrateLegacyConfig(config) {
     if (sendConfig.cardNightEndHour === undefined) {
       sendConfig.cardNightEndHour = 7
     }
+    if (sendConfig.userChipNameMaxLength === undefined) {
+      sendConfig.userChipNameMaxLength = 8
+    }
     nextConfig.send = sendConfig
   }
 
@@ -547,6 +550,7 @@ const DEFAULT_CONFIG = {
       }
     ],
     modelOptionsCache: {
+      sources: [],
       search: [],
       image: [],
       summary: [],
@@ -789,6 +793,7 @@ const DEFAULT_CONFIG = {
     cardTheme: 'auto',
     cardNightStartHour: 22,
     cardNightEndHour: 7,
+    userChipNameMaxLength: 8,
     autoFallback: true,
     search: 'forward',
     contentSummary: '',
