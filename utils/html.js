@@ -270,6 +270,7 @@ function getNightJournalCSS() {
     }
     body.theme-night .quote-note,
     body.theme-night .topic-contributor,
+    body.theme-night .chart-label-badge,
     body.theme-night .quality-percent,
     body.theme-night .portrait-title,
     body.theme-night .portrait-tag {
@@ -741,10 +742,31 @@ function getJournalCSS(theme = 'light') {
       color: #6e5a48;
     }
     .chart-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
       font-family: var(--font-hand);
       font-size: 14px;
       color: #5a4a3a;
       word-break: break-word;
+    }
+    .chart-label .user-chip {
+      margin: 0;
+      max-width: 190px;
+      vertical-align: 0;
+    }
+    .chart-label-badge {
+      flex-shrink: 0;
+      padding: 1px 6px;
+      border: 1px solid rgba(184,92,46,0.3);
+      border-radius: 999px;
+      background: rgba(255,241,168,0.72);
+      color: #b85c2e;
+      font-size: 11px;
+      line-height: 16px;
+      font-weight: bold;
+      white-space: nowrap;
     }
     .chart-value {
       color: #b85c2e;
@@ -1355,6 +1377,18 @@ function normalizeUserMap(userMap = {}) {
   return userMap && typeof userMap === 'object' ? userMap : {}
 }
 
+function getVisibleName(...values) {
+  for (const value of values) {
+    const text = String(value || '')
+      .replace(/[\u00A0\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u2000-\u200F\u202A-\u202E\u205F\u2060-\u206F\u2800\u3000\u3164\uFEFF\uFFA0]/g, '')
+      .trim()
+    if (text) {
+      return text
+    }
+  }
+  return ''
+}
+
 function getUserChipData(userId = '', options = {}) {
   const actualUserId = String(userId || '').trim()
   if (!actualUserId) {
@@ -1363,7 +1397,7 @@ function getUserChipData(userId = '', options = {}) {
 
   const userMap = normalizeUserMap(options.userMap)
   const user = userMap[actualUserId] || {}
-  const name = String(user.nickname || user.name || user.card || actualUserId).trim()
+  const name = getVisibleName(user.nickname, user.name, user.card, actualUserId)
   return {
     userId: actualUserId,
     name,
@@ -1427,6 +1461,25 @@ function renderUserChipByName(name = '', options = {}) {
       <span class="user-chip-name">${escapeHtml(user.name)}</span>
     </span>
   `
+}
+
+function renderUserStatChip(item = {}, fallbackLabel = '', options = {}) {
+  const userId = String(item?.userId || item?.user_id || '').trim()
+  if (userId) {
+    const userMap = normalizeUserMap(options.userMap)
+    const originalUser = userMap[userId] || {}
+    userMap[userId] = {
+      ...originalUser,
+      userId,
+      nickname: getVisibleName(item.nickname, item.name, item.card, originalUser.nickname, originalUser.name, originalUser.card, userId),
+      name: getVisibleName(item.nickname, item.name, item.card, originalUser.name, originalUser.nickname, originalUser.card, userId),
+      card: getVisibleName(item.card, originalUser.card),
+      avatar: item.avatar || originalUser.avatar || getAvatarUrl(userId)
+    }
+    return renderUserChip(userId, { ...options, userMap })
+  }
+
+  return escapeHtml(getVisibleName(item?.nickname, item?.name, fallbackLabel, '未知成员'))
 }
 
 function renderInlineRichText(text = '', options = {}) {
@@ -1560,10 +1613,11 @@ function renderBarChart(items = [], title = '统计') {
   const normalized = items
     .map(item => ({
       label: String(item?.label || '').trim(),
+      labelHtml: String(item?.labelHtml || '').trim(),
       value: Math.max(0, Number(item?.value) || 0),
       color: item?.color === 'blue' ? 'blue' : ''
     }))
-    .filter(item => item.label)
+    .filter(item => item.label || item.labelHtml)
 
   if (normalized.length === 0) {
     return ''
@@ -1577,7 +1631,7 @@ function renderBarChart(items = [], title = '统计') {
       ${normalized.map(item => `
         <div class="chart-row">
           <div class="chart-meta">
-            <span class="chart-label">${escapeHtml(item.label)}</span>
+            <span class="chart-label">${item.labelHtml || escapeHtml(item.label)}</span>
             <span class="chart-value">${escapeHtml(String(item.value))}</span>
           </div>
           <div class="chart-track">
@@ -2080,13 +2134,22 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
   } = parsedContent || {}
   const displayTitle = isMemberMode ? '群友画像' : title
   const rankItems = Array.isArray(memberStats) && memberStats.length > 0
-    ? memberStats.map(item => [item.nickname || item.userId || '未知成员', item.count || 0])
-    : sortedMembers
+    ? memberStats.map(item => ({
+        userId: item.userId || item.user_id || '',
+        nickname: item.nickname || item.name || item.userId || item.user_id || '未知成员',
+        avatar: item.avatar || '',
+        count: item.count || 0
+      }))
+    : (Array.isArray(sortedMembers) ? sortedMembers : []).map(([name, count]) => ({
+        nickname: name || '未知成员',
+        count: count || 0
+      }))
   const rankChartHtml = !isMemberMode && rankItems.length > 0
     ? renderBarChart(
-      rankItems.slice(0, 10).map(([name, count], index) => ({
-        label: index === 0 ? `${name} · TOP1` : name,
-        value: count,
+      rankItems.slice(0, 10).map((item, index) => ({
+        label: getVisibleName(item.nickname, item.userId, '未知成员'),
+        labelHtml: `${renderUserStatChip(item, '', richOptions)}${index === 0 ? '<span class="chart-label-badge">TOP1</span>' : ''}`,
+        value: item.count,
         color: index === 0 ? '' : 'blue'
       })),
       '发言数量统计'

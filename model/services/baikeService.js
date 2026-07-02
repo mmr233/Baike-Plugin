@@ -2110,10 +2110,22 @@ class BaikeService {
   }
 
   buildMemberStats(formattedMessages = []) {
+    const getVisibleName = (...values) => {
+      for (const value of values) {
+        const text = String(value || '')
+          .replace(/[\u00A0\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u2000-\u200F\u202A-\u202E\u205F\u2060-\u206F\u2800\u3000\u3164\uFEFF\uFFA0]/g, '')
+          .trim()
+        if (text) {
+          return text
+        }
+      }
+      return ''
+    }
+
     const stats = new Map()
     for (const message of formattedMessages || []) {
       const userId = String(message.user_id || '').trim()
-      const nickname = String(message.nickname || userId || '未知成员').trim()
+      const nickname = getVisibleName(message.nickname, message.card, userId, '未知成员')
       const key = userId || nickname
       if (!stats.has(key)) {
         stats.set(key, {
