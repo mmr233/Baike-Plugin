@@ -1,4 +1,5 @@
 import Config from '../Config.js'
+import { buildModelOptionsFromCache } from './modelOptions.js'
 
 const MODEL_TYPES = ['search', 'image', 'summary', 'jsonRepair', 'video', 'audio']
 const MODEL_FORM_FIELD_MAP = {
@@ -146,6 +147,7 @@ export async function getConfigData() {
   for (const modelType of MODEL_TYPES) {
     const defaults = MODEL_DEFAULTS[modelType]
     const modelConfig = { ...(api?.[modelType] || {}) }
+    const fallbackModels = normalizeFallbackModels(modelConfig.fallbackModels)
     api[modelType] = {
       ...modelConfig,
       apiPresetId: String(modelConfig.apiPresetId || '').trim(),
@@ -155,10 +157,26 @@ export async function getConfigData() {
       timeoutMs: normalizeTimeoutMs(modelConfig.timeoutMs, defaults.timeoutMs),
       connectTimeoutMs: normalizeTimeoutMs(modelConfig.connectTimeoutMs, defaults.connectTimeoutMs),
       retryCount: normalizeRetryCount(modelConfig.retryCount, defaults.retryCount),
-      fallbackModels: normalizeFallbackModels(modelConfig.fallbackModels)
+      fallbackModels
     }
+    const modelOptionsCache = api.modelOptionsCache?.[modelType] || []
+    const primaryModelOptions = buildModelOptionsFromCache(modelOptionsCache, {
+      apiConfig: api,
+      sourceConfig: api[modelType],
+      fallbackToAll: false
+    })
+    api[modelType].fallbackModels = fallbackModels.map(item => ({
+      ...item,
+      __modelOptions: buildModelOptionsFromCache(modelOptionsCache, {
+        apiConfig: api,
+        sourceConfig: item,
+        inherited: api[modelType],
+        fallbackToAll: false
+      })
+    }))
 
     modelFormConfigs[MODEL_FORM_FIELD_MAP[modelType]] = [{
+      __modelOptions: primaryModelOptions,
       model: String(api[modelType].model || defaults.model).trim(),
       apiPresetId: api[modelType].apiPresetId,
       apiKeyGroupId: formatApiKeyGroupFormValue(api[modelType].apiPresetId, api[modelType].apiKeyGroupId),

@@ -1,7 +1,6 @@
 import { enhanceSchemas } from './schemaHelpers.js'
 import Config from '../../Config.js'
-
-const MAX_MODEL_OPTIONS_PER_ENTRY = 500
+import { buildModelOptionsFromCache } from '../modelOptions.js'
 
 const requestModeOptions = [
   { label: '流式请求', value: 'stream' },
@@ -106,60 +105,23 @@ function buildApiSelectionOptions() {
   }
 }
 
-function normalizeModelCacheEntries(value = []) {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value
-    .map(item => ({
-      baseUrl: normalizeText(item?.baseUrl),
-      endpointType: normalizeText(item?.endpointType),
-      apiPresetId: normalizeText(item?.apiPresetId),
-      apiKeyGroupId: normalizeText(item?.apiKeyGroupId),
-      updatedAt: Number(item?.updatedAt) || 0,
-      models: Array.isArray(item?.models)
-        ? [...new Set(item.models.map(model => normalizeText(model)).filter(Boolean))]
-          .slice(0, MAX_MODEL_OPTIONS_PER_ENTRY)
-        : []
-    }))
-    .filter(item => item.models.length > 0)
-}
-
-function formatModelCacheSource(entry = {}) {
-  if (entry.apiPresetId && entry.apiKeyGroupId) {
-    return `${entry.apiPresetId}/${entry.apiKeyGroupId}`
-  }
-  if (entry.apiPresetId) {
-    return entry.apiPresetId
-  }
-  if (entry.baseUrl) {
-    return entry.baseUrl.replace(/^https?:\/\//i, '')
-  }
-  return entry.endpointType || '模型列表'
-}
-
 function buildModelOptions(modelType = '') {
   const cache = Config.get(`api.modelOptionsCache.${modelType}`, [])
-  const entries = normalizeModelCacheEntries(cache)
-  const seen = new Set()
-  const options = []
+  return buildModelOptionsFromCache(cache)
+}
 
-  for (const entry of entries) {
-    const source = formatModelCacheSource(entry)
-    for (const model of entry.models) {
-      if (seen.has(model)) {
-        continue
-      }
-      seen.add(model)
-      options.push({
-        value: model,
-        label: source ? `${model}（${source}）` : model
-      })
+function createModelOptionsRuntimeSchema() {
+  return {
+    field: '__modelOptions',
+    label: '当前来源模型候选',
+    component: 'InputTextArea',
+    runtimeOnly: true,
+    save: false,
+    show: false,
+    componentProps: {
+      disabled: true
     }
   }
-
-  return options
 }
 
 function createRefreshModelOptionsSchema(modelType = '', scope = 'primary') {
@@ -224,11 +186,18 @@ function createModelConfigSchemas({
   const modelOptions = buildModelOptions(modelType)
 
   return [
+    createModelOptionsRuntimeSchema(),
     {
       field: 'model',
       label: modelLabel,
       bottomHelpMessage: '可手动输入模型名；也可先刷新模型列表，再从候选项中快速选择',
       component: 'AutoComplete',
+      componentPropsBindings: {
+        options: {
+          path: '__modelOptions',
+          fallback: modelOptions
+        }
+      },
       componentProps: {
         placeholder: modelPlaceholder,
         options: modelOptions,
@@ -478,11 +447,18 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   const modelOptions = buildModelOptions(modelType)
 
   return [
+  createModelOptionsRuntimeSchema(),
   {
     field: 'model',
     label: '模型名',
     bottomHelpMessage: '降级时要切换到的模型名；可手动输入，也可使用已刷新缓存中的候选项',
     component: 'AutoComplete',
+    componentPropsBindings: {
+      options: {
+        path: '__modelOptions',
+        fallback: modelOptions
+      }
+    },
     componentProps: {
       placeholder: '例如：grok-4.2',
       options: modelOptions,

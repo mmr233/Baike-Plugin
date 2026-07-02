@@ -1,0 +1,218 @@
+const MAX_MODEL_OPTIONS_PER_ENTRY = 500
+
+function normalizeText(value = '') {
+  return String(value || '').trim()
+}
+
+function normalizeBaseUrl(value = '') {
+  return normalizeText(value).replace(/\/+$/, '')
+}
+
+function normalizeEndpointType(value = '', fallback = 'openai-chat') {
+  const normalized = normalizeText(value).toLowerCase()
+  return ['inherit', 'openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-native'].includes(normalized)
+    ? normalized
+    : fallback
+}
+
+export function parseApiKeyGroupRef(value = '') {
+  const raw = normalizeText(value)
+  if (!raw) {
+    return { presetId: '', keyGroupId: '' }
+  }
+
+  for (const delimiter of ['::', '/', '|']) {
+    if (raw.includes(delimiter)) {
+      const [presetId, ...rest] = raw.split(delimiter)
+      return {
+        presetId: normalizeText(presetId),
+        keyGroupId: normalizeText(rest.join(delimiter))
+      }
+    }
+  }
+
+  return { presetId: '', keyGroupId: raw }
+}
+
+export function normalizeModelCacheEntries(value = []) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map(item => ({
+      baseUrl: normalizeBaseUrl(item?.baseUrl),
+      endpointType: normalizeEndpointType(item?.endpointType, 'openai-chat'),
+      apiPresetId: normalizeText(item?.apiPresetId),
+      apiKeyGroupId: normalizeText(item?.apiKeyGroupId),
+      updatedAt: Number(item?.updatedAt) || 0,
+      models: Array.isArray(item?.models)
+        ? [...new Set(item.models.map(model => normalizeText(model)).filter(Boolean))]
+          .slice(0, MAX_MODEL_OPTIONS_PER_ENTRY)
+        : []
+    }))
+    .filter(item => item.models.length > 0)
+}
+
+function normalizeApiPresets(value = []) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((item, index) => {
+      const id = normalizeText(item?.id || item?.name || `preset-${index + 1}`)
+      const keyGroups = Array.isArray(item?.keyGroups)
+        ? item.keyGroups
+          .map((group, groupIndex) => ({
+            id: normalizeText(group?.id || group?.name || `key-${groupIndex + 1}`),
+            name: normalizeText(group?.name || group?.id || `密钥${groupIndex + 1}`),
+            apiKey: normalizeText(group?.apiKey)
+          }))
+          .filter(group => group.id || group.name || group.apiKey)
+        : []
+
+      return {
+        id,
+        name: normalizeText(item?.name || id || `接口${index + 1}`),
+        baseUrl: normalizeBaseUrl(item?.baseUrl),
+        endpointType: normalizeEndpointType(item?.endpointType, 'openai-chat'),
+        keyGroups
+      }
+    })
+    .filter(item => item.id || item.name || item.baseUrl || item.keyGroups.length > 0)
+}
+
+function findApiPreset(apiConfig = {}, presetId = '') {
+  const actualPresetId = normalizeText(presetId)
+  if (!actualPresetId) {
+    return null
+  }
+
+  return normalizeApiPresets(apiConfig.presets)
+    .find(item => item.id === actualPresetId) || null
+}
+
+function findApiKeyGroup(preset = null, keyGroupId = '') {
+  if (!preset || !Array.isArray(preset.keyGroups) || preset.keyGroups.length === 0) {
+    return null
+  }
+
+  const actualKeyGroupId = normalizeText(keyGroupId)
+  if (!actualKeyGroupId) {
+    return preset.keyGroups.find(item => item.apiKey) || preset.keyGroups[0] || null
+  }
+
+  return preset.keyGroups.find(item => item.id === actualKeyGroupId) || null
+}
+
+export function resolveModelOptionSource(apiConfig = {}, sourceConfig = {}, inherited = {}) {
+  const groupRef = parseApiKeyGroupRef(sourceConfig.apiKeyGroupId)
+  const explicitPresetId = normalizeText(groupRef.presetId || sourceConfig.apiPresetId)
+  const explicitKeyGroupId = normalizeText(groupRef.keyGroupId)
+  const hasExplicitPreset = Boolean(explicitPresetId)
+  const apiPresetId = normalizeText(explicitPresetId || inherited.apiPresetId)
+  const requestedApiKeyGroupId = normalizeText(
+    explicitKeyGroupId
+    || (hasExplicitPreset ? '' : inherited.apiKeyGroupId)
+  )
+  const preset = findApiPreset(apiConfig, apiPresetId)
+  const keyGroup = findApiKeyGroup(preset, requestedApiKeyGroupId)
+  const apiKeyGroupId = normalizeText(keyGroup?.id || requestedApiKeyGroupId)
+  const explicitEndpointType = normalizeEndpointType(sourceConfig.endpointType, 'inherit')
+  const presetEndpointType = preset?.endpointType
+    ? normalizeEndpointType(preset.endpointType, 'openai-chat')
+    : ''
+  const inheritedEndpointType = inherited.endpointType
+    ? normalizeEndpointType(inherited.endpointType, 'openai-chat')
+    : ''
+  const endpointType = explicitEndpointType === 'inherit'
+    ? (hasExplicitPreset
+        ? (presetEndpointType || inheritedEndpointType || 'openai-chat')
+        : (inheritedEndpointType || presetEndpointType || 'openai-chat'))
+    : normalizeEndpointType(explicitEndpointType, presetEndpointType || inheritedEndpointType || 'openai-chat')
+  const baseUrl = normalizeBaseUrl(
+    sourceConfig.baseUrl
+    || (hasExplicitPreset ? preset?.baseUrl : inherited.baseUrl)
+    || (hasExplicitPreset ? inherited.baseUrl : preset?.baseUrl)
+    || apiConfig.primaryBaseUrl
+  )
+
+  return {
+    apiPresetId,
+    apiKeyGroupId,
+    baseUrl,
+    endpointType
+  }
+}
+
+export function formatModelCacheSource(entry = {}) {
+  if (entry.apiPresetId && entry.apiKeyGroupId) {
+    return `${entry.apiPresetId}/${entry.apiKeyGroupId}`
+  }
+  if (entry.apiPresetId) {
+    return entry.apiPresetId
+  }
+  if (entry.baseUrl) {
+    return entry.baseUrl.replace(/^https?:\/\//i, '')
+  }
+  return entry.endpointType || '模型列表'
+}
+
+function sourceHasIdentity(source = {}) {
+  return Boolean(source.apiPresetId || source.apiKeyGroupId || source.baseUrl)
+}
+
+function isSameSource(entry = {}, source = {}) {
+  if (!sourceHasIdentity(source)) {
+    return false
+  }
+
+  if (source.apiPresetId) {
+    if (entry.apiPresetId !== source.apiPresetId) {
+      return false
+    }
+    if (source.apiKeyGroupId && entry.apiKeyGroupId !== source.apiKeyGroupId) {
+      return false
+    }
+  } else if (source.baseUrl) {
+    if (normalizeBaseUrl(entry.baseUrl) !== source.baseUrl) {
+      return false
+    }
+  }
+
+  if (source.endpointType && entry.endpointType && entry.endpointType !== source.endpointType) {
+    return false
+  }
+
+  return true
+}
+
+export function buildModelOptionsFromCache(cacheEntries = [], options = {}) {
+  const entries = normalizeModelCacheEntries(cacheEntries)
+  const source = options.source
+    || resolveModelOptionSource(options.apiConfig || {}, options.sourceConfig || {}, options.inherited || {})
+  const matchedEntries = entries.filter(entry => isSameSource(entry, source))
+  const fallbackToAll = options.fallbackToAll !== false
+  const actualEntries = matchedEntries.length > 0
+    ? matchedEntries
+    : (fallbackToAll || !sourceHasIdentity(source) ? entries : [])
+  const seen = new Set()
+  const modelOptions = []
+
+  for (const entry of actualEntries) {
+    const sourceLabel = formatModelCacheSource(entry)
+    for (const model of entry.models) {
+      if (seen.has(model)) {
+        continue
+      }
+      seen.add(model)
+      modelOptions.push({
+        value: model,
+        label: sourceLabel ? `${model}（${sourceLabel}）` : model
+      })
+    }
+  }
+
+  return modelOptions
+}
