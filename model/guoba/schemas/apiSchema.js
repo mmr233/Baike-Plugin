@@ -113,6 +113,28 @@ function buildModelOptions(modelType = '') {
 function createModelOptionsRuntimeSchema() {
   return [
     {
+      field: '__apiPresetOptions',
+      label: '接口预设候选',
+      component: 'InputTextArea',
+      runtimeOnly: true,
+      save: false,
+      show: false,
+      componentProps: {
+        disabled: true
+      }
+    },
+    {
+      field: '__apiKeyGroupOptions',
+      label: '密钥分组候选',
+      component: 'InputTextArea',
+      runtimeOnly: true,
+      save: false,
+      show: false,
+      componentProps: {
+        disabled: true
+      }
+    },
+    {
       field: '__modelOptions',
       label: '当前来源模型候选',
       component: 'InputTextArea',
@@ -174,6 +196,24 @@ function createModelOptionsBindings(modelOptions = []) {
   }
 }
 
+function createApiPresetOptionsBindings(apiPresetOptions = []) {
+  return {
+    options: {
+      path: '__apiPresetOptions',
+      fallback: apiPresetOptions
+    }
+  }
+}
+
+function createApiKeyGroupOptionsBindings(apiKeyGroupOptions = []) {
+  return {
+    options: {
+      path: '__apiKeyGroupOptions',
+      fallback: apiKeyGroupOptions
+    }
+  }
+}
+
 function createModelAutoCompleteProps(modelOptions = [], placeholder = '') {
   return {
     placeholder,
@@ -231,6 +271,7 @@ function createModelConfigSchemas({
       bottomHelpMessage: '选择在“接口预设”中配置的接口；留空则使用下面的自定义地址，或回退旧主接口地址',
       component: 'Select',
       defaultValue: '',
+      componentPropsBindings: createApiPresetOptionsBindings(apiPresetOptions),
       componentProps: {
         options: apiPresetOptions,
         showSearch: true,
@@ -244,6 +285,7 @@ function createModelConfigSchemas({
       bottomHelpMessage: '选择接口预设下的密钥分组；留空则使用所选接口的第一个可用密钥，或回退旧主接口密钥',
       component: 'Select',
       defaultValue: '',
+      componentPropsBindings: createApiKeyGroupOptionsBindings(apiKeyGroupOptions),
       componentProps: {
         options: apiKeyGroupOptions,
         showSearch: true,
@@ -528,6 +570,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
     bottomHelpMessage: '留空继承当前类型主配置；也可选择其他接口预设作为下级模型接口',
     component: 'Select',
     defaultValue: '',
+    componentPropsBindings: createApiPresetOptionsBindings(apiPresetOptions),
     componentProps: {
       options: apiPresetOptions,
       showSearch: true,
@@ -541,6 +584,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
     bottomHelpMessage: '留空继承当前类型主配置；也可选择其他接口预设下的密钥分组',
     component: 'Select',
     defaultValue: '',
+    componentPropsBindings: createApiKeyGroupOptionsBindings(apiKeyGroupOptions),
     componentProps: {
       options: apiKeyGroupOptions,
       showSearch: true,

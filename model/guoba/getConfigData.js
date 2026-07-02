@@ -21,6 +21,14 @@ const MODEL_DEFAULTS = {
   audio: { model: 'grok-4.1-fast', timeoutMs: 60000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' }
 }
 
+const DEFAULT_API_PRESET_OPTIONS = [
+  { label: '自定义/旧主接口', value: '' }
+]
+
+const DEFAULT_API_KEY_GROUP_OPTIONS = [
+  { label: '继承接口默认密钥', value: '' }
+]
+
 function normalizeRequestMode(value, fallback = 'response') {
   const normalized = String(value || '').trim().toLowerCase()
   return ['response', 'stream'].includes(normalized) ? normalized : fallback
@@ -63,6 +71,43 @@ function formatApiKeyGroupFormValue(apiPresetId = '', apiKeyGroupId = '') {
     return `${presetId}::${keyGroupId}`
   }
   return keyGroupId
+}
+
+function formatOptionLabel(name = '', id = '') {
+  const normalizedName = String(name || '').trim()
+  const normalizedId = String(id || '').trim()
+  if (!normalizedName) {
+    return normalizedId
+  }
+  return normalizedName === normalizedId ? normalizedName : `${normalizedName}（${normalizedId}）`
+}
+
+function buildApiSelectionOptions(api = {}) {
+  const presets = normalizeApiPresets(api.presets, api.modelOptionsCache)
+  const apiPresetOptions = [
+    ...DEFAULT_API_PRESET_OPTIONS,
+    ...presets.map(item => ({
+      label: formatOptionLabel(item.name, item.id),
+      value: item.id
+    }))
+  ]
+  const apiKeyGroupOptions = [
+    ...DEFAULT_API_KEY_GROUP_OPTIONS,
+    ...presets
+      .map(preset => ({
+        label: formatOptionLabel(preset.name, preset.id),
+        options: preset.keyGroups.map(group => ({
+          label: formatOptionLabel(group.name, group.id),
+          value: `${preset.id}::${group.id}`
+        }))
+      }))
+      .filter(item => item.options.length > 0)
+  ]
+
+  return {
+    __apiPresetOptions: apiPresetOptions,
+    __apiKeyGroupOptions: apiKeyGroupOptions
+  }
 }
 
 function createApiKeyGroupModelButtons(keyGroupId = '', presetId = '') {
@@ -225,6 +270,7 @@ export async function getConfigData() {
   const api = { ...(config.api || {}) }
   api.modelOptionsCache = normalizeModelOptionsCache(api.modelOptionsCache)
   api.presets = normalizeApiPresets(api.presets, api.modelOptionsCache)
+  const apiSelectionOptions = buildApiSelectionOptions(api)
   const modelFormConfigs = {}
 
   for (const modelType of MODEL_TYPES) {
@@ -252,6 +298,7 @@ export async function getConfigData() {
     })
     api[modelType].fallbackModels = fallbackModels.map(item => ({
       ...item,
+      ...apiSelectionOptions,
       __modelOptionsAll: modelOptionsAll,
       __modelOptionsMap: modelOptionsMap,
       __modelOptions: buildModelOptionsFromCache(modelOptionsCache, {
@@ -263,6 +310,7 @@ export async function getConfigData() {
     }))
 
     modelFormConfigs[MODEL_FORM_FIELD_MAP[modelType]] = [{
+      ...apiSelectionOptions,
       __modelOptionsAll: modelOptionsAll,
       __modelOptionsMap: modelOptionsMap,
       __modelOptions: primaryModelOptions,
