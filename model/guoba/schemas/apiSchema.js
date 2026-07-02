@@ -342,48 +342,19 @@ const primaryApiSchemas = [
   }
 ]
 
-function createApiKeyGroupActionProps(ctx = {}) {
-  const row = ctx?.formModel || ctx?.model || ctx?.values || {}
-  const keyGroupId = normalizeText(row.id)
-  const presetId = normalizeText(row.__presetId)
-  const disabled = !keyGroupId
-
-  return {
-    buttons: [
-      {
-        label: '获取模型列表',
-        type: 'primary',
-        action: 'refreshApiKeyGroupModelOptions',
-        args: [
-          keyGroupId,
-          presetId
-        ],
-        disabled,
-        tooltip: disabled
-          ? { title: '请先保存接口预设和密钥分组后再获取模型列表' }
-          : undefined
-      },
-      {
-        label: '检测密钥',
-        action: 'refreshApiKeyGroupModelOptions',
-        args: [
-          keyGroupId,
-          presetId
-        ],
-        disabled,
-        tooltip: disabled
-          ? { title: '请先保存接口预设和密钥分组后再检测密钥' }
-          : undefined
-      }
-    ]
-  }
-}
-
 const apiPresetKeyGroupSchemas = [
   {
     field: '__presetId',
     label: '归属接口',
     component: 'Input',
+    runtimeOnly: true,
+    save: false,
+    show: false
+  },
+  {
+    field: '__modelOptionsButtons',
+    label: '模型列表按钮',
+    component: 'InputTextArea',
     runtimeOnly: true,
     save: false,
     show: false
@@ -420,7 +391,15 @@ const apiPresetKeyGroupSchemas = [
     component: 'GButtons',
     runtimeOnly: true,
     save: false,
-    componentProps: createApiKeyGroupActionProps
+    componentPropsBindings: {
+      buttons: {
+        path: '__modelOptionsButtons',
+        fallback: []
+      }
+    },
+    componentProps: {
+      buttons: []
+    }
   }
 ]
 

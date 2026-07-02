@@ -65,6 +65,28 @@ function formatApiKeyGroupFormValue(apiPresetId = '', apiKeyGroupId = '') {
   return keyGroupId
 }
 
+function createApiKeyGroupModelButtons(keyGroupId = '', presetId = '') {
+  const actualKeyGroupId = String(keyGroupId || '').trim()
+  const actualPresetId = String(presetId || '').trim()
+  const disabled = !actualKeyGroupId || !actualPresetId
+
+  return [
+    {
+      label: '获取模型列表',
+      type: 'primary',
+      action: 'refreshApiKeyGroupModelOptions',
+      args: [actualKeyGroupId, actualPresetId],
+      disabled
+    },
+    {
+      label: '检测密钥',
+      action: 'refreshApiKeyGroupModelOptions',
+      args: [actualKeyGroupId, actualPresetId],
+      disabled
+    }
+  ]
+}
+
 function normalizeApiPresets(value = []) {
   if (!Array.isArray(value)) {
     return []
@@ -79,7 +101,8 @@ function normalizeApiPresets(value = []) {
             id: String(group?.id || group?.name || `key-${groupIndex + 1}`).trim(),
             name: String(group?.name || group?.id || `密钥${groupIndex + 1}`).trim(),
             apiKey: String(group?.apiKey || '').trim(),
-            __presetId: id
+            __presetId: id,
+            __modelOptionsButtons: createApiKeyGroupModelButtons(group?.id || group?.name || `key-${groupIndex + 1}`, id)
           }))
           .filter(group => group.id || group.name || group.apiKey)
         : []
