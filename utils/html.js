@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pluginName, pluginRoot, packageInfo } from '../model/constant.js'
-import { escapeHtml } from './text.js'
+import { escapeHtml, getVisibleName } from './text.js'
 
 let footerTextCache = null
 
@@ -529,6 +529,19 @@ function getJournalCSS(theme = 'light') {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .user-chip.mini {
+      max-width: 126px;
+      padding: 0 5px 0 1px;
+      gap: 3px;
+      font-size: 11px;
+      line-height: 16px;
+      vertical-align: -2px;
+      box-shadow: 1px 1px 0 rgba(211,190,167,0.32);
+    }
+    .user-chip.mini .user-chip-avatar {
+      width: 16px;
+      height: 16px;
     }
     .quote-section {
       background: linear-gradient(135deg, rgba(255,248,213,0.96), rgba(255,252,240,0.96));
@@ -1377,18 +1390,6 @@ function normalizeUserMap(userMap = {}) {
   return userMap && typeof userMap === 'object' ? userMap : {}
 }
 
-function getVisibleName(...values) {
-  for (const value of values) {
-    const text = String(value || '')
-      .replace(/[\u00A0\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u2000-\u200F\u202A-\u202E\u205F\u2060-\u206F\u2800\u3000\u3164\uFEFF\uFFA0]/g, '')
-      .trim()
-    if (text) {
-      return text
-    }
-  }
-  return ''
-}
-
 function getUserChipData(userId = '', options = {}) {
   const actualUserId = String(userId || '').trim()
   if (!actualUserId) {
@@ -1406,7 +1407,7 @@ function getUserChipData(userId = '', options = {}) {
 }
 
 function getUserChipDataByName(name = '', options = {}) {
-  const actualName = String(name || '').trim()
+  const actualName = getVisibleName(name)
   if (!actualName) {
     return null
   }
@@ -1414,8 +1415,16 @@ function getUserChipDataByName(name = '', options = {}) {
   const userMap = normalizeUserMap(options.userMap)
   const matches = Object.values(userMap)
     .filter(user => {
-      const nickname = String(user?.nickname || user?.name || user?.card || '').trim()
-      return nickname && nickname === actualName
+      const userId = String(user?.userId || user?.user_id || '').trim()
+      const aliases = [
+        user?.nickname,
+        user?.name,
+        user?.card,
+        user?.rawNickname,
+        ...(Array.isArray(user?.aliases) ? user.aliases : []),
+        userId
+      ].map(value => getVisibleName(value)).filter(Boolean)
+      return aliases.includes(actualName)
     })
 
   if (matches.length !== 1) {
@@ -1430,7 +1439,7 @@ function getUserChipDataByName(name = '', options = {}) {
 
   return {
     userId,
-    name: actualName,
+    name: getVisibleName(user.nickname, user.name, user.card, user.rawNickname, actualName, userId),
     avatar: user.avatar || getAvatarUrl(userId)
   }
 }
@@ -1441,8 +1450,9 @@ function renderUserChip(userId = '', options = {}) {
     return escapeHtml(userId)
   }
 
+  const miniClass = options.mini ? ' mini' : ''
   return `
-    <span class="user-chip" title="${escapeHtml(`${user.name} (${user.userId})`)}">
+    <span class="user-chip${miniClass}" title="${escapeHtml(`${user.name} (${user.userId})`)}">
       ${user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : ''}
       <span class="user-chip-name">${escapeHtml(user.name)}</span>
     </span>
@@ -1452,15 +1462,56 @@ function renderUserChip(userId = '', options = {}) {
 function renderUserChipByName(name = '', options = {}) {
   const user = getUserChipDataByName(name, options)
   if (!user) {
-    return `<span class="topic-contributor">${escapeHtml(name)}</span>`
+    const label = getVisibleName(name)
+    return label ? `<span class="topic-contributor">${escapeHtml(label)}</span>` : ''
   }
 
+  const miniClass = options.mini ? ' mini' : ''
   return `
-    <span class="topic-contributor user-chip" title="${escapeHtml(`${user.name} (${user.userId})`)}">
+    <span class="topic-contributor user-chip${miniClass}" title="${escapeHtml(`${user.name} (${user.userId})`)}">
       ${user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : ''}
       <span class="user-chip-name">${escapeHtml(user.name)}</span>
     </span>
   `
+}
+
+function getUserAliasEntries(options = {}) {
+  if (Array.isArray(options.userAliasEntries)) {
+    return options.userAliasEntries
+  }
+
+  const userMap = normalizeUserMap(options.userMap)
+  const entries = []
+  const seen = new Set()
+
+  for (const user of Object.values(userMap)) {
+    const userId = String(user?.userId || user?.user_id || '').trim()
+    if (!userId) {
+      continue
+    }
+    const aliases = [
+      user?.nickname,
+      user?.name,
+      user?.card,
+      user?.rawNickname,
+      ...(Array.isArray(user?.aliases) ? user.aliases : []),
+      userId
+    ].map(value => getVisibleName(value)).filter(Boolean)
+
+    for (const alias of [...new Set(aliases)]) {
+      if (alias.length < 2 && !/^\d{5,12}$/.test(alias)) {
+        continue
+      }
+      const key = `${alias}:${userId}`
+      if (seen.has(key)) {
+        continue
+      }
+      seen.add(key)
+      entries.push({ alias, userId })
+    }
+  }
+
+  return entries.sort((a, b) => b.alias.length - a.alias.length)
 }
 
 function renderUserStatChip(item = {}, fallbackLabel = '', options = {}) {
@@ -1488,16 +1539,41 @@ function renderInlineRichText(text = '', options = {}) {
   let html = ''
   let lastIndex = 0
   let match = pattern.exec(source)
+  const renderPlainText = (value = '') => {
+    const raw = String(value || '')
+    if (!options.replaceUserNames) {
+      return escapeHtml(raw)
+    }
+
+    const aliases = getUserAliasEntries(options)
+    if (aliases.length === 0) {
+      return escapeHtml(raw)
+    }
+
+    let result = ''
+    let cursor = 0
+    while (cursor < raw.length) {
+      const matched = aliases.find(item => raw.startsWith(item.alias, cursor))
+      if (!matched) {
+        result += escapeHtml(raw[cursor])
+        cursor += 1
+        continue
+      }
+      result += renderUserChip(matched.userId, { ...options, mini: true })
+      cursor += matched.alias.length
+    }
+    return result
+  }
 
   while (match) {
-    html += escapeHtml(source.slice(lastIndex, match.index))
+    html += renderPlainText(source.slice(lastIndex, match.index))
     const userId = match[2] || match[3] || ''
-    html += renderUserChip(userId, options)
+    html += renderUserChip(userId, { ...options, mini: Boolean(options.miniUserChips) })
     lastIndex = match.index + match[0].length
     match = pattern.exec(source)
   }
 
-  html += escapeHtml(source.slice(lastIndex))
+  html += renderPlainText(source.slice(lastIndex))
   return html
 }
 
@@ -1885,6 +1961,16 @@ function renderSupplementSections(extraSections = [], options = {}) {
   })
 }
 
+function renderTopicContributors(contributors = [], options = {}) {
+  const html = (Array.isArray(contributors) ? contributors : [])
+    .slice(0, 5)
+    .map(name => renderUserChipByName(name, options))
+    .filter(Boolean)
+    .join('')
+
+  return html ? `<div class="topic-contributors">${html}</div>` : ''
+}
+
 function renderTopicSection(topics = [], topicSummary = '', isMemberMode = false, options = {}) {
   const items = (Array.isArray(topics) ? topics : [])
     .filter(item => item?.topic || item?.detail)
@@ -1895,14 +1981,14 @@ function renderTopicSection(topics = [], topicSummary = '', isMemberMode = false
         title: isMemberMode ? '成员话题总结' : '话题总结',
         className: 'paper-section',
         stamp: 'TOPIC',
-        content: renderRichTextHtml(topicSummary, options)
+        content: renderRichTextHtml(topicSummary, { ...options, replaceUserNames: true, miniUserChips: true })
       })
       : ''
   }
 
   const summaryHtml = topicSummary ? `
     <div class="topic-summary">
-      ${renderRichTextHtml(topicSummary, options)}
+      ${renderRichTextHtml(topicSummary, { ...options, replaceUserNames: true, miniUserChips: true })}
     </div>
   ` : ''
 
@@ -1917,10 +2003,8 @@ function renderTopicSection(topics = [], topicSummary = '', isMemberMode = false
             <div class="topic-index">${index + 1}</div>
             <div class="topic-main">
               <div class="topic-name">${escapeHtml(item.topic || `话题 ${index + 1}`)}</div>
-              ${(item.contributors || []).length > 0
-                ? `<div class="topic-contributors">${item.contributors.slice(0, 5).map(name => renderUserChipByName(name, options)).join('')}</div>`
-                : ''}
-              <div class="topic-detail">${renderInlineRichText(item.detail || '', options)}</div>
+              ${renderTopicContributors(item.contributors, options)}
+              <div class="topic-detail">${renderInlineRichText(item.detail || '', { ...options, replaceUserNames: true, miniUserChips: true })}</div>
             </div>
           </div>
         `).join('')}
@@ -2125,6 +2209,7 @@ export function generateGroupSummaryHTML(title, parsedContent, data = {}) {
   } = data
   const normalizedTheme = normalizeTheme(theme)
   const richOptions = { userMap }
+  richOptions.userAliasEntries = getUserAliasEntries(richOptions)
   const {
     topicSummary = '',
     topics = [],

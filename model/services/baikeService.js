@@ -8,7 +8,7 @@ import DocumentService from './documentService.js'
 import MediaService from './mediaService.js'
 import MessageService from './messageService.js'
 import SummaryBillingService from './summaryBillingService.js'
-import { beautifyText, extractKeyword, formatDetailValue, parseSummaryContent } from '../../utils/text.js'
+import { beautifyText, extractKeyword, formatDetailValue, getVisibleName, parseSummaryContent } from '../../utils/text.js'
 import { generateGroupSummaryHTML, generateHutaoHTML, generateSearchHTML } from '../../utils/html.js'
 
 const SEND_MODE_PRIORITY = ['html', 'forward', 'text']
@@ -177,22 +177,43 @@ class BaikeService {
 
   buildSummaryUserMap(formattedMessages = [], extraUsers = []) {
     const userMap = {}
-    const addUser = (userId = '', nickname = '') => {
+    const addUser = (userId = '', nickname = '', meta = {}) => {
       const actualUserId = String(userId || '').trim()
       if (!actualUserId) {
         return
       }
-      const name = String(nickname || actualUserId).trim()
+      const previous = userMap[actualUserId] || {}
+      const aliases = [
+        ...(Array.isArray(previous.aliases) ? previous.aliases : []),
+        ...(Array.isArray(meta.aliases) ? meta.aliases : []),
+        nickname,
+        meta.card,
+        meta.rawNickname,
+        meta.name,
+        meta.sender
+      ]
+        .map(value => getVisibleName(value))
+        .filter(Boolean)
+      const uniqueAliases = [...new Set(aliases)]
+      const name = getVisibleName(nickname, meta.card, meta.rawNickname, meta.name, meta.sender, previous.name, previous.nickname, actualUserId)
       userMap[actualUserId] = {
+        ...previous,
         userId: actualUserId,
         nickname: name,
         name,
-        avatar: this.getAvatarUrl(actualUserId)
+        card: getVisibleName(meta.card, previous.card),
+        rawNickname: getVisibleName(meta.rawNickname, previous.rawNickname),
+        aliases: uniqueAliases,
+        avatar: previous.avatar || this.getAvatarUrl(actualUserId)
       }
     }
 
     for (const item of formattedMessages || []) {
-      addUser(item.user_id, item.nickname || item.card)
+      addUser(item.user_id, item.nickname, {
+        card: item.card,
+        rawNickname: item.rawNickname,
+        aliases: [item.card, item.rawNickname]
+      })
       for (const content of item.contents || []) {
         if (content?.type === 'at') {
           addUser(content.userId, content.name)
@@ -201,7 +222,7 @@ class BaikeService {
     }
 
     for (const item of extraUsers || []) {
-      addUser(item.userId || item.user_id, item.nickname || item.name || item.sender)
+      addUser(item.userId || item.user_id, item.nickname || item.name || item.sender, item)
     }
 
     return userMap
@@ -2110,22 +2131,10 @@ class BaikeService {
   }
 
   buildMemberStats(formattedMessages = []) {
-    const getVisibleName = (...values) => {
-      for (const value of values) {
-        const text = String(value || '')
-          .replace(/[\u00A0\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u2000-\u200F\u202A-\u202E\u205F\u2060-\u206F\u2800\u3000\u3164\uFEFF\uFFA0]/g, '')
-          .trim()
-        if (text) {
-          return text
-        }
-      }
-      return ''
-    }
-
     const stats = new Map()
     for (const message of formattedMessages || []) {
       const userId = String(message.user_id || '').trim()
-      const nickname = getVisibleName(message.nickname, message.card, userId, '未知成员')
+      const nickname = getVisibleName(message.card, message.rawNickname, message.nickname, userId, '未知成员')
       const key = userId || nickname
       if (!stats.has(key)) {
         stats.set(key, {

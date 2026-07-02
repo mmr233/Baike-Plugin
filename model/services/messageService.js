@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { debugLog } from '../debug.js'
 import { sleep } from '../../utils/common.js'
+import { getVisibleName } from '../../utils/text.js'
 
 function clampInteger(value, min, max, fallback) {
   const numeric = Number(value)
@@ -290,9 +291,9 @@ class MessageService {
   getMessageSender(messageData) {
     const data = this.getMessageData(messageData)
     const userId = String(data.user_id || data.sender?.user_id || messageData?.user_id || '')
-    const nickname = data.sender?.card || data.sender?.nickname || data.nickname || userId || '未知用户'
     const card = data.sender?.card || data.card || ''
     const rawNickname = data.sender?.nickname || data.nickname || ''
+    const nickname = getVisibleName(card, rawNickname, userId, '未知用户')
     return { userId, nickname, card, rawNickname }
   }
 
@@ -2030,9 +2031,10 @@ class MessageService {
         } else if (type === 'at') {
           const targetId = String(segmentData.qq || segmentItem?.qq || '').trim()
           const targetName = await this.resolveGroupMemberName(options.event, targetId, options.atNameCache)
+          const visibleTargetName = getVisibleName(targetName, targetId)
           if (targetId && targetId !== 'all') {
-            result.contents.push({ type: 'at', userId: targetId, name: targetName || targetId })
-            texts.push(`@${targetName || targetId}`)
+            result.contents.push({ type: 'at', userId: targetId, name: visibleTargetName })
+            texts.push(`@${visibleTargetName}`)
           }
         } else if (type === 'reply') {
           const replyId = String(segmentData.id || segmentItem?.id || segmentData.message_id || '').trim()
