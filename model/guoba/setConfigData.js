@@ -224,9 +224,25 @@ export async function setConfigData(data, { Result }) {
   try {
     const nextConfig = Config.getAll()
     nextConfig.api = { ...(nextConfig.api || {}) }
+    const preservedModelOptionsCache = nextConfig.api.modelOptionsCache
 
     for (const [key, value] of Object.entries(data || {})) {
       if (key === 'prompt' || key.startsWith('prompt.')) {
+        continue
+      }
+
+      if (key === 'api.modelOptionsCache' || key.startsWith('api.modelOptionsCache.')) {
+        continue
+      }
+
+      if (key === 'api') {
+        const apiValue = value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {}
+        delete apiValue.modelOptionsCache
+        nextConfig.api = {
+          ...nextConfig.api,
+          ...apiValue,
+          modelOptionsCache: preservedModelOptionsCache
+        }
         continue
       }
 
@@ -284,7 +300,7 @@ export async function setConfigData(data, { Result }) {
     nextConfig.api.primaryBaseUrl = String(nextConfig.api.primaryBaseUrl || '').trim()
     nextConfig.api.primaryApiKey = String(nextConfig.api.primaryApiKey || '').trim()
     nextConfig.api.presets = normalizeApiPresets(nextConfig.api.presets)
-    nextConfig.api.modelOptionsCache = normalizeModelOptionsCache(nextConfig.api.modelOptionsCache)
+    nextConfig.api.modelOptionsCache = normalizeModelOptionsCache(preservedModelOptionsCache)
 
     for (const modelType of Object.keys(MODEL_DEFAULTS)) {
       const defaults = MODEL_DEFAULTS[modelType]

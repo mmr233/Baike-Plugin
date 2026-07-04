@@ -217,7 +217,7 @@ function createApiKeyGroupOptionsBindings(apiKeyGroupOptions = []) {
 function createModelAutoCompleteProps(modelOptions = [], placeholder = '') {
   return {
     placeholder,
-    options: modelOptions,
+    options: [],
     allowClear: true,
     optionFilterProp: 'value',
     filterOption: true,
@@ -260,7 +260,7 @@ function createModelConfigSchemas({
     {
       field: 'model',
       label: modelLabel,
-      bottomHelpMessage: '可手动输入模型名；也可先在“接口预设 -> 密钥分组”中获取模型列表，再输入部分模型名称检索候选项',
+      bottomHelpMessage: '可手动输入模型名；也可先在“接口预设 -> 密钥分组”中获取模型列表，再从已缓存候选中选择。候选项过多时只加载前一部分以保持页面流畅',
       component: 'AutoComplete',
       componentPropsBindings: createModelOptionsBindings(modelOptions),
       componentProps: createModelAutoCompleteProps(modelOptions, modelPlaceholder)
@@ -411,7 +411,7 @@ const apiPresetKeyGroupSchemas = [
   {
     field: '__modelOptionsPreview',
     label: '已获取模型',
-    bottomHelpMessage: '只显示当前密钥分组最近一次获取到的前 80 个模型；完整列表可在各模型名输入框中检索选择',
+    bottomHelpMessage: '只显示当前密钥分组最近一次获取到的部分模型；候选项较多时不会全部加载，完整模型名可直接手动输入',
     component: 'InputTextArea',
     runtimeOnly: true,
     save: false,
@@ -559,7 +559,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   {
     field: 'model',
     label: '模型名',
-    bottomHelpMessage: '降级时要切换到的模型名；可手动输入，也可输入部分模型名称检索接口密钥分组已获取的候选项',
+    bottomHelpMessage: '降级时要切换到的模型名；可手动输入，也可从已缓存候选中选择。候选项过多时只加载前一部分以保持页面流畅',
     component: 'AutoComplete',
     componentPropsBindings: createModelOptionsBindings(modelOptions),
     componentProps: createModelAutoCompleteProps(modelOptions, '例如：grok-4.2')
@@ -662,6 +662,17 @@ function buildApiSchemaRaw() {
   {
     component: 'SOFT_GROUP_BEGIN',
     label: '接口配置'
+  },
+  {
+    field: 'api.modelOptionsCache',
+    label: '模型列表缓存',
+    component: 'InputTextArea',
+    runtimeOnly: true,
+    save: false,
+    show: false,
+    componentProps: {
+      disabled: true
+    }
   },
   {
     component: 'Divider',

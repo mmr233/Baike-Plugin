@@ -1,4 +1,5 @@
 const MAX_MODEL_OPTIONS_PER_ENTRY = 500
+const MAX_FORM_MODEL_OPTIONS = 120
 
 function normalizeText(value = '') {
   return String(value || '').trim()
@@ -168,9 +169,12 @@ export function formatModelCacheSource(entry = {}) {
   return entry.endpointType || '模型列表'
 }
 
-function createOptionsForEntries(entries = []) {
+function createOptionsForEntries(entries = [], { limit = MAX_FORM_MODEL_OPTIONS } = {}) {
   const seen = new Set()
   const modelOptions = []
+  const maxCount = Number.isFinite(Number(limit)) && Number(limit) > 0
+    ? Math.floor(Number(limit))
+    : MAX_FORM_MODEL_OPTIONS
 
   for (const entry of entries) {
     const sourceLabel = formatModelCacheSource(entry)
@@ -183,6 +187,9 @@ function createOptionsForEntries(entries = []) {
         value: model,
         label: sourceLabel ? `${model}（${sourceLabel}）` : model
       })
+      if (modelOptions.length >= maxCount) {
+        return modelOptions
+      }
     }
   }
 

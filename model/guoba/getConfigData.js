@@ -1,7 +1,8 @@
 import Config from '../Config.js'
-import { buildModelOptionsFromCache, buildModelOptionsMapFromCache, getModelCacheEntriesForType } from './modelOptions.js'
+import { getModelCacheEntriesForType } from './modelOptions.js'
 
 const MODEL_TYPES = ['search', 'image', 'summary', 'jsonRepair', 'video', 'audio']
+const MODEL_PREVIEW_LIMIT = 40
 const MODEL_FORM_FIELD_MAP = {
   search: '_apiSearchConfig',
   image: '_apiImageConfig',
@@ -20,14 +21,6 @@ const MODEL_DEFAULTS = {
   video: { model: 'qwen3-vl-plus', timeoutMs: 180000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
   audio: { model: 'grok-4.1-fast', timeoutMs: 60000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' }
 }
-
-const DEFAULT_API_PRESET_OPTIONS = [
-  { label: '自定义/旧主接口', value: '' }
-]
-
-const DEFAULT_API_KEY_GROUP_OPTIONS = [
-  { label: '继承接口默认密钥', value: '' }
-]
 
 function normalizeRequestMode(value, fallback = 'response') {
   const normalized = String(value || '').trim().toLowerCase()
@@ -71,43 +64,6 @@ function formatApiKeyGroupFormValue(apiPresetId = '', apiKeyGroupId = '') {
     return `${presetId}::${keyGroupId}`
   }
   return keyGroupId
-}
-
-function formatOptionLabel(name = '', id = '') {
-  const normalizedName = String(name || '').trim()
-  const normalizedId = String(id || '').trim()
-  if (!normalizedName) {
-    return normalizedId
-  }
-  return normalizedName === normalizedId ? normalizedName : `${normalizedName}（${normalizedId}）`
-}
-
-function buildApiSelectionOptions(api = {}) {
-  const presets = normalizeApiPresets(api.presets, api.modelOptionsCache)
-  const apiPresetOptions = [
-    ...DEFAULT_API_PRESET_OPTIONS,
-    ...presets.map(item => ({
-      label: formatOptionLabel(item.name, item.id),
-      value: item.id
-    }))
-  ]
-  const apiKeyGroupOptions = [
-    ...DEFAULT_API_KEY_GROUP_OPTIONS,
-    ...presets
-      .map(preset => ({
-        label: formatOptionLabel(preset.name, preset.id),
-        options: preset.keyGroups.map(group => ({
-          label: formatOptionLabel(group.name, group.id),
-          value: `${preset.id}::${group.id}`
-        }))
-      }))
-      .filter(item => item.options.length > 0)
-  ]
-
-  return {
-    __apiPresetOptions: apiPresetOptions,
-    __apiKeyGroupOptions: apiKeyGroupOptions
-  }
 }
 
 function createApiKeyGroupModelButtons(keyGroupId = '', presetId = '') {
@@ -159,13 +115,32 @@ function createApiKeyGroupModelPreview(modelOptionsCache = {}, presetId = '', ke
     .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))[0]
   const models = Array.isArray(latest?.models) ? latest.models : []
   const updatedAt = formatModelCacheTime(latest?.updatedAt)
-  const preview = models.slice(0, 80).join('\n')
-  const hiddenCount = Math.max(0, models.length - 80)
+  const preview = models.slice(0, MODEL_PREVIEW_LIMIT).join('\n')
+  const hiddenCount = Math.max(0, models.length - MODEL_PREVIEW_LIMIT)
   return [
     `已缓存 ${models.length} 个模型${updatedAt ? `，更新于 ${updatedAt}` : ''}`,
     preview,
-    hiddenCount > 0 ? `... 还有 ${hiddenCount} 个模型未显示，可在模型名输入框检索选择` : ''
+    hiddenCount > 0 ? `... 还有 ${hiddenCount} 个模型未显示，可手动输入完整模型名` : ''
   ].filter(Boolean).join('\n')
+}
+
+function summarizeModelOptionsCache(modelOptionsCache = {}) {
+  const cache = modelOptionsCache && typeof modelOptionsCache === 'object'
+    ? modelOptionsCache
+    : {}
+  const result = {}
+  for (const key of ['sources', ...MODEL_TYPES]) {
+    const entries = Array.isArray(cache[key]) ? cache[key] : []
+    result[key] = entries.map(item => ({
+      baseUrl: String(item?.baseUrl || '').trim(),
+      endpointType: normalizeEndpointType(item?.endpointType, 'openai-chat'),
+      apiPresetId: String(item?.apiPresetId || '').trim(),
+      apiKeyGroupId: String(item?.apiKeyGroupId || '').trim(),
+      updatedAt: Number(item?.updatedAt) || 0,
+      modelCount: Array.isArray(item?.models) ? item.models.length : 0
+    }))
+  }
+  return result
 }
 
 function normalizeApiPresets(value = [], modelOptionsCache = {}) {
@@ -260,17 +235,12 @@ function normalizeFallbackModels(value = []) {
     .filter(item => item.model || item.apiPresetId || item.apiKeyGroupId || item.baseUrl || item.apiKey)
 }
 
-function getModelOptionsCacheForType(api = {}, modelType = '') {
-  return getModelCacheEntriesForType(api.modelOptionsCache, modelType)
-}
-
 export async function getConfigData() {
   const config = Config.getAll()
   const { prompt: _prompt, ...configForGuoba } = config
   const api = { ...(config.api || {}) }
   api.modelOptionsCache = normalizeModelOptionsCache(api.modelOptionsCache)
   api.presets = normalizeApiPresets(api.presets, api.modelOptionsCache)
-  const apiSelectionOptions = buildApiSelectionOptions(api)
   const modelFormConfigs = {}
 
   for (const modelType of MODEL_TYPES) {
@@ -288,32 +258,9 @@ export async function getConfigData() {
       retryCount: normalizeRetryCount(modelConfig.retryCount, defaults.retryCount),
       fallbackModels
     }
-    const modelOptionsCache = getModelOptionsCacheForType(api, modelType)
-    const modelOptionsMap = buildModelOptionsMapFromCache(modelOptionsCache, { apiConfig: api })
-    const modelOptionsAll = buildModelOptionsFromCache(modelOptionsCache)
-    const primaryModelOptions = buildModelOptionsFromCache(modelOptionsCache, {
-      apiConfig: api,
-      sourceConfig: api[modelType],
-      fallbackToAll: false
-    })
-    api[modelType].fallbackModels = fallbackModels.map(item => ({
-      ...item,
-      ...apiSelectionOptions,
-      __modelOptionsAll: modelOptionsAll,
-      __modelOptionsMap: modelOptionsMap,
-      __modelOptions: buildModelOptionsFromCache(modelOptionsCache, {
-        apiConfig: api,
-        sourceConfig: item,
-        inherited: api[modelType],
-        fallbackToAll: false
-      })
-    }))
+    api[modelType].fallbackModels = fallbackModels
 
     modelFormConfigs[MODEL_FORM_FIELD_MAP[modelType]] = [{
-      ...apiSelectionOptions,
-      __modelOptionsAll: modelOptionsAll,
-      __modelOptionsMap: modelOptionsMap,
-      __modelOptions: primaryModelOptions,
       model: String(api[modelType].model || defaults.model).trim(),
       apiPresetId: api[modelType].apiPresetId,
       apiKeyGroupId: formatApiKeyGroupFormValue(api[modelType].apiPresetId, api[modelType].apiKeyGroupId),
@@ -329,7 +276,10 @@ export async function getConfigData() {
 
   return {
     ...configForGuoba,
-    api,
+    api: {
+      ...api,
+      modelOptionsCache: summarizeModelOptionsCache(api.modelOptionsCache)
+    },
     _apiPrimaryConfig: [{
       primaryBaseUrl: String(api.primaryBaseUrl || '').trim(),
       primaryApiKey: String(api.primaryApiKey || '').trim()
