@@ -536,15 +536,7 @@ const DEFAULT_CONFIG = {
     primaryApiKey: 'your-primary-api-key',
     gateway: {
       enabled: false,
-      fallbackToLocal: true,
-      profiles: {
-        search: 'default',
-        image: 'default',
-        summary: 'default',
-        jsonRepair: 'default',
-        video: 'default',
-        audio: 'default'
-      }
+      fallbackToLocal: true
     },
     presets: [
       {

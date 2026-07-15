@@ -2374,11 +2374,8 @@ class ApiService {
     }
   }
 
-  getGatewayRequestConfig(modelType, options = {}) {
+  getGatewayRequestConfig(options = {}) {
     const config = Config.get('api.gateway', {})
-    const profiles = config?.profiles && typeof config.profiles === 'object'
-      ? config.profiles
-      : {}
 
     return {
       enabled: options.useGateway === undefined
@@ -2386,8 +2383,7 @@ class ApiService {
         : Boolean(options.useGateway),
       fallbackToLocal: options.gatewayFallbackToLocal === undefined
         ? config?.fallbackToLocal !== false
-        : Boolean(options.gatewayFallbackToLocal),
-      profile: String(options.gatewayProfile || profiles?.[modelType] || 'default').trim() || 'default'
+        : Boolean(options.gatewayFallbackToLocal)
     }
   }
 
@@ -2396,7 +2392,42 @@ class ApiService {
     return gateway && typeof gateway.chat === 'function' ? gateway : null
   }
 
-  async requestChatCompletionViaGateway(modelType, messages, options, gatewayConfig) {
+  getGatewayModelConfig(modelType, options = {}) {
+    const modelConfig = Config.get(`api.${modelType}`, {})
+    const groupRef = this.parseApiKeyGroupRef(options.apiKeyGroupId ?? modelConfig.apiKeyGroupId)
+    const fallbackModels = this.normalizeFallbackModels(options.fallbackModels ?? modelConfig.fallbackModels)
+      .map(item => {
+        const fallbackGroupRef = this.parseApiKeyGroupRef(item.apiKeyGroupId)
+        return {
+          model: item.model,
+          apiPresetId: String(fallbackGroupRef.presetId || item.apiPresetId || '').trim(),
+          apiKeyGroupId: String(fallbackGroupRef.keyGroupId || '').trim(),
+          requestMode: this.normalizeFallbackRequestMode(item.requestMode, 'inherit')
+        }
+      })
+
+    return {
+      model: String(options.model ?? modelConfig.model ?? '').trim(),
+      apiPresetId: String(groupRef.presetId || options.apiPresetId || modelConfig.apiPresetId || '').trim(),
+      apiKeyGroupId: String(groupRef.keyGroupId || '').trim(),
+      requestMode: this.normalizeRequestMode(options.requestMode, modelConfig.requestMode || 'response'),
+      timeoutMs: this.normalizeTimeoutMs(
+        options.timeoutMs ?? options.timeout,
+        this.normalizeTimeoutMs(modelConfig.timeoutMs, 120000)
+      ),
+      connectTimeoutMs: this.normalizeConnectTimeoutMs(
+        options.connectTimeoutMs,
+        this.normalizeConnectTimeoutMs(modelConfig.connectTimeoutMs, DEFAULT_CONNECT_TIMEOUT_MS)
+      ),
+      retryCount: this.normalizeRetryCount(
+        options.retryCount,
+        this.normalizeRetryCount(modelConfig.retryCount, 0)
+      ),
+      fallbackModels
+    }
+  }
+
+  async requestChatCompletionViaGateway(modelType, messages, options) {
     const gateway = this.getLLMGateway()
     if (!gateway) {
       const error = new Error('LLM-Gateway-Plugin 未加载或尚未注册全局接口')
@@ -2408,17 +2439,39 @@ class ApiService {
       useGateway: _useGateway,
       gatewayProfile: _gatewayProfile,
       gatewayFallbackToLocal: _gatewayFallbackToLocal,
+      model: _model,
+      apiPresetId: _apiPresetId,
+      apiKeyGroupId: _apiKeyGroupId,
+      baseUrl: _baseUrl,
+      apiKey: _apiKey,
+      endpointType: _endpointType,
+      requestMode: _requestMode,
+      timeoutMs: _timeoutMs,
+      timeout: _timeout,
+      connectTimeoutMs: _connectTimeoutMs,
+      retryCount: _retryCount,
+      fallbackModels: _fallbackModels,
       ...requestOptions
     } = options || {}
+    const modelConfig = this.getGatewayModelConfig(modelType, options)
+
+    if (!modelConfig.apiPresetId || !modelConfig.model) {
+      const error = new Error(`${modelType} 网关模型配置不完整，请选择模型网关接口和模型`)
+      error.code = 'LLM_GATEWAY_SOURCE_INCOMPLETE'
+      throw error
+    }
 
     debugLog('api.gateway.request', `通过模型网关请求 ${modelType}`, {
-      profile: gatewayConfig.profile,
+      apiPresetId: modelConfig.apiPresetId,
+      apiKeyGroupId: modelConfig.apiKeyGroupId,
+      model: modelConfig.model,
+      requestMode: modelConfig.requestMode,
       messageCount: Array.isArray(messages) ? messages.length : 0
     })
 
     const result = await gateway.chat({
       ...requestOptions,
-      profile: gatewayConfig.profile,
+      ...modelConfig,
       messages
     })
     const text = String(result?.text || '')
@@ -2427,13 +2480,13 @@ class ApiService {
       : (result?.raw && typeof result.raw === 'object' ? result.raw : { output_text: text })
     const candidate = {
       ...(result?.candidate || {}),
-      label: result?.candidate?.label || `网关档案 ${gatewayConfig.profile}`,
-      source: 'gateway',
-      profile: gatewayConfig.profile
+      label: result?.candidate?.label || '模型网关',
+      source: 'gateway'
     }
 
     debugLog('api.gateway.response', `${modelType} 网关响应`, {
-      profile: gatewayConfig.profile,
+      apiPresetId: candidate.apiPresetId || modelConfig.apiPresetId,
+      apiKeyGroupId: candidate.apiKeyGroupId || modelConfig.apiKeyGroupId,
       model: candidate.model || '',
       endpointType: candidate.endpointType || '',
       requestMode: candidate.requestMode || '',
@@ -2450,10 +2503,10 @@ class ApiService {
   }
 
   async requestChatCompletion(modelType, messages, options = {}) {
-    const gatewayConfig = this.getGatewayRequestConfig(modelType, options)
+    const gatewayConfig = this.getGatewayRequestConfig(options)
     if (gatewayConfig.enabled) {
       try {
-        return await this.requestChatCompletionViaGateway(modelType, messages, options, gatewayConfig)
+        return await this.requestChatCompletionViaGateway(modelType, messages, options)
       } catch (error) {
         if (!gatewayConfig.fallbackToLocal) {
           throw error

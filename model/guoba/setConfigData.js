@@ -54,19 +54,10 @@ function normalizeFallbackEndpointType(value, fallback = 'inherit') {
 
 function normalizeGatewayConfig(value = {}) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-  const profiles = source.profiles && typeof source.profiles === 'object' && !Array.isArray(source.profiles)
-    ? source.profiles
-    : {}
 
   return {
     enabled: Boolean(source.enabled),
-    fallbackToLocal: source.fallbackToLocal !== false,
-    profiles: Object.fromEntries(
-      Object.keys(MODEL_DEFAULTS).map(modelType => [
-        modelType,
-        String(profiles[modelType] || 'default').trim() || 'default'
-      ])
-    )
+    fallbackToLocal: source.fallbackToLocal !== false
   }
 }
 

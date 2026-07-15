@@ -29,15 +29,6 @@ const modelEndpointTypeOptions = [
   ...endpointTypeOptions
 ]
 
-const gatewayProfileFields = [
-  { type: 'search', label: '搜索网关档案' },
-  { type: 'image', label: '图片网关档案' },
-  { type: 'summary', label: '总结网关档案' },
-  { type: 'jsonRepair', label: 'JSON 修复网关档案' },
-  { type: 'video', label: '视频网关档案' },
-  { type: 'audio', label: '音频网关档案' }
-]
-
 const defaultApiPresetOptions = [
   { label: '自定义/旧主接口', value: '' }
 ]
@@ -347,25 +338,7 @@ function createSingleConfigForm(field, label, bottomHelpMessage, schemas) {
   }
 }
 
-function getGatewayProfileOptions() {
-  try {
-    const gateway = globalThis.LLMGateway || globalThis.llmGateway
-    const profiles = typeof gateway?.getProfiles === 'function' ? gateway.getProfiles() : []
-    return Array.isArray(profiles)
-      ? profiles
-        .map(item => ({
-          label: String(item?.name || item?.id || '').trim(),
-          value: String(item?.id || '').trim()
-        }))
-        .filter(item => item.value)
-      : []
-  } catch {
-    return []
-  }
-}
-
 function createGatewaySchemas() {
-  const profileOptions = getGatewayProfileOptions()
   return [
     {
       component: 'Divider',
@@ -378,7 +351,7 @@ function createGatewaySchemas() {
     {
       field: 'api.gateway.enabled',
       label: '使用 LLM 模型网关',
-      bottomHelpMessage: '启用后，各模型请求优先使用 LLM-Gateway-Plugin 中对应的模型档案，Baike 无需再保存接口密钥',
+      bottomHelpMessage: '启用后，下方现有模型配置直接使用 LLM-Gateway-Plugin 提供的接口、密钥分组和模型列表，Baike 无需重复保存接口密钥',
       component: 'Switch',
       defaultValue: false
     },
@@ -388,22 +361,7 @@ function createGatewaySchemas() {
       bottomHelpMessage: '开启后，网关未加载或请求失败会继续尝试下方 Baike 本地模型配置；这可能产生第二次模型请求',
       component: 'Switch',
       defaultValue: true
-    },
-    ...gatewayProfileFields.map(item => ({
-      field: `api.gateway.profiles.${item.type}`,
-      label: item.label,
-      bottomHelpMessage: '填写模型网关中的档案 ID；候选项来自当前已加载的 LLM-Gateway-Plugin，也可以直接输入自定义 ID',
-      component: 'AutoComplete',
-      defaultValue: 'default',
-      componentProps: {
-        options: profileOptions,
-        allowClear: true,
-        filterOption: true,
-        optionFilterProp: 'value',
-        placeholder: 'default',
-        dropdownMatchSelectWidth: false
-      }
-    }))
+    }
   ]
 }
 
@@ -426,7 +384,7 @@ function createModelConfigSchemas({
     {
       field: 'model',
       label: modelLabel,
-      bottomHelpMessage: '可手动输入模型名；也可先在“接口预设 -> 密钥分组”中获取模型列表，再从已缓存候选中选择。候选项过多时只加载前一部分以保持页面流畅',
+      bottomHelpMessage: '可手动输入模型名；网关模式读取模型网关缓存，本地模式读取 Baike 缓存，并会随接口和密钥分组切换',
       component: 'AutoComplete',
       componentPropsBindings: createModelOptionsBindings(modelOptions),
       componentProps: createModelAutoCompleteProps(modelOptions, modelPlaceholder)
@@ -434,7 +392,7 @@ function createModelConfigSchemas({
     {
       field: 'apiPresetId',
       label: `${modelLabel.replace('模型名', '')}接口预设`,
-      bottomHelpMessage: '选择在“接口预设”中配置的接口；留空则使用下面的自定义地址，或回退旧主接口地址',
+      bottomHelpMessage: '网关模式选择模型网关接口；本地模式选择 Baike 接口预设',
       component: 'Select',
       defaultValue: '',
       componentPropsBindings: createApiPresetOptionsBindings(apiPresetOptions),
@@ -449,7 +407,7 @@ function createModelConfigSchemas({
     {
       field: 'apiKeyGroupId',
       label: `${modelLabel.replace('模型名', '')}密钥分组`,
-      bottomHelpMessage: '选择接口预设下的密钥分组；留空则使用所选接口的第一个可用密钥，或回退旧主接口密钥',
+      bottomHelpMessage: '候选项随接口切换；网关模式的实际密钥只保存在 LLM-Gateway-Plugin',
       component: 'Select',
       defaultValue: '',
       componentPropsBindings: createApiKeyGroupOptionsBindings(apiKeyGroupOptions),
@@ -464,7 +422,7 @@ function createModelConfigSchemas({
     {
       field: 'baseUrl',
       label: `${modelLabel.replace('模型名', '')}接口地址`,
-      bottomHelpMessage: '自定义地址优先级最高；留空则使用所选接口预设，再回退旧主接口地址',
+      bottomHelpMessage: '仅用于 Baike 本地模式或网关失败后的本地回退；网关模式不会把该地址传给模型网关',
       component: 'Input',
       componentProps: {
         placeholder: 'https://example.com/v1'
@@ -473,7 +431,7 @@ function createModelConfigSchemas({
     {
       field: 'apiKey',
       label: `${modelLabel.replace('模型名', '')}接口密钥`,
-      bottomHelpMessage: '自定义密钥优先级最高；留空则使用所选密钥分组，再回退旧主接口密钥',
+      bottomHelpMessage: '仅用于 Baike 本地模式或网关失败后的本地回退；网关模式不会读取或传递该密钥',
       component: 'InputPassword',
       componentProps: {
         placeholder: '留空使用所选密钥分组'
@@ -482,7 +440,7 @@ function createModelConfigSchemas({
     {
       field: 'endpointType',
       label: `${modelLabel.replace('模型名', '')}接口格式`,
-      bottomHelpMessage: '默认继承接口预设；需要覆盖时可指定端点格式：OpenAI Chat、OpenAI Responses、Claude Messages、Gemini Native',
+      bottomHelpMessage: '仅控制 Baike 本地请求；网关模式自动使用模型网关接口预设中的端点格式',
       component: 'Select',
       defaultValue: 'inherit',
       componentProps: {
@@ -700,7 +658,7 @@ function createApiPresetsSchema() {
   return {
     field: 'api.presets',
     label: '接口预设',
-    bottomHelpMessage: '可配置多个接口；同一接口可配置多组密钥。模型配置选择接口和密钥分组后，会自动使用这里的地址和密钥',
+    bottomHelpMessage: 'Baike 本地模式和网关失败回退使用；启用模型网关后无需在这里重复配置接口与密钥',
     component: 'GSubForm',
     defaultValue: [],
     componentProps: {
@@ -729,7 +687,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   {
     field: 'model',
     label: '模型名',
-    bottomHelpMessage: '降级时要切换到的模型名；可手动输入，也可从已缓存候选中选择。候选项过多时只加载前一部分以保持页面流畅',
+    bottomHelpMessage: '降级时切换的模型；网关模式读取模型网关缓存，本地模式读取 Baike 缓存',
     component: 'AutoComplete',
     componentPropsBindings: createModelOptionsBindings(modelOptions),
     componentProps: createModelAutoCompleteProps(modelOptions, '例如：grok-4.2')
@@ -737,7 +695,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   {
     field: 'apiPresetId',
     label: '接口预设',
-    bottomHelpMessage: '留空继承当前类型主配置；也可选择其他接口预设作为下级模型接口',
+    bottomHelpMessage: '留空继承当前主模型；网关模式可选择模型网关中的其他接口',
     component: 'Select',
     defaultValue: '',
     componentPropsBindings: createApiPresetOptionsBindings(apiPresetOptions),
@@ -752,7 +710,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   {
     field: 'apiKeyGroupId',
     label: '密钥分组',
-    bottomHelpMessage: '留空继承当前类型主配置；也可选择其他接口预设下的密钥分组',
+    bottomHelpMessage: '留空继承当前主模型；网关模式的实际密钥不会保存到 Baike',
     component: 'Select',
     defaultValue: '',
     componentPropsBindings: createApiKeyGroupOptionsBindings(apiKeyGroupOptions),
@@ -767,7 +725,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   {
     field: 'baseUrl',
     label: '接口地址',
-    bottomHelpMessage: '留空则继承当前类型配置的接口地址，再留空则继续回退到主接口地址',
+    bottomHelpMessage: '仅用于 Baike 本地模式或网关失败后的本地回退',
     component: 'Input',
     componentProps: {
       placeholder: '例如：https://example.com/v1'
@@ -776,7 +734,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   {
     field: 'apiKey',
     label: '接口密钥',
-    bottomHelpMessage: '自定义密钥优先级最高；留空则使用所选密钥分组或继承当前类型配置',
+    bottomHelpMessage: '仅用于 Baike 本地模式或网关失败后的本地回退，网关模式不会传递该密钥',
     component: 'InputPassword',
     componentProps: {
       placeholder: '留空继承当前配置'
@@ -785,7 +743,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
   {
     field: 'endpointType',
     label: '接口格式',
-    bottomHelpMessage: '默认继承当前类型主配置；下级模型接入不同服务商时可单独指定',
+    bottomHelpMessage: '仅控制 Baike 本地请求；网关模式继承模型网关接口预设',
     component: 'Select',
     defaultValue: 'inherit',
     componentProps: {

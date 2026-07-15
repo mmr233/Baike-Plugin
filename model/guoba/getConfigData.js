@@ -79,6 +79,20 @@ function formatApiKeyGroupFormValue(apiPresetId = '', apiKeyGroupId = '') {
   return keyGroupId
 }
 
+function parseApiKeyGroupRef(value = '') {
+  const raw = String(value || '').trim()
+  for (const delimiter of ['::', '/', '|']) {
+    if (raw.includes(delimiter)) {
+      const [presetId, ...rest] = raw.split(delimiter)
+      return {
+        presetId: String(presetId || '').trim(),
+        keyGroupId: String(rest.join(delimiter) || '').trim()
+      }
+    }
+  }
+  return { presetId: '', keyGroupId: raw }
+}
+
 function formatOptionLabel(name = '', id = '') {
   const actualName = String(name || '').trim()
   const actualId = String(id || '').trim()
@@ -150,6 +164,136 @@ function buildApiSelectionOptions(apiConfig = {}) {
     ],
     keyOptionsByPreset,
     defaultKeyGroupByPreset
+  }
+}
+
+function createEmptyGatewaySelectionData() {
+  return {
+    available: false,
+    presetOptions: [],
+    keyGroupOptions: [],
+    keyGroupOptionsByPreset: {},
+    defaultKeyGroupByPreset: {},
+    modelOptions: [],
+    modelOptionsBySource: {}
+  }
+}
+
+function getGatewaySelectionData(enabled = false) {
+  if (!enabled) {
+    return null
+  }
+  try {
+    const gateway = globalThis.LLMGateway || globalThis.llmGateway
+    if (typeof gateway?.getSelectionData !== 'function') {
+      return createEmptyGatewaySelectionData()
+    }
+    const selectionData = gateway.getSelectionData()
+    if (!selectionData || typeof selectionData !== 'object') {
+      return createEmptyGatewaySelectionData()
+    }
+    return {
+      ...selectionData,
+      available: true
+    }
+  } catch {
+    return createEmptyGatewaySelectionData()
+  }
+}
+
+function buildGatewayApiSelectionOptions(catalog = {}) {
+  const presetOptions = Array.isArray(catalog.presetOptions) ? catalog.presetOptions : []
+  const keyGroupOptions = Array.isArray(catalog.keyGroupOptions) ? catalog.keyGroupOptions : []
+  const optionsByPreset = catalog.keyGroupOptionsByPreset && typeof catalog.keyGroupOptionsByPreset === 'object'
+    ? catalog.keyGroupOptionsByPreset
+    : {}
+  const defaultByPreset = catalog.defaultKeyGroupByPreset && typeof catalog.defaultKeyGroupByPreset === 'object'
+    ? catalog.defaultKeyGroupByPreset
+    : {}
+  const keyOptionsByPreset = {}
+  const defaultKeyGroupByPreset = {}
+
+  for (const [presetId, options] of Object.entries(optionsByPreset)) {
+    keyOptionsByPreset[presetId] = [
+      createDefaultApiKeyGroupOption(presetId),
+      ...(Array.isArray(options) ? options : []).map(item => ({
+        ...item,
+        value: `${presetId}::${item.keyGroupId || item.value}`,
+        presetId,
+        keyGroupId: item.keyGroupId || item.value
+      }))
+    ]
+    const defaultKeyGroupId = String(defaultByPreset[presetId] || '').trim()
+    if (defaultKeyGroupId) {
+      defaultKeyGroupByPreset[presetId] = `${presetId}::${defaultKeyGroupId}`
+    }
+  }
+
+  return {
+    apiPresetOptions: [
+      {
+        label: catalog.available === false ? '模型网关未加载或不可用' : '请选择模型网关接口',
+        value: '',
+        disabled: catalog.available === false
+      },
+      ...presetOptions
+    ],
+    apiKeyGroupOptions: [
+      {
+        label: catalog.available === false ? '模型网关未加载或不可用' : '请选择模型网关密钥分组',
+        value: '',
+        disabled: catalog.available === false
+      },
+      ...keyGroupOptions
+    ],
+    keyOptionsByPreset,
+    defaultKeyGroupByPreset
+  }
+}
+
+function resolveGatewayModelSource(sourceConfig = {}, inherited = {}, catalog = {}) {
+  const sourceGroupRef = parseApiKeyGroupRef(sourceConfig.apiKeyGroupId)
+  const inheritedGroupRef = parseApiKeyGroupRef(inherited.apiKeyGroupId)
+  const explicitPresetId = String(sourceGroupRef.presetId || sourceConfig.apiPresetId || '').trim()
+  const apiPresetId = explicitPresetId || String(inheritedGroupRef.presetId || inherited.apiPresetId || '').trim()
+  const apiKeyGroupId = String(
+    sourceGroupRef.keyGroupId
+    || (explicitPresetId ? '' : inheritedGroupRef.keyGroupId)
+    || catalog.defaultKeyGroupByPreset?.[apiPresetId]
+    || ''
+  ).trim()
+  return { apiPresetId, apiKeyGroupId }
+}
+
+function buildGatewayModelRuntimeFields(catalog = {}, sourceConfig = {}, inherited = {}, selectionOptions = null) {
+  const actualSelectionOptions = selectionOptions || buildGatewayApiSelectionOptions(catalog)
+  const source = resolveGatewayModelSource(sourceConfig, inherited, catalog)
+  const configuredModel = String(sourceConfig.model || inherited.model || '').trim()
+  const configuredModelOption = configuredModel
+    ? [{ label: `${configuredModel}（当前配置）`, value: configuredModel }]
+    : []
+  const modelOptions = Array.isArray(catalog.modelOptions) && catalog.modelOptions.length > 0
+    ? catalog.modelOptions
+    : configuredModelOption
+  const modelOptionsMap = catalog.modelOptionsBySource && typeof catalog.modelOptionsBySource === 'object'
+    ? { ...catalog.modelOptionsBySource }
+    : {}
+  const sourceKey = `${source.apiPresetId}::${source.apiKeyGroupId}`
+  const compositeSourceKey = `${source.apiPresetId}::${source.apiPresetId}::${source.apiKeyGroupId}`
+  const currentOptions = modelOptionsMap[sourceKey] || modelOptions
+  if (source.apiPresetId && source.apiKeyGroupId && !modelOptionsMap[sourceKey] && configuredModelOption.length > 0) {
+    modelOptionsMap[sourceKey] = configuredModelOption
+    modelOptionsMap[compositeSourceKey] = configuredModelOption
+  }
+
+  return {
+    __apiPresetOptions: actualSelectionOptions.apiPresetOptions,
+    __apiKeyGroupOptions: actualSelectionOptions.apiKeyGroupOptions,
+    __apiKeyGroupOptionsByPreset: actualSelectionOptions.keyOptionsByPreset,
+    __apiDefaultKeyGroupByPreset: actualSelectionOptions.defaultKeyGroupByPreset,
+    __modelOptions: currentOptions,
+    __modelOptionsAll: modelOptions,
+    __modelOptionsMap: modelOptionsMap
   }
 }
 
@@ -367,9 +511,24 @@ export async function getConfigData() {
   const config = Config.getAll()
   const { prompt: _prompt, ...configForGuoba } = config
   const api = { ...(config.api || {}) }
+  api.gateway = {
+    enabled: Boolean(api.gateway?.enabled),
+    fallbackToLocal: api.gateway?.fallbackToLocal !== false
+  }
   api.modelOptionsCache = normalizeModelOptionsCache(api.modelOptionsCache)
   api.presets = normalizeApiPresets(api.presets, api.modelOptionsCache)
-  const selectionOptions = buildApiSelectionOptions(api)
+  const gatewayCatalog = getGatewaySelectionData(api.gateway.enabled)
+  const selectionOptions = gatewayCatalog
+    ? buildGatewayApiSelectionOptions(gatewayCatalog)
+    : buildApiSelectionOptions(api)
+  const buildGatewayRuntimeFields = gatewayCatalog
+    ? (sourceConfig, inherited) => buildGatewayModelRuntimeFields(
+        gatewayCatalog,
+        sourceConfig,
+        inherited,
+        selectionOptions
+      )
+    : null
   const modelFormConfigs = {}
 
   for (const modelType of MODEL_TYPES) {
@@ -389,11 +548,15 @@ export async function getConfigData() {
     }
     api[modelType].fallbackModels = fallbackModels.map(item => ({
       ...item,
-      ...buildModelRuntimeFields(api, modelType, item, api[modelType], selectionOptions)
+      ...(gatewayCatalog
+          ? buildGatewayRuntimeFields(item, api[modelType])
+          : buildModelRuntimeFields(api, modelType, item, api[modelType], selectionOptions))
     }))
 
     modelFormConfigs[MODEL_FORM_FIELD_MAP[modelType]] = [{
-      ...buildModelRuntimeFields(api, modelType, api[modelType], {}, selectionOptions),
+      ...(gatewayCatalog
+          ? buildGatewayRuntimeFields(api[modelType], {})
+          : buildModelRuntimeFields(api, modelType, api[modelType], {}, selectionOptions)),
       model: String(api[modelType].model || defaults.model).trim(),
       apiPresetId: api[modelType].apiPresetId,
       apiKeyGroupId: formatApiKeyGroupFormValue(api[modelType].apiPresetId, api[modelType].apiKeyGroupId),
