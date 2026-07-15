@@ -233,19 +233,25 @@ function createModelOptionsBindings(modelOptions = []) {
       firstOf: [
         {
           mapPath: '__modelOptionsMap',
-          keyTemplate: '${apiPresetId}::${apiKeyGroupId}::${endpointType}',
-          fallbackPath: '__modelOptions'
+          keyTemplate: '${apiPresetId}::${apiKeyGroupId}::${endpointType}'
         },
         {
           mapPath: '__modelOptionsMap',
-          keyTemplate: 'base:${baseUrl}::${endpointType}',
-          fallbackPath: '__modelOptions'
+          keyTemplate: '${apiPresetId}::${apiKeyGroupId}'
         },
         {
-          path: '__modelOptions'
+          mapPath: '__modelOptionsMap',
+          keyTemplate: 'base:${baseUrl}::${endpointType}'
+        },
+        {
+          mapPath: '__modelOptionsMap',
+          keyTemplate: 'base:${baseUrl}'
         },
         {
           path: '__modelOptionsAll'
+        },
+        {
+          path: '__modelOptions'
         }
       ],
       fallback: modelOptions

@@ -221,6 +221,7 @@ function addEndpointVariants(map = {}, keyPrefix = '', endpointType = '', option
     return
   }
 
+  addOptionsMapEntry(map, prefix, options)
   addOptionsMapEntry(map, `${prefix}::${endpoint}`, options)
   addOptionsMapEntry(map, `${prefix}::inherit`, options)
 }
@@ -259,7 +260,11 @@ export function buildModelOptionsMapFromCache(cacheEntries = [], options = {}) {
       if (keyGroupId) {
         addEndpointVariants(map, `${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
         addEndpointVariants(map, `${entry.apiPresetId}::${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
+        addEndpointVariants(map, `${entry.apiPresetId}::${entry.apiPresetId}/${keyGroupId}`, endpointType, entryOptions)
+        addEndpointVariants(map, `${entry.apiPresetId}::${entry.apiPresetId}|${keyGroupId}`, endpointType, entryOptions)
         addEndpointVariants(map, `::${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
+        addEndpointVariants(map, `::${entry.apiPresetId}/${keyGroupId}`, endpointType, entryOptions)
+        addEndpointVariants(map, `::${entry.apiPresetId}|${keyGroupId}`, endpointType, entryOptions)
       }
       if (!entry.apiKeyGroupId || entry.apiKeyGroupId === defaultKeyGroupIdByPreset[entry.apiPresetId]) {
         addEndpointVariants(map, `${entry.apiPresetId}::`, endpointType, entryOptions)
@@ -268,10 +273,16 @@ export function buildModelOptionsMapFromCache(cacheEntries = [], options = {}) {
   }
 
   const allOptions = createOptionsForEntries(entries)
+  addOptionsMapEntry(map, '::', allOptions)
+  addOptionsMapEntry(map, '::::', allOptions)
+  addOptionsMapEntry(map, '::::inherit', allOptions)
   addOptionsMapEntry(map, 'empty:|||', allOptions)
   addOptionsMapEntry(map, 'empty:|||inherit', allOptions)
   for (const [endpointType, endpointEntries] of entriesByEndpoint.entries()) {
-    addOptionsMapEntry(map, `empty:|||${endpointType}`, createOptionsForEntries(endpointEntries))
+    const endpointOptions = createOptionsForEntries(endpointEntries)
+    addOptionsMapEntry(map, `::::${endpointType}`, endpointOptions)
+    addOptionsMapEntry(map, `base:::${endpointType}`, endpointOptions)
+    addOptionsMapEntry(map, `empty:|||${endpointType}`, endpointOptions)
   }
 
   return map
