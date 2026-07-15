@@ -12,6 +12,7 @@ import { sleep } from '../../utils/common.js'
 
 const execFile = promisify(execFileCallback)
 const DEFAULT_CONNECT_TIMEOUT_MS = 30000
+const GATEWAY_PRESET_PREFIX = 'gateway:'
 const fetchDispatcherCache = new Map()
 let undiciAgentPromise = null
 let undiciUnavailableWarned = false
@@ -1818,7 +1819,16 @@ class ApiService {
       const baseUrl = resolvedApi.baseUrl
       const apiKey = resolvedApi.apiKey
       const model = String(candidate.model || '').trim()
-      const valid = Boolean(baseUrl && apiKey && model)
+      const candidateGroupRef = this.parseApiKeyGroupRef(candidate.apiKeyGroupId)
+      const explicitCandidatePresetId = String(
+        candidateGroupRef.presetId
+        || candidate.apiPresetId
+        || ''
+      ).trim()
+      const effectiveCandidatePresetId = explicitCandidatePresetId
+        || (candidate.source === 'fallback' ? primaryApi.apiPresetId : modelConfig.apiPresetId)
+      const gatewayCandidate = this.isConfiguredGatewayPresetId(effectiveCandidatePresetId)
+      const valid = !gatewayCandidate && Boolean(baseUrl && apiKey && model)
 
       return {
         ...candidate,
@@ -1834,6 +1844,7 @@ class ApiService {
         timeoutMs: requestTimeout,
         connectTimeoutMs: connectTimeout,
         retryCount: maxRetries,
+        gatewayCandidate,
         valid
       }
     })
@@ -2400,15 +2411,62 @@ class ApiService {
     return gateway && typeof gateway.chat === 'function' ? gateway : null
   }
 
+  isGatewayPresetId(value = '') {
+    return String(value || '').trim().startsWith(GATEWAY_PRESET_PREFIX)
+  }
+
+  stripGatewayPresetId(value = '') {
+    const presetId = String(value || '').trim()
+    return this.isGatewayPresetId(presetId)
+      ? presetId.slice(GATEWAY_PRESET_PREFIX.length)
+      : presetId
+  }
+
+  isConfiguredGatewayPresetId(value = '') {
+    const presetId = String(value || '').trim()
+    if (this.isGatewayPresetId(presetId)) return true
+    if (!presetId) return false
+    const localPresets = Config.get('api.presets', [])
+    if (Array.isArray(localPresets) && localPresets.some(item => String(item?.id || '').trim() === presetId)) {
+      return false
+    }
+    const gateway = this.getLLMGateway()
+    const gatewayPresets = typeof gateway?.getPresets === 'function' ? gateway.getPresets() : []
+    return Array.isArray(gatewayPresets)
+      && gatewayPresets.some(item => String(item?.id || '').trim() === presetId)
+  }
+
+  shouldUseGatewayForModel(modelType, options = {}) {
+    if (options.useGateway !== undefined) {
+      return Boolean(options.useGateway)
+    }
+    const gatewayConfig = this.getGatewayRequestConfig(options)
+    if (!gatewayConfig.enabled) return false
+    const modelConfig = Config.get(`api.${modelType}`, {})
+    const groupRef = this.parseApiKeyGroupRef(options.apiKeyGroupId ?? modelConfig.apiKeyGroupId)
+    const apiPresetId = String(
+      groupRef.presetId
+      || options.apiPresetId
+      || modelConfig.apiPresetId
+      || ''
+    ).trim()
+    return this.isConfiguredGatewayPresetId(apiPresetId)
+  }
+
   getGatewayModelConfig(modelType, options = {}) {
     const modelConfig = Config.get(`api.${modelType}`, {})
     const groupRef = this.parseApiKeyGroupRef(options.apiKeyGroupId ?? modelConfig.apiKeyGroupId)
     const fallbackModels = this.normalizeFallbackModels(options.fallbackModels ?? modelConfig.fallbackModels)
+      .filter(item => {
+        const fallbackGroupRef = this.parseApiKeyGroupRef(item.apiKeyGroupId)
+        const explicitPresetId = String(fallbackGroupRef.presetId || item.apiPresetId || '').trim()
+        return !explicitPresetId || this.isConfiguredGatewayPresetId(explicitPresetId)
+      })
       .map(item => {
         const fallbackGroupRef = this.parseApiKeyGroupRef(item.apiKeyGroupId)
         return {
           model: item.model,
-          apiPresetId: String(fallbackGroupRef.presetId || item.apiPresetId || '').trim(),
+          apiPresetId: this.stripGatewayPresetId(fallbackGroupRef.presetId || item.apiPresetId),
           apiKeyGroupId: String(fallbackGroupRef.keyGroupId || '').trim(),
           requestMode: this.normalizeFallbackRequestMode(item.requestMode, 'inherit')
         }
@@ -2416,7 +2474,7 @@ class ApiService {
 
     return {
       model: String(options.model ?? modelConfig.model ?? '').trim(),
-      apiPresetId: String(groupRef.presetId || options.apiPresetId || modelConfig.apiPresetId || '').trim(),
+      apiPresetId: this.stripGatewayPresetId(groupRef.presetId || options.apiPresetId || modelConfig.apiPresetId),
       apiKeyGroupId: String(groupRef.keyGroupId || '').trim(),
       requestMode: this.normalizeRequestMode(options.requestMode, modelConfig.requestMode || 'response'),
       timeoutMs: this.normalizeTimeoutMs(
@@ -2536,9 +2594,38 @@ class ApiService {
     }
   }
 
+  getExplicitGatewayFallbacks(modelType, options = {}) {
+    const modelConfig = Config.get(`api.${modelType}`, {})
+    return this.normalizeFallbackModels(options.fallbackModels ?? modelConfig.fallbackModels)
+      .filter(item => {
+        const groupRef = this.parseApiKeyGroupRef(item.apiKeyGroupId)
+        const presetId = String(groupRef.presetId || item.apiPresetId || '').trim()
+        return presetId && this.isConfiguredGatewayPresetId(presetId)
+      })
+  }
+
+  async requestGatewayFallback(modelType, messages, options, gatewayFallbacks, previousError = null) {
+    const [gatewayPrimary, ...gatewayRest] = gatewayFallbacks
+    logger.warn(
+      `[${pluginName}] ${modelType} 本地模型候选均失败，自动降级到网关模型(${gatewayPrimary.model})：${this.formatErrorWithCause(previousError)}`
+    )
+    return this.requestChatCompletionViaGateway(modelType, messages, {
+      ...options,
+      useGateway: true,
+      model: gatewayPrimary.model,
+      apiPresetId: gatewayPrimary.apiPresetId,
+      apiKeyGroupId: gatewayPrimary.apiKeyGroupId,
+      requestMode: gatewayPrimary.requestMode === 'inherit'
+        ? options.requestMode
+        : gatewayPrimary.requestMode,
+      fallbackModels: gatewayRest
+    })
+  }
+
   async requestChatCompletion(modelType, messages, options = {}) {
     const gatewayConfig = this.getGatewayRequestConfig(options)
-    if (gatewayConfig.enabled) {
+    const primaryUsesGateway = this.shouldUseGatewayForModel(modelType, options)
+    if (primaryUsesGateway) {
       try {
         return await this.requestChatCompletionViaGateway(modelType, messages, options)
       } catch (error) {
@@ -2553,6 +2640,9 @@ class ApiService {
 
     const candidates = this.getModelConfigCandidates(modelType, options)
     const validCandidates = candidates.filter(item => item.valid)
+    const gatewayFallbacks = primaryUsesGateway
+      ? []
+      : this.getExplicitGatewayFallbacks(modelType, options)
 
     for (const skipped of candidates.filter(item => !item.valid)) {
       logger.warn(
@@ -2561,6 +2651,9 @@ class ApiService {
     }
 
     if (validCandidates.length === 0) {
+      if (gatewayConfig.enabled && gatewayFallbacks.length > 0) {
+        return this.requestGatewayFallback(modelType, messages, options, gatewayFallbacks)
+      }
       throw new Error(`${modelType} 模型配置不完整，请检查锅巴面板或配置文件`)
     }
 
@@ -2698,6 +2791,10 @@ class ApiService {
           `[${pluginName}] ${modelType} ${candidate.label}(${candidate.model}) 请求失败，自动降级到 ${nextCandidate.label}(${nextCandidate.model})：${this.formatErrorWithCause(lastError)}`
         )
       }
+    }
+
+    if (gatewayConfig.enabled && gatewayFallbacks.length > 0) {
+      return this.requestGatewayFallback(modelType, messages, options, gatewayFallbacks, lastError)
     }
 
     throw lastError || new Error(`${modelType} 请求失败：所有模型候选均不可用`)

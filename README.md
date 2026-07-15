@@ -40,7 +40,7 @@
 ## 锅巴配置说明
 
 - 搜索模型、总结模型、视频模型、音频模型都能在锅巴里单独配置
-- 可选接入 [LLM-Gateway-Plugin](https://github.com/mmr233/LLM-Gateway-Plugin)，现有模型表单直接选择共享接口、密钥分组和模型；Baike 只需填写插件名称和网关全局授权码
+- 可选接入 [LLM-Gateway-Plugin](https://github.com/mmr233/LLM-Gateway-Plugin)，启用后会在现有本地接口、密钥分组和模型候选中追加【网关】来源，不会替换本地配置
 - 缓存时长、缓存容量、发送方式、HTML 卡片主题与夜晚时段、来源显示上限和截图数量都能直接调
 - 定时群总结支持直接配置每日执行时间、目标群和消息条数
 - 锅巴保存后会自动刷新定时任务，无需手动重启
@@ -73,7 +73,7 @@ plugins/Baike-Plugin/config/config/config.json
 git clone --depth=1 https://github.com/mmr233/LLM-Gateway-Plugin.git ./plugins/LLM-Gateway-Plugin/
 ```
 
-网关模式直接复用 Baike 原有的搜索、图片、总结、JSON 修复、视频和音频模型表单。接口预设、密钥分组和模型候选来自模型网关，请求方式、超时、重试和降级模型仍由 Baike 按功能独立配置。填写模型网关的全局授权码后，Baike 首次请求会自动登记。默认关闭，不影响已有本地配置；开启“网关失败时回退本地接口”后，网关不可用或鉴权失败时仍会尝试 Baike 原有接口。
+启用网关来源后，Baike 原有的搜索、图片、总结、JSON 修复、视频和音频模型表单会同时显示本地来源与带【网关】标记的来源，所选接口决定实际请求路径。本地接口和密钥配置保持不变；网关接口使用模型网关中的密钥。填写全局授权码后，Baike 首次网关请求会自动登记。
 
 ---
 
