@@ -536,7 +536,9 @@ const DEFAULT_CONFIG = {
     primaryApiKey: 'your-primary-api-key',
     gateway: {
       enabled: false,
-      fallbackToLocal: true
+      fallbackToLocal: true,
+      clientId: 'baike-plugin',
+      accessCode: ''
     },
     presets: [
       {

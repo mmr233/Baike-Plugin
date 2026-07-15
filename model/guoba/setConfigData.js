@@ -57,7 +57,9 @@ function normalizeGatewayConfig(value = {}) {
 
   return {
     enabled: Boolean(source.enabled),
-    fallbackToLocal: source.fallbackToLocal !== false
+    fallbackToLocal: source.fallbackToLocal !== false,
+    clientId: String(source.clientId || 'baike-plugin').trim() || 'baike-plugin',
+    accessCode: String(source.accessCode || '').trim()
   }
 }
 

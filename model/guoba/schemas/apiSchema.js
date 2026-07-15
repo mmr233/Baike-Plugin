@@ -361,6 +361,26 @@ function createGatewaySchemas() {
       bottomHelpMessage: '开启后，网关未加载或请求失败会继续尝试下方 Baike 本地模型配置；这可能产生第二次模型请求',
       component: 'Switch',
       defaultValue: true
+    },
+    {
+      field: 'api.gateway.clientId',
+      label: '网关接入方 ID',
+      bottomHelpMessage: '需与 LLM-Gateway-Plugin 中授权接入方的 clientId 一致',
+      component: 'Input',
+      defaultValue: 'baike-plugin',
+      componentProps: {
+        placeholder: 'baike-plugin'
+      }
+    },
+    {
+      field: 'api.gateway.accessCode',
+      label: '网关接入码',
+      bottomHelpMessage: '需与模型网关为 Baike 分配的接入码一致，仅发送给模型网关鉴权',
+      component: 'InputPassword',
+      defaultValue: '',
+      componentProps: {
+        placeholder: '填写模型网关接入码'
+      }
     }
   ]
 }

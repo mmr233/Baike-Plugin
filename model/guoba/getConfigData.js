@@ -513,7 +513,9 @@ export async function getConfigData() {
   const api = { ...(config.api || {}) }
   api.gateway = {
     enabled: Boolean(api.gateway?.enabled),
-    fallbackToLocal: api.gateway?.fallbackToLocal !== false
+    fallbackToLocal: api.gateway?.fallbackToLocal !== false,
+    clientId: String(api.gateway?.clientId || 'baike-plugin').trim() || 'baike-plugin',
+    accessCode: String(api.gateway?.accessCode || '').trim()
   }
   api.modelOptionsCache = normalizeModelOptionsCache(api.modelOptionsCache)
   api.presets = normalizeApiPresets(api.presets, api.modelOptionsCache)

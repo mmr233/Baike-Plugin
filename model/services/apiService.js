@@ -2383,7 +2383,9 @@ class ApiService {
         : Boolean(options.useGateway),
       fallbackToLocal: options.gatewayFallbackToLocal === undefined
         ? config?.fallbackToLocal !== false
-        : Boolean(options.gatewayFallbackToLocal)
+        : Boolean(options.gatewayFallbackToLocal),
+      clientId: String(options.gatewayClientId ?? config?.clientId ?? 'baike-plugin').trim() || 'baike-plugin',
+      accessCode: String(options.gatewayAccessCode ?? config?.accessCode ?? '').trim()
     }
   }
 
@@ -2434,11 +2436,14 @@ class ApiService {
       error.code = 'LLM_GATEWAY_UNAVAILABLE'
       throw error
     }
+    const gatewayAuthConfig = this.getGatewayRequestConfig(options)
 
     const {
       useGateway: _useGateway,
       gatewayProfile: _gatewayProfile,
       gatewayFallbackToLocal: _gatewayFallbackToLocal,
+      gatewayClientId: _gatewayClientId,
+      gatewayAccessCode: _gatewayAccessCode,
       model: _model,
       apiPresetId: _apiPresetId,
       apiKeyGroupId: _apiKeyGroupId,
@@ -2479,6 +2484,8 @@ class ApiService {
 
     const result = await gateway.chat({
       ...requestOptions,
+      clientId: gatewayAuthConfig.clientId,
+      accessCode: gatewayAuthConfig.accessCode,
       caller: requestOptions.caller || pluginName,
       purpose: requestOptions.purpose || modelType,
       source: {

@@ -6,6 +6,9 @@
   "author": "mmr233",
   "license": "MIT",
   "description": "百科查询与内容总结插件，支持锅巴面板与帮助HTML",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.96",
     "adm-zip": "^0.5.17",
