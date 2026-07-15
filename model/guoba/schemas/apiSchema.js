@@ -29,6 +29,15 @@ const modelEndpointTypeOptions = [
   ...endpointTypeOptions
 ]
 
+const gatewayProfileFields = [
+  { type: 'search', label: '搜索网关档案' },
+  { type: 'image', label: '图片网关档案' },
+  { type: 'summary', label: '总结网关档案' },
+  { type: 'jsonRepair', label: 'JSON 修复网关档案' },
+  { type: 'video', label: '视频网关档案' },
+  { type: 'audio', label: '音频网关档案' }
+]
+
 const defaultApiPresetOptions = [
   { label: '自定义/旧主接口', value: '' }
 ]
@@ -336,6 +345,66 @@ function createSingleConfigForm(field, label, bottomHelpMessage, schemas) {
       schemas
     }
   }
+}
+
+function getGatewayProfileOptions() {
+  try {
+    const gateway = globalThis.LLMGateway || globalThis.llmGateway
+    const profiles = typeof gateway?.getProfiles === 'function' ? gateway.getProfiles() : []
+    return Array.isArray(profiles)
+      ? profiles
+        .map(item => ({
+          label: String(item?.name || item?.id || '').trim(),
+          value: String(item?.id || '').trim()
+        }))
+        .filter(item => item.value)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function createGatewaySchemas() {
+  const profileOptions = getGatewayProfileOptions()
+  return [
+    {
+      component: 'Divider',
+      label: '共享模型网关',
+      componentProps: {
+        orientation: 'left',
+        plain: true
+      }
+    },
+    {
+      field: 'api.gateway.enabled',
+      label: '使用 LLM 模型网关',
+      bottomHelpMessage: '启用后，各模型请求优先使用 LLM-Gateway-Plugin 中对应的模型档案，Baike 无需再保存接口密钥',
+      component: 'Switch',
+      defaultValue: false
+    },
+    {
+      field: 'api.gateway.fallbackToLocal',
+      label: '网关失败时回退本地接口',
+      bottomHelpMessage: '开启后，网关未加载或请求失败会继续尝试下方 Baike 本地模型配置；这可能产生第二次模型请求',
+      component: 'Switch',
+      defaultValue: true
+    },
+    ...gatewayProfileFields.map(item => ({
+      field: `api.gateway.profiles.${item.type}`,
+      label: item.label,
+      bottomHelpMessage: '填写模型网关中的档案 ID；候选项来自当前已加载的 LLM-Gateway-Plugin，也可以直接输入自定义 ID',
+      component: 'AutoComplete',
+      defaultValue: 'default',
+      componentProps: {
+        options: profileOptions,
+        allowClear: true,
+        filterOption: true,
+        optionFilterProp: 'value',
+        placeholder: 'default',
+        dropdownMatchSelectWidth: false
+      }
+    }))
+  ]
 }
 
 function createModelConfigSchemas({
@@ -766,6 +835,7 @@ function buildApiSchemaRaw() {
     component: 'SOFT_GROUP_BEGIN',
     label: '接口配置'
   },
+  ...createGatewaySchemas(),
   {
     field: 'api.modelOptionsCache',
     label: '模型列表缓存',

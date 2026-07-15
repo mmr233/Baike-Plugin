@@ -2374,7 +2374,96 @@ class ApiService {
     }
   }
 
+  getGatewayRequestConfig(modelType, options = {}) {
+    const config = Config.get('api.gateway', {})
+    const profiles = config?.profiles && typeof config.profiles === 'object'
+      ? config.profiles
+      : {}
+
+    return {
+      enabled: options.useGateway === undefined
+        ? Boolean(config?.enabled)
+        : Boolean(options.useGateway),
+      fallbackToLocal: options.gatewayFallbackToLocal === undefined
+        ? config?.fallbackToLocal !== false
+        : Boolean(options.gatewayFallbackToLocal),
+      profile: String(options.gatewayProfile || profiles?.[modelType] || 'default').trim() || 'default'
+    }
+  }
+
+  getLLMGateway() {
+    const gateway = globalThis.LLMGateway || globalThis.llmGateway
+    return gateway && typeof gateway.chat === 'function' ? gateway : null
+  }
+
+  async requestChatCompletionViaGateway(modelType, messages, options, gatewayConfig) {
+    const gateway = this.getLLMGateway()
+    if (!gateway) {
+      const error = new Error('LLM-Gateway-Plugin 未加载或尚未注册全局接口')
+      error.code = 'LLM_GATEWAY_UNAVAILABLE'
+      throw error
+    }
+
+    const {
+      useGateway: _useGateway,
+      gatewayProfile: _gatewayProfile,
+      gatewayFallbackToLocal: _gatewayFallbackToLocal,
+      ...requestOptions
+    } = options || {}
+
+    debugLog('api.gateway.request', `通过模型网关请求 ${modelType}`, {
+      profile: gatewayConfig.profile,
+      messageCount: Array.isArray(messages) ? messages.length : 0
+    })
+
+    const result = await gateway.chat({
+      ...requestOptions,
+      profile: gatewayConfig.profile,
+      messages
+    })
+    const text = String(result?.text || '')
+    const json = result?.json && typeof result.json === 'object'
+      ? result.json
+      : (result?.raw && typeof result.raw === 'object' ? result.raw : { output_text: text })
+    const candidate = {
+      ...(result?.candidate || {}),
+      label: result?.candidate?.label || `网关档案 ${gatewayConfig.profile}`,
+      source: 'gateway',
+      profile: gatewayConfig.profile
+    }
+
+    debugLog('api.gateway.response', `${modelType} 网关响应`, {
+      profile: gatewayConfig.profile,
+      model: candidate.model || '',
+      endpointType: candidate.endpointType || '',
+      requestMode: candidate.requestMode || '',
+      preview: text.slice(0, 200)
+    })
+
+    return {
+      text,
+      json,
+      raw: result?.raw || json,
+      usage: result?.usage || extractResponseUsage(json),
+      candidate
+    }
+  }
+
   async requestChatCompletion(modelType, messages, options = {}) {
+    const gatewayConfig = this.getGatewayRequestConfig(modelType, options)
+    if (gatewayConfig.enabled) {
+      try {
+        return await this.requestChatCompletionViaGateway(modelType, messages, options, gatewayConfig)
+      } catch (error) {
+        if (!gatewayConfig.fallbackToLocal) {
+          throw error
+        }
+        logger.warn(
+          `[${pluginName}] ${modelType} 模型网关请求失败，已回退到 Baike 本地接口配置：${this.formatErrorWithCause(error)}`
+        )
+      }
+    }
+
     const candidates = this.getModelConfigCandidates(modelType, options)
     const validCandidates = candidates.filter(item => item.valid)
 

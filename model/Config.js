@@ -534,6 +534,18 @@ const DEFAULT_CONFIG = {
   api: {
     primaryBaseUrl: 'https://your-api.example.com/v1',
     primaryApiKey: 'your-primary-api-key',
+    gateway: {
+      enabled: false,
+      fallbackToLocal: true,
+      profiles: {
+        search: 'default',
+        image: 'default',
+        summary: 'default',
+        jsonRepair: 'default',
+        video: 'default',
+        audio: 'default'
+      }
+    },
     presets: [
       {
         id: 'default',
