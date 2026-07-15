@@ -41,6 +41,13 @@ function normalizeText(value = '') {
   return String(value || '').trim()
 }
 
+function createDefaultApiKeyGroupOption(presetId = '') {
+  const actualPresetId = normalizeText(presetId)
+  return actualPresetId
+    ? { ...defaultApiKeyGroupOptions[0], presetId: actualPresetId, keyGroupId: '' }
+    : { ...defaultApiKeyGroupOptions[0] }
+}
+
 function normalizeApiPresets(value = []) {
   if (!Array.isArray(value)) {
     return []
@@ -91,17 +98,38 @@ function buildApiSelectionOptions() {
       label: formatOptionLabel(preset.name, preset.id),
       options: preset.keyGroups.map(group => ({
         label: formatOptionLabel(group.name, group.id),
-        value: `${preset.id}::${group.id}`
+        value: `${preset.id}::${group.id}`,
+        presetId: preset.id,
+        keyGroupId: group.id
       }))
     }))
     .filter(group => group.options.length > 0)
+  const keyOptionsByPreset = {}
+  const defaultKeyGroupByPreset = {}
+  for (const preset of presets) {
+    const options = preset.keyGroups.map(group => ({
+      label: formatOptionLabel(group.name, group.id),
+      value: `${preset.id}::${group.id}`,
+      presetId: preset.id,
+      keyGroupId: group.id
+    }))
+    keyOptionsByPreset[preset.id] = [
+      createDefaultApiKeyGroupOption(preset.id),
+      ...options
+    ]
+    if (options.length > 0) {
+      defaultKeyGroupByPreset[preset.id] = options[0].value
+    }
+  }
 
   return {
     apiPresetOptions,
     apiKeyGroupOptions: [
-      ...defaultApiKeyGroupOptions,
+      createDefaultApiKeyGroupOption(),
       ...groupedKeyOptions
-    ]
+    ],
+    keyOptionsByPreset,
+    defaultKeyGroupByPreset
   }
 }
 
@@ -119,6 +147,7 @@ function createModelOptionsRuntimeSchema() {
       runtimeOnly: true,
       save: false,
       show: false,
+      ifShow: false,
       componentProps: {
         disabled: true
       }
@@ -130,6 +159,31 @@ function createModelOptionsRuntimeSchema() {
       runtimeOnly: true,
       save: false,
       show: false,
+      ifShow: false,
+      componentProps: {
+        disabled: true
+      }
+    },
+    {
+      field: '__apiKeyGroupOptionsByPreset',
+      label: '接口密钥分组候选映射',
+      component: 'InputTextArea',
+      runtimeOnly: true,
+      save: false,
+      show: false,
+      ifShow: false,
+      componentProps: {
+        disabled: true
+      }
+    },
+    {
+      field: '__apiDefaultKeyGroupByPreset',
+      label: '接口默认密钥分组映射',
+      component: 'InputTextArea',
+      runtimeOnly: true,
+      save: false,
+      show: false,
+      ifShow: false,
       componentProps: {
         disabled: true
       }
@@ -141,6 +195,7 @@ function createModelOptionsRuntimeSchema() {
       runtimeOnly: true,
       save: false,
       show: false,
+      ifShow: false,
       componentProps: {
         disabled: true
       }
@@ -152,6 +207,7 @@ function createModelOptionsRuntimeSchema() {
       runtimeOnly: true,
       save: false,
       show: false,
+      ifShow: false,
       componentProps: {
         disabled: true
       }
@@ -163,6 +219,7 @@ function createModelOptionsRuntimeSchema() {
       runtimeOnly: true,
       save: false,
       show: false,
+      ifShow: false,
       componentProps: {
         disabled: true
       }
@@ -208,10 +265,44 @@ function createApiPresetOptionsBindings(apiPresetOptions = []) {
 function createApiKeyGroupOptionsBindings(apiKeyGroupOptions = []) {
   return {
     options: {
-      path: '__apiKeyGroupOptions',
+      firstOf: [
+        {
+          mapPath: '__apiKeyGroupOptionsByPreset',
+          keyTemplate: '${apiPresetId}',
+          fallbackPath: '__apiKeyGroupOptions'
+        },
+        {
+          path: '__apiKeyGroupOptions'
+        }
+      ],
       fallback: apiKeyGroupOptions
     }
   }
+}
+
+function createApiPresetFieldValueBindings() {
+  return [
+    {
+      target: 'apiKeyGroupId',
+      type: 'map',
+      source: 'formModel',
+      mapPath: '__apiDefaultKeyGroupByPreset',
+      keyTemplate: '${event.value}',
+      fallback: ''
+    }
+  ]
+}
+
+function createApiKeyGroupFieldValueBindings() {
+  return [
+    {
+      target: 'apiPresetId',
+      type: 'path',
+      source: 'option',
+      path: 'presetId',
+      fallback: ''
+    }
+  ]
 }
 
 function createModelAutoCompleteProps(modelOptions = [], placeholder = '') {
@@ -272,6 +363,7 @@ function createModelConfigSchemas({
       component: 'Select',
       defaultValue: '',
       componentPropsBindings: createApiPresetOptionsBindings(apiPresetOptions),
+      fieldValueBindings: createApiPresetFieldValueBindings(),
       componentProps: {
         options: apiPresetOptions,
         showSearch: true,
@@ -286,6 +378,7 @@ function createModelConfigSchemas({
       component: 'Select',
       defaultValue: '',
       componentPropsBindings: createApiKeyGroupOptionsBindings(apiKeyGroupOptions),
+      fieldValueBindings: createApiKeyGroupFieldValueBindings(),
       componentProps: {
         options: apiKeyGroupOptions,
         showSearch: true,
@@ -398,7 +491,8 @@ const apiPresetKeyGroupSchemas = [
     component: 'Input',
     runtimeOnly: true,
     save: false,
-    show: false
+    show: false,
+    ifShow: false
   },
   {
     field: '__modelOptionsButtons',
@@ -406,7 +500,8 @@ const apiPresetKeyGroupSchemas = [
     component: 'InputTextArea',
     runtimeOnly: true,
     save: false,
-    show: false
+    show: false,
+    ifShow: false
   },
   {
     field: '__modelOptionsPreview',
@@ -571,6 +666,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
     component: 'Select',
     defaultValue: '',
     componentPropsBindings: createApiPresetOptionsBindings(apiPresetOptions),
+    fieldValueBindings: createApiPresetFieldValueBindings(),
     componentProps: {
       options: apiPresetOptions,
       showSearch: true,
@@ -585,6 +681,7 @@ function createFallbackModelItemSchemas({ modelType, apiPresetOptions, apiKeyGro
     component: 'Select',
     defaultValue: '',
     componentPropsBindings: createApiKeyGroupOptionsBindings(apiKeyGroupOptions),
+    fieldValueBindings: createApiKeyGroupFieldValueBindings(),
     componentProps: {
       options: apiKeyGroupOptions,
       showSearch: true,
@@ -670,6 +767,7 @@ function buildApiSchemaRaw() {
     runtimeOnly: true,
     save: false,
     show: false,
+    ifShow: false,
     componentProps: {
       disabled: true
     }

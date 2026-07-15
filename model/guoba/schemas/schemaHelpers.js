@@ -28,13 +28,20 @@ function formatRecommendedValue(value, schema = {}) {
     return '只读展示'
   }
 
+  if (schema?.component === 'GSubForm') {
+    return ''
+  }
+
   if (Array.isArray(value)) {
     if (value.length === 0) {
       return '留空'
     }
 
     const options = Array.isArray(schema?.componentProps?.options) ? schema.componentProps.options : []
-    return value.map(item => findOptionLabel(options, item) || String(item)).join('、')
+    return value
+      .map(item => findOptionLabel(options, item) || formatRecommendedValue(item, { ...schema, component: '' }))
+      .filter(Boolean)
+      .join('、')
   }
 
   if (typeof value === 'boolean') {
@@ -48,6 +55,19 @@ function formatRecommendedValue(value, schema = {}) {
   if (schema?.component === 'Select' || schema?.component === 'RadioGroup') {
     const options = Array.isArray(schema?.componentProps?.options) ? schema.componentProps.options : []
     return findOptionLabel(options, value) || String(value)
+  }
+
+  if (typeof value === 'object') {
+    const label = normalizeText(value.label || value.name || value.title || value.id || value.value)
+    if (label) {
+      return label
+    }
+
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return ''
+    }
   }
 
   return String(value)
@@ -104,6 +124,10 @@ function deriveRecommendedValue(schema = {}, recommendationMap = {}) {
 
   if (schema.component === 'GSelectGroup' || schema.component === 'GSelectFriend') {
     return '按需选择'
+  }
+
+  if (schema.component === 'GSubForm') {
+    return ''
   }
 
   if (schema.component === 'InputTextArea') {

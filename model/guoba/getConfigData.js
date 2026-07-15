@@ -1,5 +1,9 @@
 import Config from '../Config.js'
-import { getModelCacheEntriesForType } from './modelOptions.js'
+import {
+  buildModelOptionsFromCache,
+  buildModelOptionsMapFromCache,
+  getModelCacheEntriesForType
+} from './modelOptions.js'
 
 const MODEL_TYPES = ['search', 'image', 'summary', 'jsonRepair', 'video', 'audio']
 const MODEL_PREVIEW_LIMIT = 40
@@ -12,6 +16,12 @@ const MODEL_FORM_FIELD_MAP = {
   audio: '_apiAudioConfig'
 }
 const MAX_MODEL_OPTIONS_PER_ENTRY = 500
+const DEFAULT_API_PRESET_OPTIONS = [
+  { label: '自定义/旧主接口', value: '' }
+]
+const DEFAULT_API_KEY_GROUP_OPTIONS = [
+  { label: '继承接口默认密钥', value: '' }
+]
 
 const MODEL_DEFAULTS = {
   search: { model: 'perplexity-search', timeoutMs: 100000, connectTimeoutMs: 30000, retryCount: 1, endpointType: 'inherit', requestMode: 'response' },
@@ -60,10 +70,87 @@ function normalizeFallbackEndpointType(value, fallback = 'inherit') {
 function formatApiKeyGroupFormValue(apiPresetId = '', apiKeyGroupId = '') {
   const presetId = String(apiPresetId || '').trim()
   const keyGroupId = String(apiKeyGroupId || '').trim()
+  if (keyGroupId.includes('::') || keyGroupId.includes('/') || keyGroupId.includes('|')) {
+    return keyGroupId
+  }
   if (presetId && keyGroupId) {
     return `${presetId}::${keyGroupId}`
   }
   return keyGroupId
+}
+
+function formatOptionLabel(name = '', id = '') {
+  const actualName = String(name || '').trim()
+  const actualId = String(id || '').trim()
+  if (!actualName) {
+    return actualId
+  }
+  return actualName === actualId ? actualName : `${actualName}（${actualId}）`
+}
+
+function createDefaultApiKeyGroupOption(presetId = '') {
+  const actualPresetId = String(presetId || '').trim()
+  return actualPresetId
+    ? { ...DEFAULT_API_KEY_GROUP_OPTIONS[0], presetId: actualPresetId, keyGroupId: '' }
+    : { ...DEFAULT_API_KEY_GROUP_OPTIONS[0] }
+}
+
+function buildApiSelectionOptions(apiConfig = {}) {
+  const presets = Array.isArray(apiConfig.presets) ? apiConfig.presets : []
+  const apiPresetOptions = [
+    ...DEFAULT_API_PRESET_OPTIONS,
+    ...presets
+      .filter(item => item?.id || item?.name)
+      .map(item => ({
+        label: formatOptionLabel(item.name, item.id),
+        value: String(item.id || '').trim()
+      }))
+      .filter(item => item.value)
+  ]
+  const groupedKeyOptions = presets
+    .map(preset => ({
+      label: formatOptionLabel(preset.name, preset.id),
+      options: (Array.isArray(preset.keyGroups) ? preset.keyGroups : [])
+        .filter(group => group?.id || group?.name)
+        .map(group => ({
+          label: formatOptionLabel(group.name, group.id),
+          value: `${preset.id}::${group.id}`,
+          presetId: preset.id,
+          keyGroupId: group.id
+        }))
+        .filter(item => item.value)
+    }))
+    .filter(group => group.options.length > 0)
+  const keyOptionsByPreset = {}
+  const defaultKeyGroupByPreset = {}
+  for (const preset of presets) {
+    const options = (Array.isArray(preset.keyGroups) ? preset.keyGroups : [])
+      .filter(group => group?.id || group?.name)
+      .map(group => ({
+        label: formatOptionLabel(group.name, group.id),
+        value: `${preset.id}::${group.id}`,
+        presetId: preset.id,
+        keyGroupId: group.id
+      }))
+      .filter(item => item.value)
+    keyOptionsByPreset[preset.id] = [
+      createDefaultApiKeyGroupOption(preset.id),
+      ...options
+    ]
+    if (options.length > 0) {
+      defaultKeyGroupByPreset[preset.id] = options[0].value
+    }
+  }
+
+  return {
+    apiPresetOptions,
+    apiKeyGroupOptions: [
+      createDefaultApiKeyGroupOption(),
+      ...groupedKeyOptions
+    ],
+    keyOptionsByPreset,
+    defaultKeyGroupByPreset
+  }
 }
 
 function createApiKeyGroupModelButtons(keyGroupId = '', presetId = '') {
@@ -141,6 +228,47 @@ function summarizeModelOptionsCache(modelOptionsCache = {}) {
     }))
   }
   return result
+}
+
+function formatModelOptionsCacheSummary(modelOptionsCache = {}) {
+  const summary = summarizeModelOptionsCache(modelOptionsCache)
+  const lines = []
+  for (const [key, entries] of Object.entries(summary)) {
+    if (!Array.isArray(entries) || entries.length === 0) {
+      continue
+    }
+    const modelCount = entries.reduce((sum, item) => sum + (Number(item.modelCount) || 0), 0)
+    lines.push(`${key}: ${entries.length} 个来源，${modelCount} 个模型`)
+  }
+
+  return lines.length > 0
+    ? lines.join('\n')
+    : '暂未缓存模型列表'
+}
+
+function buildModelRuntimeFields(apiConfig = {}, modelType = '', sourceConfig = {}, inherited = {}, selectionOptions = null) {
+  const cacheEntries = getModelCacheEntriesForType(apiConfig.modelOptionsCache, modelType)
+  const actualSelectionOptions = selectionOptions || buildApiSelectionOptions(apiConfig)
+
+  return {
+    __apiPresetOptions: actualSelectionOptions.apiPresetOptions,
+    __apiKeyGroupOptions: actualSelectionOptions.apiKeyGroupOptions,
+    __apiKeyGroupOptionsByPreset: actualSelectionOptions.keyOptionsByPreset,
+    __apiDefaultKeyGroupByPreset: actualSelectionOptions.defaultKeyGroupByPreset,
+    __modelOptions: buildModelOptionsFromCache(cacheEntries, {
+      apiConfig,
+      sourceConfig,
+      inherited,
+      fallbackToAll: true
+    }),
+    __modelOptionsAll: buildModelOptionsFromCache(cacheEntries, {
+      apiConfig,
+      sourceConfig: {},
+      inherited: {},
+      fallbackToAll: true
+    }),
+    __modelOptionsMap: buildModelOptionsMapFromCache(cacheEntries, { apiConfig })
+  }
 }
 
 function normalizeApiPresets(value = [], modelOptionsCache = {}) {
@@ -241,6 +369,7 @@ export async function getConfigData() {
   const api = { ...(config.api || {}) }
   api.modelOptionsCache = normalizeModelOptionsCache(api.modelOptionsCache)
   api.presets = normalizeApiPresets(api.presets, api.modelOptionsCache)
+  const selectionOptions = buildApiSelectionOptions(api)
   const modelFormConfigs = {}
 
   for (const modelType of MODEL_TYPES) {
@@ -258,9 +387,13 @@ export async function getConfigData() {
       retryCount: normalizeRetryCount(modelConfig.retryCount, defaults.retryCount),
       fallbackModels
     }
-    api[modelType].fallbackModels = fallbackModels
+    api[modelType].fallbackModels = fallbackModels.map(item => ({
+      ...item,
+      ...buildModelRuntimeFields(api, modelType, item, api[modelType], selectionOptions)
+    }))
 
     modelFormConfigs[MODEL_FORM_FIELD_MAP[modelType]] = [{
+      ...buildModelRuntimeFields(api, modelType, api[modelType], {}, selectionOptions),
       model: String(api[modelType].model || defaults.model).trim(),
       apiPresetId: api[modelType].apiPresetId,
       apiKeyGroupId: formatApiKeyGroupFormValue(api[modelType].apiPresetId, api[modelType].apiKeyGroupId),
@@ -278,7 +411,7 @@ export async function getConfigData() {
     ...configForGuoba,
     api: {
       ...api,
-      modelOptionsCache: summarizeModelOptionsCache(api.modelOptionsCache)
+      modelOptionsCache: formatModelOptionsCacheSummary(api.modelOptionsCache)
     },
     _apiPrimaryConfig: [{
       primaryBaseUrl: String(api.primaryBaseUrl || '').trim(),
