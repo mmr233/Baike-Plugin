@@ -2469,9 +2469,25 @@ class ApiService {
       messageCount: Array.isArray(messages) ? messages.length : 0
     })
 
+    const {
+      model,
+      apiPresetId,
+      apiKeyGroupId,
+      requestMode,
+      ...gatewayRequestConfig
+    } = modelConfig
+
     const result = await gateway.chat({
       ...requestOptions,
-      ...modelConfig,
+      caller: requestOptions.caller || pluginName,
+      purpose: requestOptions.purpose || modelType,
+      source: {
+        model,
+        apiPresetId,
+        apiKeyGroupId,
+        requestMode
+      },
+      ...gatewayRequestConfig,
       messages
     })
     const text = String(result?.text || '')
@@ -2494,6 +2510,10 @@ class ApiService {
     })
 
     return {
+      requestId: result?.requestId || '',
+      caller: result?.caller || pluginName,
+      purpose: result?.purpose || modelType,
+      durationMs: Number(result?.durationMs) || 0,
       text,
       json,
       raw: result?.raw || json,
