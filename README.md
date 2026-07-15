@@ -40,7 +40,7 @@
 ## 锅巴配置说明
 
 - 搜索模型、总结模型、视频模型、音频模型都能在锅巴里单独配置
-- 可选接入 [LLM-Gateway-Plugin](https://github.com/mmr233/LLM-Gateway-Plugin)，现有模型表单直接选择共享接口、密钥分组和模型，接口密钥只需维护一份；Baike 使用独立 `clientId` 和接入码鉴权
+- 可选接入 [LLM-Gateway-Plugin](https://github.com/mmr233/LLM-Gateway-Plugin)，现有模型表单直接选择共享接口、密钥分组和模型；Baike 只需填写插件名称和网关全局授权码
 - 缓存时长、缓存容量、发送方式、HTML 卡片主题与夜晚时段、来源显示上限和截图数量都能直接调
 - 定时群总结支持直接配置每日执行时间、目标群和消息条数
 - 锅巴保存后会自动刷新定时任务，无需手动重启
@@ -68,12 +68,12 @@ pnpm install --filter=baike-plugin
 plugins/Baike-Plugin/config/config/config.json
 ```
 
-- 可选：安装共享模型网关，在网关中配置接口、密钥分组并获取模型列表，创建 `baike-plugin` 授权接入方，再开启 Baike 的“使用 LLM 模型网关”
+- 可选：安装共享模型网关，在网关中配置接口、密钥分组、全局授权码并获取模型列表，再开启 Baike 的“使用 LLM 模型网关”
 ```bash
 git clone --depth=1 https://github.com/mmr233/LLM-Gateway-Plugin.git ./plugins/LLM-Gateway-Plugin/
 ```
 
-网关模式直接复用 Baike 原有的搜索、图片、总结、JSON 修复、视频和音频模型表单。接口预设、密钥分组和模型候选来自模型网关，请求方式、超时、重试和降级模型仍由 Baike 按功能独立配置。请将模型网关为 `baike-plugin` 分配的接入码填写到 Baike 的共享模型网关配置中。默认关闭，不影响已有本地配置；开启“网关失败时回退本地接口”后，网关不可用或鉴权失败时仍会尝试 Baike 原有接口。
+网关模式直接复用 Baike 原有的搜索、图片、总结、JSON 修复、视频和音频模型表单。接口预设、密钥分组和模型候选来自模型网关，请求方式、超时、重试和降级模型仍由 Baike 按功能独立配置。填写模型网关的全局授权码后，Baike 首次请求会自动登记。默认关闭，不影响已有本地配置；开启“网关失败时回退本地接口”后，网关不可用或鉴权失败时仍会尝试 Baike 原有接口。
 
 ---
 

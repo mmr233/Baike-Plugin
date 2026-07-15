@@ -2384,7 +2384,13 @@ class ApiService {
       fallbackToLocal: options.gatewayFallbackToLocal === undefined
         ? config?.fallbackToLocal !== false
         : Boolean(options.gatewayFallbackToLocal),
-      clientId: String(options.gatewayClientId ?? config?.clientId ?? 'baike-plugin').trim() || 'baike-plugin',
+      pluginName: String(
+        options.gatewayPluginName
+        ?? options.gatewayClientId
+        ?? config?.pluginName
+        ?? config?.clientId
+        ?? 'Baike-Plugin'
+      ).trim() || 'Baike-Plugin',
       accessCode: String(options.gatewayAccessCode ?? config?.accessCode ?? '').trim()
     }
   }
@@ -2442,6 +2448,7 @@ class ApiService {
       useGateway: _useGateway,
       gatewayProfile: _gatewayProfile,
       gatewayFallbackToLocal: _gatewayFallbackToLocal,
+      gatewayPluginName: _gatewayPluginName,
       gatewayClientId: _gatewayClientId,
       gatewayAccessCode: _gatewayAccessCode,
       model: _model,
@@ -2484,7 +2491,7 @@ class ApiService {
 
     const result = await gateway.chat({
       ...requestOptions,
-      clientId: gatewayAuthConfig.clientId,
+      pluginName: gatewayAuthConfig.pluginName,
       accessCode: gatewayAuthConfig.accessCode,
       caller: requestOptions.caller || pluginName,
       purpose: requestOptions.purpose || modelType,

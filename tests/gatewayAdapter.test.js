@@ -14,8 +14,8 @@ test('Baike sends gateway credentials without mixing them or local keys into the
       'api.gateway': {
         enabled: true,
         fallbackToLocal: false,
-        clientId: 'baike-plugin',
-        accessCode: 'baike-access-code'
+        pluginName: 'Baike-Plugin',
+        accessCode: 'gateway-access-code'
       },
       'api.summary': {
         model: 'summary-model',
@@ -59,8 +59,8 @@ test('Baike sends gateway credentials without mixing them or local keys into the
     )
 
     assert.equal(result.text, 'ok')
-    assert.equal(request.clientId, 'baike-plugin')
-    assert.equal(request.accessCode, 'baike-access-code')
+    assert.equal(request.pluginName, 'Baike-Plugin')
+    assert.equal(request.accessCode, 'gateway-access-code')
     assert.deepEqual(request.source, {
       model: 'summary-model',
       apiPresetId: 'shared',

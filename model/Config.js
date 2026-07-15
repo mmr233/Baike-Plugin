@@ -537,7 +537,7 @@ const DEFAULT_CONFIG = {
     gateway: {
       enabled: false,
       fallbackToLocal: true,
-      clientId: 'baike-plugin',
+      pluginName: 'Baike-Plugin',
       accessCode: ''
     },
     presets: [

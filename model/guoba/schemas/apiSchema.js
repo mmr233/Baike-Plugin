@@ -363,23 +363,23 @@ function createGatewaySchemas() {
       defaultValue: true
     },
     {
-      field: 'api.gateway.clientId',
-      label: '网关接入方 ID',
-      bottomHelpMessage: '需与 LLM-Gateway-Plugin 中授权接入方的 clientId 一致',
+      field: 'api.gateway.pluginName',
+      label: '网关插件名称',
+      bottomHelpMessage: '首次成功调用后，模型网关会按此名称自动登记并用于统计',
       component: 'Input',
-      defaultValue: 'baike-plugin',
+      defaultValue: 'Baike-Plugin',
       componentProps: {
-        placeholder: 'baike-plugin'
+        placeholder: 'Baike-Plugin'
       }
     },
     {
       field: 'api.gateway.accessCode',
-      label: '网关接入码',
-      bottomHelpMessage: '需与模型网关为 Baike 分配的接入码一致，仅发送给模型网关鉴权',
+      label: '网关授权码',
+      bottomHelpMessage: '填写模型网关配置的全局授权码，仅发送给模型网关鉴权',
       component: 'InputPassword',
       defaultValue: '',
       componentProps: {
-        placeholder: '填写模型网关接入码'
+        placeholder: '填写模型网关全局授权码'
       }
     }
   ]
