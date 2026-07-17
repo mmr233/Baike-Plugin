@@ -308,6 +308,9 @@ function getNightJournalCSS() {
       color: #f4ead8;
       box-shadow: 1px 1px 0 rgba(106,141,189,0.3);
     }
+    body.theme-night .mention-prefix {
+      color: #f2c577;
+    }
     body.theme-night .user-chip-avatar {
       background: #202839;
     }
@@ -542,6 +545,13 @@ function getJournalCSS(theme = 'light') {
     .user-chip.mini .user-chip-avatar {
       width: 16px;
       height: 16px;
+    }
+    .mention-prefix {
+      display: inline-block;
+      margin-right: -1px;
+      color: #6a4b35;
+      font-weight: 700;
+      vertical-align: 1px;
     }
     .quote-section {
       background: linear-gradient(135deg, rgba(255,248,213,0.96), rgba(255,252,240,0.96));
@@ -1584,6 +1594,9 @@ function renderInlineRichText(text = '', options = {}) {
   while (match) {
     html += renderPlainText(source.slice(lastIndex, match.index))
     const userId = match[2] || match[3] || ''
+    if (match[3]) {
+      html += '<span class="mention-prefix">@</span>'
+    }
     html += renderUserChip(userId, { ...options, mini: Boolean(options.miniUserChips) })
     lastIndex = match.index + match[0].length
     match = pattern.exec(source)

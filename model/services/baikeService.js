@@ -1479,6 +1479,7 @@ class BaikeService {
   normalizeEnhancedHighlights(value = [], maxCount = 5) {
     const list = Array.isArray(value) ? value : []
     return list.map(item => ({
+      userId: String(item?.user_id || item?.userId || '').trim(),
       time: String(item?.time || item?.timestamp || '').trim(),
       sender: String(item?.sender || item?.name || item?.nickname || '').trim(),
       content: String(item?.content || item?.message || item?.text || '').trim(),
@@ -1747,6 +1748,8 @@ class BaikeService {
   }
 
   scoreHighlightMatch(highlight = {}, message = {}) {
+    const highlightUserId = String(highlight.userId || highlight.user_id || '').trim()
+    const messageUserId = String(message.user_id || message.userId || '').trim()
     const highlightSender = String(highlight.sender || '').trim()
     const messageSender = String(message.nickname || message.user_id || '').trim()
     const highlightContent = this.normalizeMatchText(highlight.content)
@@ -1755,6 +1758,14 @@ class BaikeService {
     const messageTime = String(message.time || '').trim()
     let score = 0
     let hasStrongSignal = false
+
+    if (highlightUserId && messageUserId) {
+      if (highlightUserId !== messageUserId) {
+        return 0
+      }
+      score += 12
+      hasStrongSignal = true
+    }
 
     if (highlightSender && messageSender) {
       if (highlightSender === messageSender) {
@@ -1915,7 +1926,9 @@ class BaikeService {
       highlights: highlights.map(item => {
         const matched = this.findBestHighlightMessage(item, formattedMessages)
         const userId = String(matched?.user_id || item.userId || '').trim()
-        const sender = item.sender || matched?.nickname || userId
+        const sender = matched
+          ? getVisibleName(matched.nickname, matched.card, matched.rawNickname, userId, '未知成员')
+          : getVisibleName(item.sender, userId, '未知成员')
 
         return {
           ...item,

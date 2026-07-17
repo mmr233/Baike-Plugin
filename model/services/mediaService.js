@@ -84,6 +84,17 @@ class MediaService {
     return /^data:/i.test(String(url || '').trim())
   }
 
+  getSafeResourceLabel(url = '', filename = '') {
+    const fallback = String(filename || 'unknown').trim()
+
+    try {
+      const parsed = new URL(String(url || ''))
+      return `${fallback} <- ${parsed.host}${parsed.pathname}`
+    } catch {
+      return fallback
+    }
+  }
+
   escapeShellArg(value = '') {
     return String(value).replace(/"/g, '\\"')
   }
@@ -840,7 +851,11 @@ class MediaService {
     const filePath = path.join(this.tempDir, filename)
     const controller = new AbortController()
     const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 60000)
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    let timedOut = false
+    const timeoutId = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, timeoutMs)
 
     try {
       if (this.isDataUrl(url)) {
@@ -868,7 +883,12 @@ class MediaService {
       fs.writeFileSync(filePath, buffer)
       return filePath
     } catch (error) {
-      logger.error(`[${pluginName}] 下载文件失败：${error.message}`)
+      const resourceLabel = this.getSafeResourceLabel(url, filename)
+      if (timedOut || error?.name === 'AbortError') {
+        logger.warn(`[${pluginName}] 下载文件超时（${timeoutMs}ms）：${resourceLabel}`)
+      } else {
+        logger.warn(`[${pluginName}] 下载文件失败（${resourceLabel}）：${error.message}`)
+      }
       return null
     } finally {
       clearTimeout(timeoutId)
@@ -1354,14 +1374,48 @@ class MediaService {
 
       const page = await browser.newPage()
       await page.setViewport({ width: 760, height: 1200, deviceScaleFactor: 2 })
-      await page.setContent(html, { waitUntil: 'networkidle0' })
-      await page.evaluate(async () => {
-        if (document.fonts?.ready) {
-          await document.fonts.ready
+      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15000 })
+      const assetStatus = await page.evaluate(async waitMs => {
+        const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
+        const images = [...document.images]
+        const imageReady = image => {
+          if (image.complete) {
+            return Promise.resolve()
+          }
+
+          return new Promise(resolve => {
+            image.addEventListener('load', resolve, { once: true })
+            image.addEventListener('error', resolve, { once: true })
+          })
+        }
+        const fontsReady = document.fonts?.ready
+          ? Promise.resolve(document.fonts.ready).catch(() => {})
+          : Promise.resolve()
+
+        await Promise.race([
+          Promise.all([fontsReady, ...images.map(imageReady)]),
+          delay(waitMs)
+        ])
+
+        let unavailableImageCount = 0
+        for (const image of images) {
+          if (!image.complete || image.naturalWidth <= 0) {
+            unavailableImageCount += 1
+            image.style.visibility = 'hidden'
+            image.removeAttribute('src')
+          }
         }
 
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-      })
+        return {
+          imageCount: images.length,
+          unavailableImageCount
+        }
+      }, 8000)
+
+      if (assetStatus?.unavailableImageCount > 0) {
+        debugLog('media.render', '部分远程图片加载超时或失败，已隐藏后继续渲染', assetStatus)
+      }
 
       const clip = await page.evaluate(() => {
         const body = document.body
