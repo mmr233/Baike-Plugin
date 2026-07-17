@@ -225,3 +225,48 @@ test('group history pages through the Yunzai group API with reverse order enable
   assert.deepEqual(result.meta.batchModes, ['group.getChatHistory'])
   assert.equal(result.meta.fallbackUsed, false)
 })
+
+test('a mixed stale Yunzai page does not prematurely satisfy the time boundary', async () => {
+  const service = new MessageService()
+  const now = Math.floor(Date.now() / 1000)
+  const messages = createMessages(220, now - 7200)
+  const staleMessages = messages.slice(0, 32).map(message => ({
+    ...message,
+    time: now - (48 * 3600) + message.message_seq
+  }))
+  const event = {
+    group_id: 123456,
+    bot: {
+      async sendApi(action, params) {
+        assert.equal(action, 'get_group_msg_history')
+        const anchorIndex = params.message_seq
+          ? messages.findIndex(item => item.message_seq === Number(params.message_seq))
+          : -1
+        return { data: { messages: getHistorySlice(messages, anchorIndex, params.count, 100) } }
+      }
+    },
+    group: {
+      async getChatHistory(seq) {
+        if (!seq) {
+          return [...staleMessages, ...messages.slice(-68)]
+        }
+        return [...staleMessages, messages.find(item => item.message_seq === Number(seq))].filter(Boolean)
+      }
+    }
+  }
+
+  const result = await service.getGroupHistoryMessages(event, 150, {
+    paginationEnabled: true,
+    batchSize: 100,
+    batchDelayMs: 0,
+    maxAgeHours: 24,
+    returnMeta: true
+  })
+
+  assert.equal(result.messages.length, 150)
+  assert.equal(service.getMessageSeq(result.messages[0]), 71)
+  assert.equal(service.getMessageSeq(result.messages.at(-1)), 220)
+  assert.equal(result.meta.reachedTimeBoundary, false)
+  assert.equal(result.meta.fallbackUsed, false)
+  assert.ok(result.meta.batchModes.includes('message_seq'))
+})

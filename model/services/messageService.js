@@ -1832,7 +1832,7 @@ class MessageService {
     return true
   }
 
-  async fetchGroupHistoryBatchResult(e, count, anchor = null, seenKeys = new Set()) {
+  async fetchGroupHistoryBatchResult(e, count, anchor = null, seenKeys = new Set(), options = {}) {
     if ((!e.bot?.sendApi && !e.group?.getChatHistory) || !e.group_id) {
       return { messages: [], reason: 'api-unavailable', mode: '' }
     }
@@ -1844,6 +1844,7 @@ class MessageService {
       reverseOrder: true
     }
     const normalizedAnchor = this.normalizeGroupHistoryAnchor(anchor)
+    const startTimestamp = Number(options.startTimestamp) || 0
     const apiAttempts = normalizedAnchor
       ? [
           ...(normalizedAnchor.messageSeq || normalizedAnchor.value
@@ -1860,8 +1861,28 @@ class MessageService {
               }]
             : [])
         ]
-      : [{ mode: 'latest', params: baseParams }]
+      : [
+          { mode: 'latest', params: baseParams },
+          { mode: 'message_seq:0', params: { ...baseParams, message_seq: 0 } }
+        ]
     let receivedNonProgress = false
+    const boundaryCandidates = []
+    const acceptCandidate = (messages, mode) => {
+      if (!this.isGroupHistoryBatchProgress(messages, normalizedAnchor, seenKeys)) {
+        receivedNonProgress = true
+        return null
+      }
+
+      const crossesTimeBoundary = startTimestamp > 0 && messages.some(item => {
+        const timestamp = this.getMessageTime(item)
+        return timestamp > 0 && timestamp < startTimestamp
+      })
+      if (!crossesTimeBoundary) {
+        return { messages, reason: 'ok', mode }
+      }
+      boundaryCandidates.push({ messages, mode })
+      return null
+    }
 
     if (e.group?.getChatHistory) {
       try {
@@ -1870,10 +1891,8 @@ class MessageService {
           await e.group.getChatHistory(groupAnchor, actualCount, true)
         )
         if (messages.length > 0) {
-          if (this.isGroupHistoryBatchProgress(messages, normalizedAnchor, seenKeys)) {
-            return { messages, reason: 'ok', mode: 'group.getChatHistory' }
-          }
-          receivedNonProgress = true
+          const accepted = acceptCandidate(messages, 'group.getChatHistory')
+          if (accepted) return accepted
         }
       } catch {}
     }
@@ -1885,11 +1904,20 @@ class MessageService {
         if (messages.length === 0) {
           continue
         }
-        if (this.isGroupHistoryBatchProgress(messages, normalizedAnchor, seenKeys)) {
-          return { messages, reason: 'ok', mode: attempt.mode }
-        }
-        receivedNonProgress = true
+        const accepted = acceptCandidate(messages, attempt.mode)
+        if (accepted) return accepted
       } catch {}
+    }
+
+    if (boundaryCandidates.length > 0) {
+      const messages = this.dedupeAndSortMessages(
+        boundaryCandidates.flatMap(candidate => candidate.messages)
+      )
+      return {
+        messages,
+        reason: 'ok',
+        mode: boundaryCandidates.map(candidate => candidate.mode).join('+')
+      }
     }
 
     return {
@@ -1899,8 +1927,8 @@ class MessageService {
     }
   }
 
-  async fetchGroupHistoryBatch(e, count, anchor = null, seenKeys = new Set()) {
-    const result = await this.fetchGroupHistoryBatchResult(e, count, anchor, seenKeys)
+  async fetchGroupHistoryBatch(e, count, anchor = null, seenKeys = new Set(), options = {}) {
+    const result = await this.fetchGroupHistoryBatchResult(e, count, anchor, seenKeys, options)
     return result.messages
   }
 
@@ -1997,6 +2025,7 @@ class MessageService {
       ? this.normalizeGroupHistoryAnchor(options.beforeId)
       : null
     let reachedTimeBoundary = false
+    let sawOlderThanBoundary = false
     let batchCount = 0
     let rawFetchedCount = 0
     let stopReason = 'count-reached'
@@ -2005,7 +2034,9 @@ class MessageService {
     while (allMessages.length < actualCount) {
       const remainingCount = actualCount - allMessages.length
       const fetchCount = Math.min(batchSize, remainingCount + (anchor ? 1 : 0))
-      const batchResult = await this.fetchGroupHistoryBatchResult(e, fetchCount, anchor, seenKeys)
+      const batchResult = await this.fetchGroupHistoryBatchResult(e, fetchCount, anchor, seenKeys, {
+        startTimestamp
+      })
       const messages = batchResult.messages
       if (messages.length === 0) {
         stopReason = batchResult.reason
@@ -2015,6 +2046,9 @@ class MessageService {
       rawFetchedCount += messages.length
       if (batchResult.mode) batchModes.add(batchResult.mode)
 
+      let addedInRangeCount = 0
+      const inRangeMessages = []
+      let batchHasOlderMessage = false
       for (const item of messages) {
         const key = this.getMessageUniqueKey(item)
         if (seenKeys.has(key)) {
@@ -2024,26 +2058,26 @@ class MessageService {
 
         const timestamp = this.getMessageTime(item)
         if (startTimestamp > 0 && timestamp > 0 && timestamp < startTimestamp) {
-          reachedTimeBoundary = true
+          batchHasOlderMessage = true
+          sawOlderThanBoundary = true
           continue
         }
 
         allMessages.push(item)
+        inRangeMessages.push(item)
+        addedInRangeCount += 1
       }
 
-      const earliest = this.getEarliestHistoryMessage(messages)
+      if (batchHasOlderMessage && addedInRangeCount === 0) {
+        reachedTimeBoundary = true
+        stopReason = 'time-boundary'
+        break
+      }
+
+      const earliest = this.getEarliestHistoryMessage(inRangeMessages.length > 0 ? inRangeMessages : messages)
       const nextAnchor = this.createGroupHistoryAnchor(earliest)
-      const earliestTime = this.getMessageTime(earliest)
       if (!nextAnchor?.value || (anchor?.key && nextAnchor.key === anchor.key)) {
         stopReason = 'anchor-not-progressing'
-        break
-      }
-      if (startTimestamp > 0 && earliestTime > 0 && earliestTime <= startTimestamp) {
-        stopReason = 'time-boundary'
-        break
-      }
-      if (reachedTimeBoundary) {
-        stopReason = 'time-boundary'
         break
       }
 
@@ -2065,6 +2099,7 @@ class MessageService {
       fetchedCount: allMessages.length,
       returnedCount: sorted.length,
       reachedTimeBoundary,
+      sawOlderThanBoundary,
       stopReason
     })
 
@@ -2075,6 +2110,7 @@ class MessageService {
         batchModes: [...batchModes],
         rawFetchedCount,
         reachedTimeBoundary,
+        sawOlderThanBoundary,
         stopReason
       }
     }

@@ -3055,6 +3055,7 @@ class BaikeService {
         fetchStopReason: historyFetchMeta.stopReason || '',
         fetchBatchCount: Number(historyFetchMeta.batchCount) || 0,
         fetchBatchModes: historyFetchMeta.batchModes || [],
+        sawOlderThanBoundary: Boolean(historyFetchMeta.sawOlderThanBoundary),
         fallbackUsed: Boolean(historyFetchMeta.fallbackUsed),
         fallbackCount: Number(historyFetchMeta.fallbackCount) || 0
       })}`)
