@@ -186,3 +186,42 @@ test('group history stops at the configured time boundary after collecting all r
   assert.equal(service.getMessageSeq(result.at(-1)), 120)
   assert.ok(result.every(message => service.getMessageTime(message) >= now - (24 * 3600)))
 })
+
+test('group history pages through the Yunzai group API with reverse order enabled', async () => {
+  const service = new MessageService()
+  const messages = createMessages(220)
+  const groupCalls = []
+  const event = {
+    group_id: 123456,
+    bot: {
+      async sendApi(_action, params) {
+        return { data: { messages: getHistorySlice(messages, -1, params.count, 20) } }
+      }
+    },
+    group: {
+      async getChatHistory(seq, count, reverseOrder) {
+        groupCalls.push({ seq, count, reverseOrder })
+        const anchorIndex = seq
+          ? messages.findIndex(item => item.message_seq === Number(seq))
+          : -1
+        return getHistorySlice(messages, anchorIndex, count, 20)
+      }
+    }
+  }
+
+  const result = await service.getGroupHistoryMessages(event, 150, {
+    paginationEnabled: true,
+    batchSize: 100,
+    batchDelayMs: 0,
+    maxAgeHours: 24,
+    returnMeta: true
+  })
+
+  assert.equal(result.messages.length, 150)
+  assert.equal(service.getMessageSeq(result.messages[0]), 71)
+  assert.equal(service.getMessageSeq(result.messages.at(-1)), 220)
+  assert.ok(groupCalls.length > 2)
+  assert.ok(groupCalls.every(call => call.reverseOrder === true))
+  assert.deepEqual(result.meta.batchModes, ['group.getChatHistory'])
+  assert.equal(result.meta.fallbackUsed, false)
+})

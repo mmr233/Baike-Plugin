@@ -1833,7 +1833,7 @@ class MessageService {
   }
 
   async fetchGroupHistoryBatchResult(e, count, anchor = null, seenKeys = new Set()) {
-    if (!e.bot?.sendApi || !e.group_id) {
+    if ((!e.bot?.sendApi && !e.group?.getChatHistory) || !e.group_id) {
       return { messages: [], reason: 'api-unavailable', mode: '' }
     }
 
@@ -1844,7 +1844,7 @@ class MessageService {
       reverseOrder: true
     }
     const normalizedAnchor = this.normalizeGroupHistoryAnchor(anchor)
-    const attempts = normalizedAnchor
+    const apiAttempts = normalizedAnchor
       ? [
           ...(normalizedAnchor.messageSeq || normalizedAnchor.value
             ? [{ mode: 'message_seq', params: { ...baseParams, message_seq: normalizedAnchor.messageSeq || normalizedAnchor.value } }]
@@ -1863,7 +1863,22 @@ class MessageService {
       : [{ mode: 'latest', params: baseParams }]
     let receivedNonProgress = false
 
-    for (const attempt of attempts) {
+    if (e.group?.getChatHistory) {
+      try {
+        const groupAnchor = normalizedAnchor?.messageSeq || normalizedAnchor?.value || 0
+        const messages = this.normalizeHistoryResponseMessages(
+          await e.group.getChatHistory(groupAnchor, actualCount, true)
+        )
+        if (messages.length > 0) {
+          if (this.isGroupHistoryBatchProgress(messages, normalizedAnchor, seenKeys)) {
+            return { messages, reason: 'ok', mode: 'group.getChatHistory' }
+          }
+          receivedNonProgress = true
+        }
+      } catch {}
+    }
+
+    for (const attempt of e.bot?.sendApi ? apiAttempts : []) {
       try {
         const response = await e.bot.sendApi('get_group_msg_history', attempt.params)
         const messages = this.normalizeHistoryResponseMessages(response)
@@ -1931,7 +1946,7 @@ class MessageService {
 
     if (e.group?.getChatHistory) {
       try {
-        if (appendMessages(await e.group.getChatHistory(0, actualCount)) && options.exhaustive !== true) {
+        if (appendMessages(await e.group.getChatHistory(0, actualCount, true)) && options.exhaustive !== true) {
           return getResult()
         }
       } catch {}
@@ -1962,7 +1977,7 @@ class MessageService {
         stopReason: reason
       }
     })
-    if (!e.group_id || !e.bot?.sendApi) {
+    if (!e.group_id || (!e.bot?.sendApi && !e.group?.getChatHistory)) {
       const result = emptyResult('api-unavailable')
       return options.returnMeta ? result : result.messages
     }
@@ -2068,8 +2083,11 @@ class MessageService {
 
   async getGroupHistoryMessages(e, count, options = {}) {
     const actualCount = Math.max(0, Number(count) || 0)
+    const wrapResult = (messages, meta) => options.returnMeta
+      ? { messages, meta }
+      : messages
     if (actualCount <= 0) {
-      return []
+      return wrapResult([], { mode: 'none', stopReason: 'invalid-count' })
     }
 
     if (options.paginationEnabled !== false) {
@@ -2079,7 +2097,12 @@ class MessageService {
       })
       const paged = pagedResult.messages
       if (paged.length >= actualCount || pagedResult.meta.reachedTimeBoundary) {
-        return paged
+        return wrapResult(paged, {
+          mode: 'paged',
+          ...pagedResult.meta,
+          fallbackUsed: false,
+          fallbackCount: 0
+        })
       }
 
       const fallbackMessages = await this.getGroupHistoryMessagesSingle(e, actualCount, { exhaustive: true })
@@ -2091,7 +2114,13 @@ class MessageService {
         mergedCount: merged.length,
         stopReason: pagedResult.meta.stopReason
       })
-      return merged
+      return wrapResult(merged, {
+        mode: 'paged+fallback',
+        ...pagedResult.meta,
+        fallbackUsed: true,
+        fallbackCount: fallbackMessages.length,
+        mergedCount: merged.length
+      })
     }
 
     const messages = await this.getGroupHistoryMessagesSingle(e, actualCount)
@@ -2102,7 +2131,12 @@ class MessageService {
       returnedCount: sorted.length,
       paginationEnabled: options.paginationEnabled !== false
     })
-    return sorted
+    return wrapResult(sorted, {
+      mode: 'single',
+      stopReason: sorted.length >= actualCount ? 'count-reached' : 'source-exhausted',
+      fallbackUsed: false,
+      fallbackCount: 0
+    })
   }
 
   async parseGroupMessage(messageData, options = {}) {

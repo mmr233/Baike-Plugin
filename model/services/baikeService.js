@@ -2977,16 +2977,19 @@ class BaikeService {
     let chargeResult = null
     try {
       const historyFetchConfig = chatConfig.historyFetch || {}
-      const rawMessages = await this.messageService.getGroupHistoryMessages(
+      const historyResult = await this.messageService.getGroupHistoryMessages(
         e,
         messageCount,
         {
           maxAgeHours: timeRangeHours,
           paginationEnabled: historyFetchConfig.paginationEnabled !== false,
           batchSize: historyFetchConfig.batchSize,
-          batchDelayMs: historyFetchConfig.batchDelayMs
+          batchDelayMs: historyFetchConfig.batchDelayMs,
+          returnMeta: true
         }
       )
+      const rawMessages = Array.isArray(historyResult) ? historyResult : historyResult.messages
+      const historyFetchMeta = Array.isArray(historyResult) ? {} : (historyResult.meta || {})
       if (!rawMessages || rawMessages.length === 0) {
         await e.reply('无法获取群聊历史消息，请确认机器人权限')
         this.finishGroupSummaryInflight(cacheKey, inflightEntry, {
@@ -3047,7 +3050,13 @@ class BaikeService {
         newestTime: newestTimestamp ? new Date(newestTimestamp * 1000).toLocaleString('zh-CN') : '',
         coverageHours: oldestTimestamp && newestTimestamp
           ? Number(((newestTimestamp - oldestTimestamp) / 3600).toFixed(2))
-          : 0
+          : 0,
+        fetchMode: historyFetchMeta.mode || '',
+        fetchStopReason: historyFetchMeta.stopReason || '',
+        fetchBatchCount: Number(historyFetchMeta.batchCount) || 0,
+        fetchBatchModes: historyFetchMeta.batchModes || [],
+        fallbackUsed: Boolean(historyFetchMeta.fallbackUsed),
+        fallbackCount: Number(historyFetchMeta.fallbackCount) || 0
       })}`)
 
       if (formattedMessages.length === 0) {
