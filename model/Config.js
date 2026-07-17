@@ -759,7 +759,7 @@ const DEFAULT_CONFIG = {
   chatSummary: {
     defaultMessageCount: 800,
     atMemberMessageCount: 200,
-    maxMessageCount: 500,
+    maxMessageCount: 800,
     docMaxChars: 2000,
     historyHoursLimit: 24,
     memberHistoryHoursLimit: null,

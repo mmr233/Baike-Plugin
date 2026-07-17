@@ -1744,16 +1744,97 @@ class MessageService {
     return list.reduce((earliest, item) => {
       const itemTime = this.getMessageTime(item)
       const earliestTime = this.getMessageTime(earliest)
-      if (!earliest || (itemTime > 0 && (earliestTime <= 0 || itemTime < earliestTime))) {
+      const itemSeq = this.getMessageSeq(item)
+      const earliestSeq = this.getMessageSeq(earliest)
+      if (
+        !earliest
+        || (itemTime > 0 && (earliestTime <= 0 || itemTime < earliestTime))
+        || (itemTime > 0 && itemTime === earliestTime && itemSeq > 0 && (earliestSeq <= 0 || itemSeq < earliestSeq))
+      ) {
         return item
       }
       return earliest
     }, list[0])
   }
 
-  async fetchGroupHistoryBatch(e, count, anchor = '') {
+  createGroupHistoryAnchor(messageData = null) {
+    if (!messageData) {
+      return null
+    }
+
+    const messageSeq = this.getMessageSeq(messageData)
+    const messageId = this.getMessageId(messageData)
+    return {
+      messageSeq: messageSeq > 0 ? messageSeq : '',
+      messageId,
+      value: messageSeq > 0 ? messageSeq : messageId,
+      key: this.getMessageUniqueKey(messageData),
+      time: this.getMessageTime(messageData)
+    }
+  }
+
+  normalizeGroupHistoryAnchor(anchor = null) {
+    if (!anchor) {
+      return null
+    }
+    if (typeof anchor === 'object' && !Array.isArray(anchor)) {
+      return {
+        messageSeq: anchor.messageSeq || anchor.message_seq || '',
+        messageId: String(anchor.messageId || anchor.message_id || '').trim(),
+        value: anchor.value || anchor.messageSeq || anchor.message_seq || anchor.messageId || anchor.message_id || '',
+        key: String(anchor.key || '').trim(),
+        time: Number(anchor.time) || 0
+      }
+    }
+
+    const value = String(anchor).trim()
+    return value
+      ? { messageSeq: value, messageId: value, value, key: '', time: 0 }
+      : null
+  }
+
+  isGroupHistoryBatchProgress(messages = [], anchor = null, seenKeys = new Set()) {
+    const list = Array.isArray(messages) ? messages.filter(Boolean) : []
+    if (list.length === 0) {
+      return false
+    }
+
+    const normalizedAnchor = this.normalizeGroupHistoryAnchor(anchor)
+    if (!normalizedAnchor) {
+      return true
+    }
+
+    const hasUnseenMessage = list.some(item => !seenKeys.has(this.getMessageUniqueKey(item)))
+    if (!hasUnseenMessage) {
+      return false
+    }
+
+    const earliest = this.getEarliestHistoryMessage(list)
+    const nextAnchor = this.createGroupHistoryAnchor(earliest)
+    if (!nextAnchor) {
+      return false
+    }
+    if (normalizedAnchor.key && nextAnchor.key === normalizedAnchor.key) {
+      return false
+    }
+    if (normalizedAnchor.time > 0 && nextAnchor.time > normalizedAnchor.time) {
+      return false
+    }
+    if (
+      normalizedAnchor.time > 0
+      && nextAnchor.time === normalizedAnchor.time
+      && Number(normalizedAnchor.messageSeq) > 0
+      && Number(nextAnchor.messageSeq) >= Number(normalizedAnchor.messageSeq)
+    ) {
+      return false
+    }
+
+    return true
+  }
+
+  async fetchGroupHistoryBatchResult(e, count, anchor = null, seenKeys = new Set()) {
     if (!e.bot?.sendApi || !e.group_id) {
-      return []
+      return { messages: [], reason: 'api-unavailable', mode: '' }
     }
 
     const actualCount = Math.max(1, Number(count) || 1)
@@ -1762,34 +1843,68 @@ class MessageService {
       count: actualCount,
       reverseOrder: true
     }
-    const actualAnchor = String(anchor || '').trim()
-    const attempts = actualAnchor
+    const normalizedAnchor = this.normalizeGroupHistoryAnchor(anchor)
+    const attempts = normalizedAnchor
       ? [
-          { ...baseParams, message_seq: actualAnchor },
-          { ...baseParams, message_id: actualAnchor }
+          ...(normalizedAnchor.messageSeq || normalizedAnchor.value
+            ? [{ mode: 'message_seq', params: { ...baseParams, message_seq: normalizedAnchor.messageSeq || normalizedAnchor.value } }]
+            : []),
+          ...(normalizedAnchor.messageId || normalizedAnchor.value
+            ? [{
+                mode: 'message_id',
+                params: {
+                  group_id: e.group_id,
+                  count: actualCount,
+                  message_id: normalizedAnchor.messageId || normalizedAnchor.value
+                }
+              }]
+            : [])
         ]
-      : [baseParams]
+      : [{ mode: 'latest', params: baseParams }]
+    let receivedNonProgress = false
 
-    for (const params of attempts) {
+    for (const attempt of attempts) {
       try {
-        const response = await e.bot.sendApi('get_group_msg_history', params)
+        const response = await e.bot.sendApi('get_group_msg_history', attempt.params)
         const messages = this.normalizeHistoryResponseMessages(response)
-        if (messages.length > 0) {
-          return messages
+        if (messages.length === 0) {
+          continue
         }
+        if (this.isGroupHistoryBatchProgress(messages, normalizedAnchor, seenKeys)) {
+          return { messages, reason: 'ok', mode: attempt.mode }
+        }
+        receivedNonProgress = true
       } catch {}
     }
 
-    return []
+    return {
+      messages: [],
+      reason: receivedNonProgress ? 'anchor-not-progressing' : 'empty',
+      mode: ''
+    }
   }
 
-  async getGroupHistoryMessagesSingle(e, count) {
+  async fetchGroupHistoryBatch(e, count, anchor = null, seenKeys = new Set()) {
+    const result = await this.fetchGroupHistoryBatchResult(e, count, anchor, seenKeys)
+    return result.messages
+  }
+
+  async getGroupHistoryMessagesSingle(e, count, options = {}) {
     if (!e.group_id) {
       return []
     }
 
     const actualCount = Number(count) || 0
-    let messages = []
+    const candidates = []
+    const getResult = () => this.dedupeAndSortMessages(candidates).slice(-actualCount)
+    const appendMessages = value => {
+      const messages = this.normalizeHistoryResponseMessages(value)
+      if (messages.length > 0) {
+        candidates.push(...messages)
+        return true
+      }
+      return false
+    }
 
     if (e.bot?.sendApi) {
       try {
@@ -1797,9 +1912,8 @@ class MessageService {
           group_id: e.group_id,
           count: actualCount
         })
-        messages = this.normalizeHistoryResponseMessages(response)
-        if (messages.length > 0) {
-          return messages
+        if (appendMessages(response) && options.exhaustive !== true) {
+          return getResult()
         }
       } catch {}
 
@@ -1809,18 +1923,16 @@ class MessageService {
           message_seq: 0,
           count: actualCount
         })
-        messages = this.normalizeHistoryResponseMessages(response)
-        if (messages.length > 0) {
-          return messages
+        if (appendMessages(response) && options.exhaustive !== true) {
+          return getResult()
         }
       } catch {}
     }
 
     if (e.group?.getChatHistory) {
       try {
-        messages = await e.group.getChatHistory(0, actualCount)
-        if (messages.length > 0) {
-          return messages
+        if (appendMessages(await e.group.getChatHistory(0, actualCount)) && options.exhaustive !== true) {
+          return getResult()
         }
       } catch {}
     }
@@ -1832,21 +1944,33 @@ class MessageService {
           group_id: e.group_id,
           count: actualCount
         })
-        messages = this.normalizeHistoryResponseMessages(response)
+        appendMessages(response)
       } catch {}
     }
 
-    return messages
+    return getResult()
   }
 
   async getGroupHistoryMessagesPaged(e, count, options = {}) {
+    const emptyResult = reason => ({
+      messages: [],
+      meta: {
+        batchCount: 0,
+        batchModes: [],
+        rawFetchedCount: 0,
+        reachedTimeBoundary: false,
+        stopReason: reason
+      }
+    })
     if (!e.group_id || !e.bot?.sendApi) {
-      return []
+      const result = emptyResult('api-unavailable')
+      return options.returnMeta ? result : result.messages
     }
 
     const actualCount = Math.max(0, Number(count) || 0)
     if (actualCount <= 0) {
-      return []
+      const result = emptyResult('invalid-count')
+      return options.returnMeta ? result : result.messages
     }
 
     const batchSize = clampInteger(options.batchSize, 20, 200, 100)
@@ -1854,15 +1978,27 @@ class MessageService {
     const startTimestamp = this.getHistoryStartTimestamp(options.maxAgeHours)
     const allMessages = []
     const seenKeys = new Set()
-    let anchor = String(options.beforeId || '').trim()
+    let anchor = options.beforeId
+      ? this.normalizeGroupHistoryAnchor(options.beforeId)
+      : null
     let reachedTimeBoundary = false
+    let batchCount = 0
+    let rawFetchedCount = 0
+    let stopReason = 'count-reached'
+    const batchModes = new Set()
 
     while (allMessages.length < actualCount) {
-      const fetchCount = Math.min(batchSize, actualCount - allMessages.length)
-      const messages = await this.fetchGroupHistoryBatch(e, fetchCount, anchor)
+      const remainingCount = actualCount - allMessages.length
+      const fetchCount = Math.min(batchSize, remainingCount + (anchor ? 1 : 0))
+      const batchResult = await this.fetchGroupHistoryBatchResult(e, fetchCount, anchor, seenKeys)
+      const messages = batchResult.messages
       if (messages.length === 0) {
+        stopReason = batchResult.reason
         break
       }
+      batchCount += 1
+      rawFetchedCount += messages.length
+      if (batchResult.mode) batchModes.add(batchResult.mode)
 
       for (const item of messages) {
         const key = this.getMessageUniqueKey(item)
@@ -1881,19 +2017,22 @@ class MessageService {
       }
 
       const earliest = this.getEarliestHistoryMessage(messages)
-      const nextAnchor = this.getMessageAnchor(earliest)
+      const nextAnchor = this.createGroupHistoryAnchor(earliest)
       const earliestTime = this.getMessageTime(earliest)
-      if (!nextAnchor || (anchor && String(nextAnchor) === anchor)) {
+      if (!nextAnchor?.value || (anchor?.key && nextAnchor.key === anchor.key)) {
+        stopReason = 'anchor-not-progressing'
         break
       }
       if (startTimestamp > 0 && earliestTime > 0 && earliestTime <= startTimestamp) {
+        stopReason = 'time-boundary'
         break
       }
-      if (messages.length < fetchCount || reachedTimeBoundary) {
+      if (reachedTimeBoundary) {
+        stopReason = 'time-boundary'
         break
       }
 
-      anchor = String(nextAnchor)
+      anchor = nextAnchor
       if (batchDelayMs > 0 && allMessages.length < actualCount) {
         await sleep(batchDelayMs)
       }
@@ -1905,11 +2044,26 @@ class MessageService {
       batchSize,
       batchDelayMs,
       maxAgeHours: Number(options.maxAgeHours) || 0,
+      batchCount,
+      batchModes: [...batchModes],
+      rawFetchedCount,
       fetchedCount: allMessages.length,
-      returnedCount: sorted.length
+      returnedCount: sorted.length,
+      reachedTimeBoundary,
+      stopReason
     })
 
-    return sorted
+    const result = {
+      messages: sorted,
+      meta: {
+        batchCount,
+        batchModes: [...batchModes],
+        rawFetchedCount,
+        reachedTimeBoundary,
+        stopReason
+      }
+    }
+    return options.returnMeta ? result : result.messages
   }
 
   async getGroupHistoryMessages(e, count, options = {}) {
@@ -1919,10 +2073,25 @@ class MessageService {
     }
 
     if (options.paginationEnabled !== false) {
-      const paged = await this.getGroupHistoryMessagesPaged(e, actualCount, options)
-      if (paged.length > 0) {
+      const pagedResult = await this.getGroupHistoryMessagesPaged(e, actualCount, {
+        ...options,
+        returnMeta: true
+      })
+      const paged = pagedResult.messages
+      if (paged.length >= actualCount || pagedResult.meta.reachedTimeBoundary) {
         return paged
       }
+
+      const fallbackMessages = await this.getGroupHistoryMessagesSingle(e, actualCount, { exhaustive: true })
+      const merged = this.dedupeAndSortMessages([...paged, ...fallbackMessages]).slice(-actualCount)
+      debugLog('message.groupHistory', '群历史分页未完整，已合并一次性后备来源', {
+        requestedCount: actualCount,
+        pagedCount: paged.length,
+        fallbackCount: fallbackMessages.length,
+        mergedCount: merged.length,
+        stopReason: pagedResult.meta.stopReason
+      })
+      return merged
     }
 
     const messages = await this.getGroupHistoryMessagesSingle(e, actualCount)

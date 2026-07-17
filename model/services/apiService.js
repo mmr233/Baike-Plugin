@@ -2777,7 +2777,7 @@ class ApiService {
 
           const delayMs = this.getRetryDelayMs(attempt, error)
           logger.warn(
-            `[${pluginName}] ${modelType} ${candidate.label}(${candidate.model}) 请求失败，${delayMs}ms 后进行第 ${attempt + 2} 次尝试：${this.formatErrorWithCause(error)}`
+            `[${pluginName}] ${modelType} 本地接口 ${candidate.label}(${candidate.model}) 请求失败，${delayMs}ms 后进行第 ${attempt + 2} 次尝试：${this.formatErrorWithCause(error)}`
           )
           await sleep(delayMs)
         } finally {

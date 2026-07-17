@@ -2902,8 +2902,15 @@ class BaikeService {
     }
 
     const chatConfig = Config.get('chatSummary', {})
-    const messageCount = Number(options.messageCountOverride)
-      || (atMembers.length > 0 ? chatConfig.atMemberMessageCount : chatConfig.defaultMessageCount)
+    const defaultMessageCount = Math.max(1, Math.floor(Number(chatConfig.defaultMessageCount) || 800))
+    const memberMessageCount = Math.max(1, Math.floor(Number(chatConfig.atMemberMessageCount) || 200))
+    const configuredMaxMessageCount = Math.max(1, Math.floor(Number(chatConfig.maxMessageCount) || 800))
+    const maxMessageCount = Math.max(configuredMaxMessageCount, defaultMessageCount, memberMessageCount)
+    const requestedMessageCount = Math.max(
+      1,
+      Math.floor(Number(options.messageCountOverride) || (atMembers.length > 0 ? memberMessageCount : defaultMessageCount))
+    )
+    const messageCount = Math.min(requestedMessageCount, maxMessageCount)
     let actualMembers = [...new Set((atMembers || []).map(String))]
     const botUserId = this.messageService.getBotUserId(e)
     if (chatConfig.skipBotMemberSummary !== false && botUserId && actualMembers.includes(botUserId)) {
@@ -2972,7 +2979,7 @@ class BaikeService {
       const historyFetchConfig = chatConfig.historyFetch || {}
       const rawMessages = await this.messageService.getGroupHistoryMessages(
         e,
-        Math.min(messageCount, chatConfig.maxMessageCount || 500),
+        messageCount,
         {
           maxAgeHours: timeRangeHours,
           paginationEnabled: historyFetchConfig.paginationEnabled !== false,
@@ -3022,6 +3029,26 @@ class BaikeService {
       } = await this.messageService.formatMessagesForSummary(messages, actualMembers, {
         event: e
       })
+
+      const historyTimestamps = messages
+        .map(item => this.messageService.getMessageTime(item))
+        .filter(timestamp => Number(timestamp) > 0)
+        .sort((a, b) => a - b)
+      const oldestTimestamp = historyTimestamps[0] || 0
+      const newestTimestamp = historyTimestamps[historyTimestamps.length - 1] || 0
+      logger.info(`[${pluginName}] ${moduleName}历史消息处理完成 ${JSON.stringify({
+        requestedCount: messageCount,
+        rawCount: rawMessages.length,
+        timeFilteredCount: timeFilteredMessages.length,
+        afterBotFilterCount: messages.length,
+        formattedCount: formattedMessages.length,
+        configuredHours: timeRangeHours,
+        oldestTime: oldestTimestamp ? new Date(oldestTimestamp * 1000).toLocaleString('zh-CN') : '',
+        newestTime: newestTimestamp ? new Date(newestTimestamp * 1000).toLocaleString('zh-CN') : '',
+        coverageHours: oldestTimestamp && newestTimestamp
+          ? Number(((newestTimestamp - oldestTimestamp) / 3600).toFixed(2))
+          : 0
+      })}`)
 
       if (formattedMessages.length === 0) {
         if (timeRangeHours > 0) {

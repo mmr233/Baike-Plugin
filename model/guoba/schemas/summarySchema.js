@@ -314,8 +314,9 @@ const summarySchemaRaw = [
   {
     field: 'chatSummary.maxMessageCount',
     label: '单次最大可取消息数',
+    bottomHelpMessage: '实际最大值不会低于整群默认消息数和 @成员默认消息数，避免默认配置被静默截断',
     component: 'InputNumber',
-    defaultValue: 500,
+    defaultValue: 800,
     componentProps: {
       min: 50,
       max: 3000,
