@@ -233,11 +233,11 @@ function createModelOptionsBindings(modelOptions = []) {
       firstOf: [
         {
           mapPath: '__modelOptionsMap',
-          keyTemplate: '${apiPresetId}::${apiKeyGroupId}::${endpointType}'
+          keyTemplate: '${apiKeyGroupId}::${endpointType}'
         },
         {
           mapPath: '__modelOptionsMap',
-          keyTemplate: '${apiPresetId}::${apiKeyGroupId}'
+          keyTemplate: '${apiKeyGroupId}'
         },
         {
           mapPath: '__modelOptionsMap',
@@ -318,7 +318,9 @@ function createModelAutoCompleteProps(modelOptions = [], placeholder = '') {
     allowClear: true,
     optionFilterProp: 'value',
     filterOption: true,
-    dropdownMatchSelectWidth: false
+    dropdownMatchSelectWidth: false,
+    virtual: true,
+    listHeight: 256
   }
 }
 

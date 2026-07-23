@@ -296,7 +296,6 @@ function prefixGatewayCatalog(catalog = {}) {
       })
       const modelOptions = modelOptionsBySource[`${rawPresetId}::${groupId}`] || []
       prefixedModelsBySource[`${prefixedPresetId}::${groupId}`] = modelOptions
-      prefixedModelsBySource[`${prefixedPresetId}::${prefixedPresetId}::${groupId}`] = modelOptions
       return option
     })
     const defaultGroupId = String(defaultKeyGroupByPreset[rawPresetId] || '').trim()
@@ -389,11 +388,9 @@ function buildGatewayModelRuntimeFields(catalog = {}, sourceConfig = {}, inherit
     ? { ...catalog.modelOptionsBySource }
     : {}
   const sourceKey = `${source.apiPresetId}::${source.apiKeyGroupId}`
-  const compositeSourceKey = `${source.apiPresetId}::${source.apiPresetId}::${source.apiKeyGroupId}`
   const currentOptions = modelOptionsMap[sourceKey] || modelOptions
   if (source.apiPresetId && source.apiKeyGroupId && !modelOptionsMap[sourceKey] && configuredModelOption.length > 0) {
     modelOptionsMap[sourceKey] = configuredModelOption
-    modelOptionsMap[compositeSourceKey] = configuredModelOption
   }
 
   return {

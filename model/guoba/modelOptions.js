@@ -241,15 +241,10 @@ export function buildModelOptionsMapFromCache(cacheEntries = [], options = {}) {
   const entries = normalizeModelCacheEntries(cacheEntries)
   const map = {}
   const defaultKeyGroupIdByPreset = getDefaultKeyGroupIdByPreset(options.apiConfig || {})
-  const entriesByEndpoint = new Map()
 
   for (const entry of entries) {
     const entryOptions = createOptionsForEntries([entry])
     const endpointType = entry.endpointType || 'openai-chat'
-    if (!entriesByEndpoint.has(endpointType)) {
-      entriesByEndpoint.set(endpointType, [])
-    }
-    entriesByEndpoint.get(endpointType).push(entry)
 
     if (entry.baseUrl) {
       addEndpointVariants(map, `base:${entry.baseUrl}`, endpointType, entryOptions)
@@ -259,30 +254,11 @@ export function buildModelOptionsMapFromCache(cacheEntries = [], options = {}) {
       const keyGroupId = entry.apiKeyGroupId || defaultKeyGroupIdByPreset[entry.apiPresetId] || ''
       if (keyGroupId) {
         addEndpointVariants(map, `${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
-        addEndpointVariants(map, `${entry.apiPresetId}::${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
-        addEndpointVariants(map, `${entry.apiPresetId}::${entry.apiPresetId}/${keyGroupId}`, endpointType, entryOptions)
-        addEndpointVariants(map, `${entry.apiPresetId}::${entry.apiPresetId}|${keyGroupId}`, endpointType, entryOptions)
-        addEndpointVariants(map, `::${entry.apiPresetId}::${keyGroupId}`, endpointType, entryOptions)
-        addEndpointVariants(map, `::${entry.apiPresetId}/${keyGroupId}`, endpointType, entryOptions)
-        addEndpointVariants(map, `::${entry.apiPresetId}|${keyGroupId}`, endpointType, entryOptions)
       }
       if (!entry.apiKeyGroupId || entry.apiKeyGroupId === defaultKeyGroupIdByPreset[entry.apiPresetId]) {
         addEndpointVariants(map, `${entry.apiPresetId}::`, endpointType, entryOptions)
       }
     }
-  }
-
-  const allOptions = createOptionsForEntries(entries)
-  addOptionsMapEntry(map, '::', allOptions)
-  addOptionsMapEntry(map, '::::', allOptions)
-  addOptionsMapEntry(map, '::::inherit', allOptions)
-  addOptionsMapEntry(map, 'empty:|||', allOptions)
-  addOptionsMapEntry(map, 'empty:|||inherit', allOptions)
-  for (const [endpointType, endpointEntries] of entriesByEndpoint.entries()) {
-    const endpointOptions = createOptionsForEntries(endpointEntries)
-    addOptionsMapEntry(map, `::::${endpointType}`, endpointOptions)
-    addOptionsMapEntry(map, `base:::${endpointType}`, endpointOptions)
-    addOptionsMapEntry(map, `empty:|||${endpointType}`, endpointOptions)
   }
 
   return map
