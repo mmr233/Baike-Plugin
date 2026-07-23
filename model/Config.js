@@ -534,12 +534,6 @@ const DEFAULT_CONFIG = {
   api: {
     primaryBaseUrl: 'https://your-api.example.com/v1',
     primaryApiKey: 'your-primary-api-key',
-    gateway: {
-      enabled: false,
-      fallbackToLocal: true,
-      pluginName: 'Baike-Plugin',
-      accessCode: ''
-    },
     presets: [
       {
         id: 'default',

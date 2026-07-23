@@ -52,17 +52,6 @@ function normalizeFallbackEndpointType(value, fallback = 'inherit') {
   return normalizeEndpointType(value, fallback)
 }
 
-function normalizeGatewayConfig(value = {}) {
-  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-
-  return {
-    enabled: Boolean(source.enabled),
-    fallbackToLocal: source.fallbackToLocal !== false,
-    pluginName: String(source.pluginName || source.clientId || 'Baike-Plugin').trim() || 'Baike-Plugin',
-    accessCode: String(source.accessCode || '').trim()
-  }
-}
-
 function parseApiKeyGroupRef(value = '') {
   const raw = String(value || '').trim()
   if (!raw) {
@@ -310,7 +299,6 @@ export async function setConfigData(data, { Result }) {
 
     nextConfig.api.primaryBaseUrl = String(nextConfig.api.primaryBaseUrl || '').trim()
     nextConfig.api.primaryApiKey = String(nextConfig.api.primaryApiKey || '').trim()
-    nextConfig.api.gateway = normalizeGatewayConfig(nextConfig.api.gateway)
     nextConfig.api.presets = normalizeApiPresets(nextConfig.api.presets)
     nextConfig.api.modelOptionsCache = normalizeModelOptionsCache(preservedModelOptionsCache)
 

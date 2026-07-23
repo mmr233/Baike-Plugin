@@ -8,7 +8,7 @@
 
 > 请先看完下面内容再使用本插件
 > 需要你已经具备正常使用 Yunzai 和修改插件配置的基础能力
-> 搜索、总结、语音识别和视频分析需要模型接口；可直接配置在 Baike，也可选用 LLM-Gateway-Plugin 统一管理
+> 搜索、总结、语音识别和视频分析需要在 Baike 中配置模型接口
 > 默认模板配置里不再附带可直接使用的密钥
 
 如果你连 `config/config/config.json` 和锅巴面板都不想看，那这个插件大概率不适合你。
@@ -40,7 +40,6 @@
 ## 锅巴配置说明
 
 - 搜索模型、总结模型、视频模型、音频模型都能在锅巴里单独配置
-- 可选接入 [LLM-Gateway-Plugin](https://github.com/mmr233/LLM-Gateway-Plugin)，启用后会在现有本地接口、密钥分组和模型候选中追加【网关】来源，不会替换本地配置
 - 缓存时长、缓存容量、发送方式、HTML 卡片主题与夜晚时段、来源显示上限和截图数量都能直接调
 - 定时群总结支持直接配置每日执行时间、目标群和消息条数
 - 锅巴保存后会自动刷新定时任务，无需手动重启
@@ -67,15 +66,6 @@ pnpm install --filter=baike-plugin
 ```text
 plugins/Baike-Plugin/config/config/config.json
 ```
-
-- 可选：安装共享模型网关，在网关中配置接口、密钥分组、全局授权码并获取模型列表，再开启 Baike 的“使用 LLM 模型网关”
-```bash
-git clone --depth=1 https://github.com/mmr233/LLM-Gateway-Plugin.git ./plugins/LLM-Gateway-Plugin/
-```
-
-启用网关来源后，Baike 原有的搜索、图片、总结、JSON 修复、视频和音频模型表单会同时显示本地来源与带【网关】标记的来源，所选接口决定实际请求路径。本地接口和密钥配置保持不变；网关接口使用模型网关中的密钥。填写全局授权码后，Baike 首次网关请求会自动登记。
-
----
 
 ## 使用说明
 

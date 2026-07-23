@@ -12,7 +12,6 @@ import { sleep } from '../../utils/common.js'
 
 const execFile = promisify(execFileCallback)
 const DEFAULT_CONNECT_TIMEOUT_MS = 30000
-const GATEWAY_PRESET_PREFIX = 'gateway:'
 const fetchDispatcherCache = new Map()
 let undiciAgentPromise = null
 let undiciUnavailableWarned = false
@@ -1819,16 +1818,7 @@ class ApiService {
       const baseUrl = resolvedApi.baseUrl
       const apiKey = resolvedApi.apiKey
       const model = String(candidate.model || '').trim()
-      const candidateGroupRef = this.parseApiKeyGroupRef(candidate.apiKeyGroupId)
-      const explicitCandidatePresetId = String(
-        candidateGroupRef.presetId
-        || candidate.apiPresetId
-        || ''
-      ).trim()
-      const effectiveCandidatePresetId = explicitCandidatePresetId
-        || (candidate.source === 'fallback' ? primaryApi.apiPresetId : modelConfig.apiPresetId)
-      const gatewayCandidate = this.isConfiguredGatewayPresetId(effectiveCandidatePresetId)
-      const valid = !gatewayCandidate && Boolean(baseUrl && apiKey && model)
+      const valid = Boolean(baseUrl && apiKey && model)
 
       return {
         ...candidate,
@@ -1844,7 +1834,6 @@ class ApiService {
         timeoutMs: requestTimeout,
         connectTimeoutMs: connectTimeout,
         retryCount: maxRetries,
-        gatewayCandidate,
         valid
       }
     })
@@ -2385,264 +2374,9 @@ class ApiService {
     }
   }
 
-  getGatewayRequestConfig(options = {}) {
-    const config = Config.get('api.gateway', {})
-
-    return {
-      enabled: options.useGateway === undefined
-        ? Boolean(config?.enabled)
-        : Boolean(options.useGateway),
-      fallbackToLocal: options.gatewayFallbackToLocal === undefined
-        ? config?.fallbackToLocal !== false
-        : Boolean(options.gatewayFallbackToLocal),
-      pluginName: String(
-        options.gatewayPluginName
-        ?? options.gatewayClientId
-        ?? config?.pluginName
-        ?? config?.clientId
-        ?? 'Baike-Plugin'
-      ).trim() || 'Baike-Plugin',
-      accessCode: String(options.gatewayAccessCode ?? config?.accessCode ?? '').trim()
-    }
-  }
-
-  getLLMGateway() {
-    const gateway = globalThis.LLMGateway || globalThis.llmGateway
-    return gateway && typeof gateway.chat === 'function' ? gateway : null
-  }
-
-  isGatewayPresetId(value = '') {
-    return String(value || '').trim().startsWith(GATEWAY_PRESET_PREFIX)
-  }
-
-  stripGatewayPresetId(value = '') {
-    const presetId = String(value || '').trim()
-    return this.isGatewayPresetId(presetId)
-      ? presetId.slice(GATEWAY_PRESET_PREFIX.length)
-      : presetId
-  }
-
-  isConfiguredGatewayPresetId(value = '') {
-    const presetId = String(value || '').trim()
-    if (this.isGatewayPresetId(presetId)) return true
-    if (!presetId) return false
-    const localPresets = Config.get('api.presets', [])
-    if (Array.isArray(localPresets) && localPresets.some(item => String(item?.id || '').trim() === presetId)) {
-      return false
-    }
-    const gateway = this.getLLMGateway()
-    const gatewayPresets = typeof gateway?.getPresets === 'function' ? gateway.getPresets() : []
-    return Array.isArray(gatewayPresets)
-      && gatewayPresets.some(item => String(item?.id || '').trim() === presetId)
-  }
-
-  shouldUseGatewayForModel(modelType, options = {}) {
-    if (options.useGateway !== undefined) {
-      return Boolean(options.useGateway)
-    }
-    const gatewayConfig = this.getGatewayRequestConfig(options)
-    if (!gatewayConfig.enabled) return false
-    const modelConfig = Config.get(`api.${modelType}`, {})
-    const groupRef = this.parseApiKeyGroupRef(options.apiKeyGroupId ?? modelConfig.apiKeyGroupId)
-    const apiPresetId = String(
-      groupRef.presetId
-      || options.apiPresetId
-      || modelConfig.apiPresetId
-      || ''
-    ).trim()
-    return this.isConfiguredGatewayPresetId(apiPresetId)
-  }
-
-  getGatewayModelConfig(modelType, options = {}) {
-    const modelConfig = Config.get(`api.${modelType}`, {})
-    const groupRef = this.parseApiKeyGroupRef(options.apiKeyGroupId ?? modelConfig.apiKeyGroupId)
-    const fallbackModels = this.normalizeFallbackModels(options.fallbackModels ?? modelConfig.fallbackModels)
-      .filter(item => {
-        const fallbackGroupRef = this.parseApiKeyGroupRef(item.apiKeyGroupId)
-        const explicitPresetId = String(fallbackGroupRef.presetId || item.apiPresetId || '').trim()
-        return !explicitPresetId || this.isConfiguredGatewayPresetId(explicitPresetId)
-      })
-      .map(item => {
-        const fallbackGroupRef = this.parseApiKeyGroupRef(item.apiKeyGroupId)
-        return {
-          model: item.model,
-          apiPresetId: this.stripGatewayPresetId(fallbackGroupRef.presetId || item.apiPresetId),
-          apiKeyGroupId: String(fallbackGroupRef.keyGroupId || '').trim(),
-          requestMode: this.normalizeFallbackRequestMode(item.requestMode, 'inherit')
-        }
-      })
-
-    return {
-      model: String(options.model ?? modelConfig.model ?? '').trim(),
-      apiPresetId: this.stripGatewayPresetId(groupRef.presetId || options.apiPresetId || modelConfig.apiPresetId),
-      apiKeyGroupId: String(groupRef.keyGroupId || '').trim(),
-      requestMode: this.normalizeRequestMode(options.requestMode, modelConfig.requestMode || 'response'),
-      timeoutMs: this.normalizeTimeoutMs(
-        options.timeoutMs ?? options.timeout,
-        this.normalizeTimeoutMs(modelConfig.timeoutMs, 120000)
-      ),
-      connectTimeoutMs: this.normalizeConnectTimeoutMs(
-        options.connectTimeoutMs,
-        this.normalizeConnectTimeoutMs(modelConfig.connectTimeoutMs, DEFAULT_CONNECT_TIMEOUT_MS)
-      ),
-      retryCount: this.normalizeRetryCount(
-        options.retryCount,
-        this.normalizeRetryCount(modelConfig.retryCount, 0)
-      ),
-      fallbackModels
-    }
-  }
-
-  async requestChatCompletionViaGateway(modelType, messages, options) {
-    const gateway = this.getLLMGateway()
-    if (!gateway) {
-      const error = new Error('LLM-Gateway-Plugin 未加载或尚未注册全局接口')
-      error.code = 'LLM_GATEWAY_UNAVAILABLE'
-      throw error
-    }
-    const gatewayAuthConfig = this.getGatewayRequestConfig(options)
-
-    const {
-      useGateway: _useGateway,
-      gatewayProfile: _gatewayProfile,
-      gatewayFallbackToLocal: _gatewayFallbackToLocal,
-      gatewayPluginName: _gatewayPluginName,
-      gatewayClientId: _gatewayClientId,
-      gatewayAccessCode: _gatewayAccessCode,
-      model: _model,
-      apiPresetId: _apiPresetId,
-      apiKeyGroupId: _apiKeyGroupId,
-      baseUrl: _baseUrl,
-      apiKey: _apiKey,
-      endpointType: _endpointType,
-      requestMode: _requestMode,
-      timeoutMs: _timeoutMs,
-      timeout: _timeout,
-      connectTimeoutMs: _connectTimeoutMs,
-      retryCount: _retryCount,
-      fallbackModels: _fallbackModels,
-      ...requestOptions
-    } = options || {}
-    const modelConfig = this.getGatewayModelConfig(modelType, options)
-
-    if (!modelConfig.apiPresetId || !modelConfig.model) {
-      const error = new Error(`${modelType} 网关模型配置不完整，请选择模型网关接口和模型`)
-      error.code = 'LLM_GATEWAY_SOURCE_INCOMPLETE'
-      throw error
-    }
-
-    debugLog('api.gateway.request', `通过模型网关请求 ${modelType}`, {
-      apiPresetId: modelConfig.apiPresetId,
-      apiKeyGroupId: modelConfig.apiKeyGroupId,
-      model: modelConfig.model,
-      requestMode: modelConfig.requestMode,
-      messageCount: Array.isArray(messages) ? messages.length : 0
-    })
-
-    const {
-      model,
-      apiPresetId,
-      apiKeyGroupId,
-      requestMode,
-      ...gatewayRequestConfig
-    } = modelConfig
-
-    const result = await gateway.chat({
-      ...requestOptions,
-      pluginName: gatewayAuthConfig.pluginName,
-      accessCode: gatewayAuthConfig.accessCode,
-      caller: requestOptions.caller || pluginName,
-      purpose: requestOptions.purpose || modelType,
-      source: {
-        model,
-        apiPresetId,
-        apiKeyGroupId,
-        requestMode
-      },
-      ...gatewayRequestConfig,
-      messages
-    })
-    const text = String(result?.text || '')
-    const json = result?.json && typeof result.json === 'object'
-      ? result.json
-      : (result?.raw && typeof result.raw === 'object' ? result.raw : { output_text: text })
-    const candidate = {
-      ...(result?.candidate || {}),
-      label: result?.candidate?.label || '模型网关',
-      source: 'gateway'
-    }
-
-    debugLog('api.gateway.response', `${modelType} 网关响应`, {
-      apiPresetId: candidate.apiPresetId || modelConfig.apiPresetId,
-      apiKeyGroupId: candidate.apiKeyGroupId || modelConfig.apiKeyGroupId,
-      model: candidate.model || '',
-      endpointType: candidate.endpointType || '',
-      requestMode: candidate.requestMode || '',
-      preview: text.slice(0, 200)
-    })
-
-    return {
-      requestId: result?.requestId || '',
-      caller: result?.caller || pluginName,
-      purpose: result?.purpose || modelType,
-      durationMs: Number(result?.durationMs) || 0,
-      text,
-      json,
-      raw: result?.raw || json,
-      usage: result?.usage || extractResponseUsage(json),
-      candidate
-    }
-  }
-
-  getExplicitGatewayFallbacks(modelType, options = {}) {
-    const modelConfig = Config.get(`api.${modelType}`, {})
-    return this.normalizeFallbackModels(options.fallbackModels ?? modelConfig.fallbackModels)
-      .filter(item => {
-        const groupRef = this.parseApiKeyGroupRef(item.apiKeyGroupId)
-        const presetId = String(groupRef.presetId || item.apiPresetId || '').trim()
-        return presetId && this.isConfiguredGatewayPresetId(presetId)
-      })
-  }
-
-  async requestGatewayFallback(modelType, messages, options, gatewayFallbacks, previousError = null) {
-    const [gatewayPrimary, ...gatewayRest] = gatewayFallbacks
-    logger.warn(
-      `[${pluginName}] ${modelType} 本地模型候选均失败，自动降级到网关模型(${gatewayPrimary.model})：${this.formatErrorWithCause(previousError)}`
-    )
-    return this.requestChatCompletionViaGateway(modelType, messages, {
-      ...options,
-      useGateway: true,
-      model: gatewayPrimary.model,
-      apiPresetId: gatewayPrimary.apiPresetId,
-      apiKeyGroupId: gatewayPrimary.apiKeyGroupId,
-      requestMode: gatewayPrimary.requestMode === 'inherit'
-        ? options.requestMode
-        : gatewayPrimary.requestMode,
-      fallbackModels: gatewayRest
-    })
-  }
-
   async requestChatCompletion(modelType, messages, options = {}) {
-    const gatewayConfig = this.getGatewayRequestConfig(options)
-    const primaryUsesGateway = this.shouldUseGatewayForModel(modelType, options)
-    if (primaryUsesGateway) {
-      try {
-        return await this.requestChatCompletionViaGateway(modelType, messages, options)
-      } catch (error) {
-        if (!gatewayConfig.fallbackToLocal) {
-          throw error
-        }
-        logger.warn(
-          `[${pluginName}] ${modelType} 模型网关请求失败，已回退到 Baike 本地接口配置：${this.formatErrorWithCause(error)}`
-        )
-      }
-    }
-
     const candidates = this.getModelConfigCandidates(modelType, options)
     const validCandidates = candidates.filter(item => item.valid)
-    const gatewayFallbacks = primaryUsesGateway
-      ? []
-      : this.getExplicitGatewayFallbacks(modelType, options)
 
     for (const skipped of candidates.filter(item => !item.valid)) {
       logger.warn(
@@ -2651,9 +2385,6 @@ class ApiService {
     }
 
     if (validCandidates.length === 0) {
-      if (gatewayConfig.enabled && gatewayFallbacks.length > 0) {
-        return this.requestGatewayFallback(modelType, messages, options, gatewayFallbacks)
-      }
       throw new Error(`${modelType} 模型配置不完整，请检查锅巴面板或配置文件`)
     }
 
@@ -2791,10 +2522,6 @@ class ApiService {
           `[${pluginName}] ${modelType} ${candidate.label}(${candidate.model}) 请求失败，自动降级到 ${nextCandidate.label}(${nextCandidate.model})：${this.formatErrorWithCause(lastError)}`
         )
       }
-    }
-
-    if (gatewayConfig.enabled && gatewayFallbacks.length > 0) {
-      return this.requestGatewayFallback(modelType, messages, options, gatewayFallbacks, lastError)
     }
 
     throw lastError || new Error(`${modelType} 请求失败：所有模型候选均不可用`)
