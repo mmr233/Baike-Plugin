@@ -52,6 +52,21 @@ test('content summary card keeps unstructured legacy text readable', () => {
   assert.match(html, /body class="theme-night"/)
 })
 
+test('content summary promotes the first real section when the summary is only a placeholder', () => {
+  const html = generateHutaoHTML('内容总结', [
+    '【摘要】\n核心结论',
+    '【要点】\n关键要点\n• 第一项更新\n• 第二项更新\n详细分析\n[[P]]这是一段需要重点阅读的分析。[[/P]]\n[[S]]这是重点句。[[/S]]\n补充说明',
+    '【补充说明】\n项目地址：https://github.com/mmr233/Baike-Plugin'
+  ].join('\n\n'))
+
+  assert.match(html, /summary-lead-title">关键要点/)
+  assert.equal(html.includes('summary-lead-title">摘要'), false)
+  assert.equal((html.match(/补充说明/g) || []).length, 1)
+  assert.match(html, /summary-card-title">详细分析/)
+  assert.match(html, /summary-card-title">补充说明/)
+  assert.equal(html.includes('>核心结论<'), false)
+})
+
 test('content summary keeps private rules out of the user source prompt', () => {
   const systemPrompt = baikeService.buildContentSummarySystemPrompt({
     promptText: '只有QQ完全一致才属于当前机器人。'

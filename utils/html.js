@@ -2084,7 +2084,7 @@ function renderInfoCard(title = '', content = '', options = {}) {
 }
 
 function getContentSummaryTone(title = '') {
-  const normalized = String(title || '').trim()
+  const normalized = normalizeContentSummaryHeading(title)
   if (/(风险|争议|问题|不足|局限|注意|提醒|警示)/.test(normalized)) {
     return { className: 'warning', badge: '注意' }
   }
@@ -2098,7 +2098,92 @@ function getContentSummaryTone(title = '') {
 }
 
 function isContentSummaryLead(title = '') {
-  return /(摘要|概述|总览|核心结论|总结)/.test(String(title || '').trim())
+  return normalizeContentSummaryHeading(title) === '核心结论'
+}
+
+function normalizeContentSummaryHeading(title = '') {
+  const normalized = String(title || '')
+    .replace(/[：:]+$/g, '')
+    .replace(/\s+/g, '')
+    .trim()
+
+  if (/^(?:摘要|内容摘要|内容概述|概述|总览|总结|核心结论)$/.test(normalized)) {
+    return '核心结论'
+  }
+  if (/^(?:要点|重点|关键要点|核心要点|主要内容|重点内容)$/.test(normalized)) {
+    return '关键要点'
+  }
+  if (/^(?:详细分析|内容分析|分析|具体分析|深入分析)$/.test(normalized)) {
+    return '详细分析'
+  }
+  if (/^(?:风险与注意|风险提示|注意事项|注意|风险|争议与注意)$/.test(normalized)) {
+    return '风险与注意'
+  }
+  if (/^(?:补充说明|补充|背景说明|背景|延伸说明|其他说明)$/.test(normalized)) {
+    return '补充说明'
+  }
+  return String(title || '').trim()
+}
+
+function getInlineContentSummaryHeading(line = '') {
+  const normalized = String(line || '').trim()
+  if (!normalized || normalized.length > 18 || /^[•*\-]/.test(normalized)) {
+    return ''
+  }
+
+  const withoutOrder = normalized.replace(/^(?:\d+[.、]|[一二三四五六七八九十]+[、.])\s*/, '')
+  const heading = normalizeContentSummaryHeading(withoutOrder)
+  return heading !== withoutOrder || /^(?:核心结论|关键要点|详细分析|风险与注意|补充说明)$/.test(heading)
+    ? heading
+    : ''
+}
+
+function isContentSummaryHeadingPlaceholder(content = '') {
+  const normalized = stripSummaryHighlightMarkers(content)
+    .replace(/\s+/g, '')
+    .replace(/[：:。！!]+$/g, '')
+  return /^(?:核心结论|关键要点|详细分析|风险与注意|补充说明)$/.test(normalized)
+}
+
+function normalizeContentSummarySections(content = '') {
+  const sections = parseBracketSections(content)
+  const normalizedSections = []
+
+  for (const section of sections) {
+    let activeTitle = normalizeContentSummaryHeading(section.title)
+    let lines = []
+    const flush = () => {
+      const sectionContent = lines.join('\n').trim()
+      if (sectionContent && !isContentSummaryHeadingPlaceholder(sectionContent)) {
+        normalizedSections.push({
+          title: activeTitle || '内容解读',
+          content: sectionContent
+        })
+      }
+      lines = []
+    }
+
+    for (const line of String(section.content || '').replace(/\r/g, '').split('\n')) {
+      const heading = getInlineContentSummaryHeading(line)
+      if (heading) {
+        flush()
+        activeTitle = heading
+      } else {
+        lines.push(line)
+      }
+    }
+    flush()
+  }
+
+  const seen = new Set()
+  return normalizedSections.filter(item => {
+    const key = `${item.title}\u0000${item.content}`
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  })
 }
 
 function renderContentSummaryCard(item = {}, index = 0, options = {}) {
@@ -2121,7 +2206,7 @@ function renderContentSummaryLayout(content = '', options = {}) {
     return ''
   }
 
-  const sections = parseBracketSections(actualContent)
+  const sections = normalizeContentSummarySections(actualContent)
   if (sections.length === 0) {
     return renderStructuredContentSection(actualContent, '内容解读', 'NOTE', options)
   }
