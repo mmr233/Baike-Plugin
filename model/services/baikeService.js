@@ -5,6 +5,7 @@ import { debugLog } from '../debug.js'
 import { pluginName } from '../constant.js'
 import ApiService from './apiService.js'
 import DocumentService from './documentService.js'
+import IdentityService from './identityService.js'
 import MediaService from './mediaService.js'
 import MessageService from './messageService.js'
 import SummaryBillingService from './summaryBillingService.js'
@@ -130,6 +131,7 @@ class BaikeService {
     this.mediaService = new MediaService()
     this.messageService = new MessageService()
     this.documentService = new DocumentService(this.mediaService, this.messageService)
+    this.identityService = new IdentityService()
     this.summaryBillingService = new SummaryBillingService()
     this.searchBillingService = new SummaryBillingService({
       configKey: 'searchBilling',
@@ -1408,7 +1410,55 @@ class BaikeService {
       .join('\n')
   }
 
-  buildEnhancedUserStatsText(formattedMessages = [], sortedMembers = []) {
+  getSummaryIdentity(identityProfiles = {}, userId = '') {
+    return identityProfiles?.[String(userId || '').trim()] || null
+  }
+
+  async getSummaryIdentityProfiles(formattedMessages = [], event = {}) {
+    if (Config.get('chatSummary.identityEnhancement.enabled', true) === false) {
+      return {}
+    }
+    try {
+      return await this.identityService.getUserIdentities(
+        formattedMessages.map(item => item.user_id),
+        { event }
+      )
+    } catch (error) {
+      logger.warn(`[${pluginName}] Iris 身份增强不可用，已跳过：${error.message}`)
+      return {}
+    }
+  }
+
+  buildSummaryIdentityContext(formattedMessages = [], identityProfiles = {}) {
+    const userNames = new Map()
+    for (const item of formattedMessages || []) {
+      const userId = String(item.user_id || '').trim()
+      if (userId && !userNames.has(userId)) {
+        userNames.set(userId, String(item.nickname || item.card || userId).trim())
+      }
+    }
+
+    const lines = []
+    for (const [userId, identity] of Object.entries(identityProfiles || {})) {
+      if (!identity?.isMaster && !identity?.isSponsor) {
+        continue
+      }
+      const nickname = userNames.get(userId) || userId
+      const amountText = identity.isSponsor
+        ? `，累计赞助记录 ¥${Number(identity.sponsorAmount || 0).toFixed(2)}`
+        : ''
+      if (identity.isMaster && identity.isSponsor) {
+        lines.push(`- ${nickname} (ID:${userId})：机器人主人兼赞助用户${amountText}。主人身份优先，同时体现其对项目的额外支持。`)
+      } else if (identity.isMaster) {
+        lines.push(`- ${nickname} (ID:${userId})：机器人主人。应体现其与机器人的创建、管理或亲近关系，但评价仍需基于真实发言。`)
+      } else {
+        lines.push(`- ${nickname} (ID:${userId})：赞助用户${amountText}。可以自然表达感谢和重视，但不要称为主人，也不要无依据吹捧。`)
+      }
+    }
+    return lines.join('\n') || '无已识别的机器人主人或赞助用户'
+  }
+
+  buildEnhancedUserStatsText(formattedMessages = [], sortedMembers = [], identityProfiles = {}) {
     const entries = this.buildMessageUserEntries(formattedMessages)
     const byName = new Map(entries.map(item => [item.nickname, item]))
     const ordered = []
@@ -1439,8 +1489,45 @@ class BaikeService {
         .slice(-2)
         .map(item => item.slice(0, 40))
         .join(' / ')
-      return `- ${entry.nickname} (ID:${entry.userId || '未知'}): 发言${messageCount}条, 平均${messageCount ? Math.round(charCount / messageCount) : 0}字, 媒体${mediaCount}条, 夜间${nightCount}条${samples ? `, 近例：${samples}` : ''}`
+      const identity = this.getSummaryIdentity(identityProfiles, entry.userId)
+      const identityText = identity?.isMaster && identity?.isSponsor
+        ? `, 身份:机器人主人兼赞助用户(¥${Number(identity.sponsorAmount || 0).toFixed(2)})`
+        : identity?.isMaster
+          ? ', 身份:机器人主人'
+          : identity?.isSponsor
+            ? `, 身份:赞助用户(¥${Number(identity.sponsorAmount || 0).toFixed(2)})`
+            : ''
+      return `- ${entry.nickname} (ID:${entry.userId || '未知'}): 发言${messageCount}条, 平均${messageCount ? Math.round(charCount / messageCount) : 0}字, 媒体${mediaCount}条, 夜间${nightCount}条${identityText}${samples ? `, 近例：${samples}` : ''}`
     }).join('\n')
+  }
+
+  applyIdentityToPortraits(portraits = [], identityProfiles = {}) {
+    return (portraits || []).map(item => {
+      const identity = this.getSummaryIdentity(identityProfiles, item?.userId)
+      if (!identity?.isMaster && !identity?.isSponsor) {
+        return item
+      }
+      const identityTags = [
+        identity.isMaster ? '#Bot主人' : '',
+        identity.isSponsor ? '#赞助用户' : ''
+      ].filter(Boolean)
+      const existingTags = Array.isArray(item.tags) ? item.tags : []
+      const identitySummary = identity.isMaster && identity.isSponsor
+        ? '该用户是机器人主人，同时也是赞助支持者。'
+        : identity.isMaster
+          ? '该用户是机器人主人，与机器人具有创建或管理关系。'
+          : '该用户是赞助支持者，应与机器人主人身份明确区分。'
+      const summary = String(item.summary || '').trim()
+
+      return {
+        ...item,
+        isMaster: Boolean(identity.isMaster),
+        isSponsor: Boolean(identity.isSponsor),
+        sponsorAmount: Number(identity.sponsorAmount || 0),
+        tags: [...new Set([...identityTags, ...existingTags])],
+        summary: summary.includes(identitySummary) ? summary : `${identitySummary}${summary ? ` ${summary}` : ''}`
+      }
+    })
   }
 
   buildEnhancedPrompt(templateKey, values = {}) {
@@ -1576,6 +1663,7 @@ class BaikeService {
       extraContext = '',
       botProfile = {},
       memberProfilesText = '',
+      identityProfiles = {},
       isMemberMode = false,
       maxPortraits = 4
     } = context
@@ -1590,7 +1678,8 @@ class BaikeService {
       maxTopics: isMemberMode ? Math.min(config.maxTopics, 3) : config.maxTopics,
       maxHighlights: config.maxHighlights,
       maxPortraits,
-      userStatsText: this.buildEnhancedUserStatsText(formattedMessages, sortedMembers)
+      userStatsText: this.buildEnhancedUserStatsText(formattedMessages, sortedMembers, identityProfiles),
+      identityContext: this.buildSummaryIdentityContext(formattedMessages, identityProfiles)
     }
     const promptKeys = isMemberMode
       ? {
@@ -3209,6 +3298,7 @@ class BaikeService {
       const memberProfilesText = actualMembers.length > 0
         ? await this.messageService.getGroupMemberProfiles(e, actualMembers)
         : ''
+      const identityProfiles = await this.getSummaryIdentityProfiles(formattedMessages, e)
       const extraContext = `${imageSummary}${docTexts}`
 
       const title = actualMembers.length > 0 ? '成员发言总结' : '群聊总结'
@@ -3234,6 +3324,7 @@ class BaikeService {
           extraContext,
           botProfile,
           memberProfilesText,
+          identityProfiles,
           isMemberMode,
           maxPortraits: chatConfig.userPortraitMaxCount ?? 4
         })
@@ -3278,10 +3369,17 @@ class BaikeService {
         })
         parsed = parseSummaryContent(result)
       }
-      const parsedForHtml = this.enrichGroupSummaryParsed(parsed, formattedMessages)
-      const userPortraits = this.buildSelectedUserPortraits(parsedForHtml, formattedMessages, sortedMembers, {
-        maxCount: chatConfig.userPortraitMaxCount ?? 4
-      })
+      const enrichedParsed = this.enrichGroupSummaryParsed(parsed, formattedMessages)
+      const modelPortraits = this.applyIdentityToPortraits(enrichedParsed.userPortraits, identityProfiles)
+      const parsedWithIdentity = { ...enrichedParsed, userPortraits: modelPortraits }
+      const userPortraits = this.applyIdentityToPortraits(
+        this.buildSelectedUserPortraits(parsedWithIdentity, formattedMessages, sortedMembers, {
+          maxCount: chatConfig.userPortraitMaxCount ?? 4
+        }),
+        identityProfiles
+      )
+      const parsedForHtml = { ...parsedWithIdentity, userPortraits }
+      result = this.formatStructuredGroupSummary(parsedForHtml)
       const userMap = this.buildSummaryUserMap(formattedMessages, [
         ...(parsedForHtml.highlights || []),
         ...userPortraits

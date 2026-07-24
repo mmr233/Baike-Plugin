@@ -231,6 +231,9 @@
     "filterBotMessages": true,
     "skipBotMemberSummary": true,
     "userPortraitMaxCount": 4,
+    "identityEnhancement": {
+      "enabled": true
+    },
     "structuredAnalysis": {
       "maxConcurrent": 2,
       "schemaRepairRetries": 1,

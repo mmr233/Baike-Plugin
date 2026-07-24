@@ -180,6 +180,9 @@ const DEFAULT_GROUP_PEOPLE_ANALYSIS_PROMPT = `请分析以下群聊记录，一�
 4. keywords 输出5-7个具体关键词，避免“活跃、友好”等空泛词
 5. qualityReview 使用3-5个高层级维度，比例总和不超过100，评价必须对应本轮真实聊天
 6. 如果资料不足，userPortraits 可以为空，qualityReview 可以为 null，不要编造
+7. 特殊身份信息仅用于差异化称呼和关系描述：机器人主人可体现其与机器人的创建、管理或亲近关系；赞助用户可自然表达感谢和重视，但绝不能称为主人
+8. 同时具备两种身份时以机器人主人身份为主、赞助支持为补充；无特殊身份信息时不得自行推断
+9. 身份不能替代发言证据，也不能用于抬高评价或回避真实缺点，质量锐评仍需保持公正
 
 返回格式：
 {
@@ -189,6 +192,9 @@ const DEFAULT_GROUP_PEOPLE_ANALYSIS_PROMPT = `请分析以下群聊记录，一�
 
 用户统计：
 {userStatsText}
+
+可选特殊身份信息：
+{identityContext}
 
 发言统计：
 {statsText}
@@ -244,6 +250,8 @@ const DEFAULT_GROUP_MEMBER_PEOPLE_ANALYSIS_PROMPT = `请分析以下目标成员
 3. 画像必须结合原话评价角色定位、兴趣焦点、表达风格、互动方式、稳定优点和可能短板
 4. qualityReview 使用3-5个个人表现维度，既指出亮点，也指出局限或风险，不要评价整群质量
 5. 没有足够证据时 userPortraits 可以为空，qualityReview 可以为 null，不要编造
+6. 特殊身份信息仅用于差异化称呼和关系描述：机器人主人可体现其与机器人的创建、管理或亲近关系；赞助用户可自然表达感谢，但不能称为主人
+7. 同时具备两种身份时以机器人主人身份为主、赞助支持为补充；身份不能改变基于发言证据的公正评价
 
 返回格式：
 {
@@ -253,6 +261,9 @@ const DEFAULT_GROUP_MEMBER_PEOPLE_ANALYSIS_PROMPT = `请分析以下目标成员
 
 用户统计：
 {userStatsText}
+
+可选特殊身份信息：
+{identityContext}
 
 发言统计：
 {statsText}
@@ -353,6 +364,8 @@ const DEFAULT_GROUP_USER_PORTRAITS_PROMPT = `请基于以下群聊记录和用�
 3. name 使用群名片/昵称；user_id 使用聊天记录中的用户ID，无法判断可留空
 4. title 要有梗但不冒犯；keywords 输出 4-6 个具体关键词，避免空泛词
 5. summary 要结合本轮发言说明角色、关注点、互动风格和代表性行为
+6. 根据可选特殊身份信息区分机器人主人和赞助用户；主人可体现与机器人的特殊关系，赞助用户只表达支持和感谢，不能混用称呼
+7. 身份不能代替发言证据或影响公正评价；没有特殊身份信息时不得自行推断
 
 返回格式：
 [
@@ -368,6 +381,9 @@ const DEFAULT_GROUP_USER_PORTRAITS_PROMPT = `请基于以下群聊记录和用�
 
 用户统计：
 {userStatsText}
+
+可选特殊身份信息：
+{identityContext}
 
 补充信息：
 {extraContext}
@@ -401,6 +417,11 @@ const DEFAULT_GROUP_QUALITY_PROMPT = `请分析以下群聊记录，输出一份
 
 发言统计：
 {statsText}
+
+可选特殊身份信息：
+{identityContext}
+
+注意：特殊身份只影响称呼和关系描述，不作为群聊质量评分依据。
 
 补充信息：
 {extraContext}
@@ -474,6 +495,8 @@ const DEFAULT_GROUP_MEMBER_USER_PORTRAITS_PROMPT = `请基于以下目标成员�
 3. name 使用群名片/昵称；user_id 使用聊天记录中的用户ID，无法判断可留空
 4. title 要有梗但不冒犯；keywords 输出 5-7 个具体关键词，避免“活跃、友好”这类空泛词
 5. summary 必须结合发言证据评价角色定位、兴趣焦点、表达风格、互动方式、稳定优点和可能短板；不要写整群氛围
+6. 根据可选特殊身份信息区分机器人主人和赞助用户；主人可体现与机器人的特殊关系，赞助用户只表达支持和感谢，不能混用称呼
+7. 同时具备两种身份时主人身份优先；身份不能代替发言证据或影响公正评价
 
 返回格式：
 [
@@ -489,6 +512,9 @@ const DEFAULT_GROUP_MEMBER_USER_PORTRAITS_PROMPT = `请基于以下目标成员�
 
 用户统计：
 {userStatsText}
+
+可选特殊身份信息：
+{identityContext}
 
 补充信息：
 {extraContext}
@@ -522,6 +548,11 @@ const DEFAULT_GROUP_MEMBER_QUALITY_PROMPT = `请分析以下目标成员聊天�
 
 发言统计：
 {statsText}
+
+可选特殊身份信息：
+{identityContext}
+
+注意：特殊身份只影响称呼和关系描述，不作为个人表现评分依据。
 
 补充信息：
 {extraContext}
@@ -931,6 +962,9 @@ const DEFAULT_CONFIG = {
     filterBotMessages: true,
     skipBotMemberSummary: true,
     userPortraitMaxCount: 4,
+    identityEnhancement: {
+      enabled: true
+    },
     structuredAnalysis: {
       maxConcurrent: 2,
       schemaRepairRetries: 1,

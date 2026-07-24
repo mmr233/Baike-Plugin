@@ -416,6 +416,13 @@ const summarySchemaRaw = [
     }
   },
   {
+    field: 'chatSummary.identityEnhancement.enabled',
+    label: '主人和赞助身份增强',
+    bottomHelpMessage: '开启后会尝试读取 Iris-Sign-Plugin 的赞助记录和 Bot 主人配置，为画像增加差异化描述；关闭、未安装 Iris 或读取失败均不影响正常总结',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
     component: 'Divider',
     label: '双路结构化总结',
     componentProps: {

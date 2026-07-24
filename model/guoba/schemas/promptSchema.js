@@ -83,7 +83,7 @@ const promptSchemaRaw = [
   {
     field: 'prompt.groupPeopleAnalysis',
     label: '群聊人物分析提示词',
-    bottomHelpMessage: '双路结构化总结的人物请求；一次生成用户画像和群聊质量锐评',
+    bottomHelpMessage: '双路结构化总结的人物请求；支持 {identityContext} 可选身份信息，一次生成用户画像和群聊质量锐评',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -100,7 +100,7 @@ const promptSchemaRaw = [
   {
     field: 'prompt.groupMemberPeopleAnalysis',
     label: '成员人物分析提示词',
-    bottomHelpMessage: '@成员总结的人物请求；一次生成个人画像和个人表现锐评',
+    bottomHelpMessage: '@成员总结的人物请求；支持 {identityContext} 可选身份信息，一次生成个人画像和个人表现锐评',
     component: 'InputTextArea',
     componentProps: { ...textAreaProps, placeholder: '请输入成员人物分析提示词' }
   },
@@ -141,7 +141,7 @@ const promptSchemaRaw = [
   {
     field: 'prompt.groupUserPortraits',
     label: '画像局部补修提示词',
-    bottomHelpMessage: '人物请求缺少 userPortraits 字段时才会调用，要求返回 JSON 数组',
+    bottomHelpMessage: '人物请求缺少 userPortraits 字段时才会调用；支持 {identityContext}，要求返回 JSON 数组',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -151,7 +151,7 @@ const promptSchemaRaw = [
   {
     field: 'prompt.groupQualityReview',
     label: '锐评局部补修提示词',
-    bottomHelpMessage: '人物请求缺少 qualityReview 字段时才会调用，要求返回 JSON 对象',
+    bottomHelpMessage: '人物请求缺少 qualityReview 字段时才会调用；支持 {identityContext}，要求返回 JSON 对象',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -181,7 +181,7 @@ const promptSchemaRaw = [
   {
     field: 'prompt.groupMemberUserPortraits',
     label: '成员画像局部补修提示词',
-    bottomHelpMessage: '成员人物请求缺少 userPortraits 字段时才会调用，要求返回 JSON 数组',
+    bottomHelpMessage: '成员人物请求缺少 userPortraits 字段时才会调用；支持 {identityContext}，要求返回 JSON 数组',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -191,7 +191,7 @@ const promptSchemaRaw = [
   {
     field: 'prompt.groupMemberQualityReview',
     label: '成员锐评局部补修提示词',
-    bottomHelpMessage: '成员人物请求缺少 qualityReview 字段时才会调用，要求返回 JSON 对象',
+    bottomHelpMessage: '成员人物请求缺少 qualityReview 字段时才会调用；支持 {identityContext}，要求返回 JSON 对象',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,

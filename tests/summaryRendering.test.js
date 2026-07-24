@@ -272,6 +272,71 @@ test('JSON syntax repair does not resend the original chat prompt', async () => 
   }
 })
 
+test('identity enhancement switch prevents loading Iris identities', async () => {
+  const originalGet = Config.get
+  const originalIdentityLookup = baikeService.identityService.getUserIdentities
+  let lookupCount = 0
+  Config.get = (path, fallback) => path === 'chatSummary.identityEnhancement.enabled' ? false : fallback
+  baikeService.identityService.getUserIdentities = async () => {
+    lookupCount += 1
+    return { 10001: { isMaster: true } }
+  }
+
+  try {
+    const result = await baikeService.getSummaryIdentityProfiles([{ user_id: '10001' }], {})
+    assert.deepEqual(result, {})
+    assert.equal(lookupCount, 0)
+  } finally {
+    Config.get = originalGet
+    baikeService.identityService.getUserIdentities = originalIdentityLookup
+  }
+})
+
+test('identity enhancement failure never interrupts the summary flow', async () => {
+  const originalGet = Config.get
+  const originalIdentityLookup = baikeService.identityService.getUserIdentities
+  Config.get = (path, fallback) => path === 'chatSummary.identityEnhancement.enabled' ? true : fallback
+  baikeService.identityService.getUserIdentities = async () => {
+    throw new Error('Iris unavailable')
+  }
+
+  try {
+    const result = await baikeService.getSummaryIdentityProfiles([{ user_id: '10001' }], {})
+    assert.deepEqual(result, {})
+  } finally {
+    Config.get = originalGet
+    baikeService.identityService.getUserIdentities = originalIdentityLookup
+  }
+})
+
+test('master and sponsor descriptions remain differentiated and evidence-aware', () => {
+  const identities = {
+    10001: { userId: '10001', isMaster: true, isSponsor: false, sponsorAmount: 0 },
+    10002: { userId: '10002', isMaster: false, isSponsor: true, sponsorAmount: 30 },
+    10003: { userId: '10003', isMaster: true, isSponsor: true, sponsorAmount: 98 }
+  }
+  const messages = [
+    { user_id: '10001', nickname: '主人甲', text: '测试功能' },
+    { user_id: '10002', nickname: '赞助乙', text: '提出建议' },
+    { user_id: '10003', nickname: '双身份丙', text: '继续优化' }
+  ]
+
+  const context = baikeService.buildSummaryIdentityContext(messages, identities)
+  const portraits = baikeService.applyIdentityToPortraits([
+    { userId: '10001', nickname: '主人甲', tags: [], summary: '关注测试。' },
+    { userId: '10002', nickname: '赞助乙', tags: [], summary: '提供建议。' },
+    { userId: '10003', nickname: '双身份丙', tags: [], summary: '推动优化。' }
+  ], identities)
+
+  assert.match(context, /主人甲.*机器人主人。/)
+  assert.match(context, /赞助乙.*赞助用户.*不要称为主人/)
+  assert.match(context, /双身份丙.*机器人主人兼赞助用户.*主人身份优先/)
+  assert.deepEqual(portraits[0].tags, ['#Bot主人'])
+  assert.deepEqual(portraits[1].tags, ['#赞助用户'])
+  assert.deepEqual(portraits[2].tags, ['#Bot主人', '#赞助用户'])
+  assert.match(portraits[1].summary, /应与机器人主人身份明确区分/)
+})
+
 test('explicit numeric mentions retain an at sign before the user chip', () => {
   const html = generateGroupSummaryHTML('群聊总结', {
     highlights: [{ sender: 'Alice', content: '你好 @10002' }]
