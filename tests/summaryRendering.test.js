@@ -12,12 +12,38 @@ globalThis.logger = globalThis.logger || {
   error() {}
 }
 
-const [{ default: baikeService }, { default: MediaService }, { generateGroupSummaryHTML }, { default: Config }] = await Promise.all([
+const [{ default: baikeService }, { default: MediaService }, { generateGroupSummaryHTML, generateHutaoHTML }, { default: Config }] = await Promise.all([
   import('../model/services/baikeService.js'),
   import('../model/services/mediaService.js'),
   import('../utils/html.js'),
   import('../model/Config.js')
 ])
+
+test('content summary card emphasizes conclusions without duplicating a snapshot', () => {
+  const html = generateHutaoHTML('内容总结', [
+    '【核心结论】\n这是一段直接展示的核心结论。',
+    '【关键要点】\n• 第一项重点\n• 第二项重点',
+    '【风险与注意】\n需要核实匿名来源。',
+    '【补充说明】\n这是背景信息。'
+  ].join('\n\n'))
+
+  assert.match(html, /class="summary-lead"/)
+  assert.match(html, /先看结论/)
+  assert.match(html, /class="summary-card key"/)
+  assert.match(html, /class="summary-card warning"/)
+  assert.match(html, /class="summary-card supplement"/)
+  assert.equal(html.includes('摘要快照'), false)
+  assert.equal((html.match(/这是一段直接展示的核心结论。/g) || []).length, 1)
+})
+
+test('content summary card keeps unstructured legacy text readable', () => {
+  const html = generateHutaoHTML('内容总结', '没有章节标记的旧版总结正文。', null, [], { theme: 'night' })
+
+  assert.match(html, /class="section paper-section"/)
+  assert.match(html, /内容解读/)
+  assert.match(html, /没有章节标记的旧版总结正文。/)
+  assert.match(html, /body class="theme-night"/)
+})
 
 async function withMockedStructuredSummaryConfig(callback) {
   const originalGet = Config.get

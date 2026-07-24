@@ -237,6 +237,38 @@ function getNightJournalCSS() {
       border-color: rgba(225,182,107,0.45);
       box-shadow: 5px 5px 0 rgba(0,0,0,0.32);
     }
+    body.theme-night .summary-lead {
+      background: linear-gradient(145deg, rgba(58,49,69,0.98), rgba(34,55,76,0.98));
+      border-color: rgba(242,197,119,0.52);
+      box-shadow: 6px 6px 0 rgba(0,0,0,0.34);
+    }
+    body.theme-night .summary-lead-label,
+    body.theme-night .summary-card-badge,
+    body.theme-night .summary-card-index {
+      color: #f2c577;
+    }
+    body.theme-night .summary-lead-title {
+      color: #fff1ce;
+    }
+    body.theme-night .summary-card {
+      background: rgba(27,34,47,0.92);
+      border-color: rgba(225,182,107,0.34);
+      box-shadow: 4px 4px 0 rgba(0,0,0,0.28);
+    }
+    body.theme-night .summary-card.key {
+      border-left-color: #f2c577;
+    }
+    body.theme-night .summary-card.warning {
+      border-left-color: #e88c72;
+      background: rgba(62,38,42,0.88);
+    }
+    body.theme-night .summary-card.supplement {
+      border-left-color: #8fd6d2;
+      background: rgba(29,48,57,0.88);
+    }
+    body.theme-night .summary-card-title {
+      color: #f4ead8;
+    }
     body.theme-night .hero-kicker,
     body.theme-night .hero-text,
     body.theme-night .rich-paragraph,
@@ -687,6 +719,101 @@ function getJournalCSS(theme = 'light') {
       font-size: 13px;
       line-height: 1.8;
       word-break: break-word;
+    }
+    .summary-lead {
+      margin-bottom: 16px;
+      padding: 20px 20px 18px;
+      border: 2px solid #d5a74d;
+      border-radius: 18px 8px 18px 8px;
+      background:
+        linear-gradient(135deg, rgba(255,250,220,0.96), rgba(255,241,190,0.96)),
+        repeating-linear-gradient(-45deg, transparent 0 8px, rgba(213,167,77,0.08) 8px 9px);
+      box-shadow: 6px 6px 0 rgba(213,167,77,0.28);
+      position: relative;
+    }
+    .summary-lead::after {
+      content: '';
+      position: absolute;
+      right: 16px;
+      top: 14px;
+      width: 34px;
+      height: 34px;
+      border-top: 2px solid rgba(184,92,46,0.34);
+      border-right: 2px solid rgba(184,92,46,0.34);
+    }
+    .summary-lead-label {
+      display: inline-block;
+      margin-bottom: 8px;
+      color: #9b5a2d;
+      font-family: var(--font-hand);
+      font-size: 12px;
+      letter-spacing: 2px;
+    }
+    .summary-lead-title {
+      margin-bottom: 10px;
+      padding-right: 44px;
+      color: #8f421f;
+      font-family: var(--font-title);
+      font-size: 21px;
+      line-height: 1.3;
+    }
+    .summary-lead .rich-paragraph,
+    .summary-lead .rich-list {
+      font-size: 14px;
+      line-height: 1.9;
+    }
+    .summary-card-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .summary-card {
+      position: relative;
+      padding: 14px 14px 13px 16px;
+      border: 1px solid #dfd0c0;
+      border-left: 6px solid #9bbfd5;
+      border-radius: 6px 14px 14px 6px;
+      background: rgba(255,254,251,0.94);
+      box-shadow: 3px 3px 0 rgba(211,190,167,0.42);
+    }
+    .summary-card.key {
+      border-left-color: #e0a22f;
+      background: linear-gradient(90deg, rgba(255,248,218,0.96), rgba(255,254,251,0.96) 34%);
+    }
+    .summary-card.warning {
+      border-left-color: #d96d52;
+      background: linear-gradient(90deg, rgba(255,237,231,0.96), rgba(255,254,251,0.96) 36%);
+    }
+    .summary-card.supplement {
+      border-left-color: #67a7a3;
+      background: linear-gradient(90deg, rgba(235,249,247,0.96), rgba(255,254,251,0.96) 36%);
+    }
+    .summary-card-head {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .summary-card-index {
+      color: #b69070;
+      font-family: var(--font-title);
+      font-size: 12px;
+      letter-spacing: 1px;
+    }
+    .summary-card-title {
+      flex: 1;
+      min-width: 0;
+      color: #6f4b34;
+      font-family: var(--font-title);
+      font-size: 17px;
+      line-height: 1.3;
+    }
+    .summary-card-badge {
+      flex-shrink: 0;
+      color: #9b6a46;
+      font-family: var(--font-hand);
+      font-size: 11px;
+      letter-spacing: 1px;
     }
     .card-stack {
       display: flex;
@@ -1899,6 +2026,71 @@ function renderInfoCard(title = '', content = '', options = {}) {
   `
 }
 
+function getContentSummaryTone(title = '') {
+  const normalized = String(title || '').trim()
+  if (/(风险|争议|问题|不足|局限|注意|提醒|警示)/.test(normalized)) {
+    return { className: 'warning', badge: '注意' }
+  }
+  if (/(要点|重点|关键|亮点|结论|建议|行动|核心)/.test(normalized)) {
+    return { className: 'key', badge: '重点' }
+  }
+  if (/(补充|背景|说明|延伸|附录|其他)/.test(normalized)) {
+    return { className: 'supplement', badge: '补充' }
+  }
+  return { className: 'detail', badge: '解读' }
+}
+
+function isContentSummaryLead(title = '') {
+  return /(摘要|概述|总览|核心结论|总结)/.test(String(title || '').trim())
+}
+
+function renderContentSummaryCard(item = {}, index = 0, options = {}) {
+  const tone = getContentSummaryTone(item.title)
+  return `
+    <div class="summary-card ${tone.className}">
+      <div class="summary-card-head">
+        <div class="summary-card-index">${String(index + 1).padStart(2, '0')}</div>
+        <div class="summary-card-title">${escapeHtml(item.title || '内容')}</div>
+        <div class="summary-card-badge">${escapeHtml(tone.badge)}</div>
+      </div>
+      ${renderRichTextHtml(item.content || '', options)}
+    </div>
+  `
+}
+
+function renderContentSummaryLayout(content = '', options = {}) {
+  const actualContent = String(content || '').trim()
+  if (!actualContent) {
+    return ''
+  }
+
+  const sections = parseBracketSections(actualContent)
+  if (sections.length === 0) {
+    return renderStructuredContentSection(actualContent, '内容解读', 'NOTE', options)
+  }
+
+  const leadIndex = Math.max(0, sections.findIndex(item => isContentSummaryLead(item.title)))
+  const lead = sections[leadIndex]
+  const details = sections.filter((_, index) => index !== leadIndex)
+  const leadHtml = `
+    <div class="summary-lead">
+      <div class="summary-lead-label">先看结论</div>
+      <div class="summary-lead-title">${escapeHtml(lead.title || '核心结论')}</div>
+      ${renderRichTextHtml(lead.content || '', options)}
+    </div>
+  `
+  const detailsHtml = details.length > 0
+    ? renderSection({
+        title: '重点拆解',
+        className: 'paper-section summary-detail-section',
+        stamp: 'FOCUS',
+        content: `<div class="summary-card-stack">${details.map((item, index) => renderContentSummaryCard(item, index, options)).join('')}</div>`
+      })
+    : ''
+
+  return `${leadHtml}${detailsHtml}`
+}
+
 function renderStructuredContentSection(content = '', title = '核心内容', stamp = 'NOTE', options = {}) {
   const actualContent = String(content || '').trim()
   if (!actualContent) {
@@ -2181,10 +2373,8 @@ export function generateHutaoHTML(title, content, stats = null, notices = [], op
   const billingText = String(options?.billingText || '').trim()
   const theme = normalizeTheme(options?.theme)
   const footerMeta = options?.footerMeta || options?.generationInfo || {}
-  const previewText = getPreviewText(content)
   const body = [
-    renderSnapshotNote(previewText, '摘要快照'),
-    renderStructuredContentSection(content, '核心内容', 'NOTE'),
+    renderContentSummaryLayout(content),
     renderNoticeSection(notices),
     renderBillingSection(billingText)
   ].join('')
