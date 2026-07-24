@@ -94,7 +94,7 @@ test('forwarded mini app cards keep the reduced summary instead of raw JSON', as
 
 test('forwarded messages preserve sender IDs when different bots share a nickname', async () => {
   const service = new MessageService()
-  const result = await service.parseForwardMessage({}, {
+  const result = await service.parseForwardMessage({ self_id: 10001 }, {
     data: {
       content: [
         {
@@ -111,9 +111,43 @@ test('forwarded messages preserve sender IDs when different bots share a nicknam
     }
   })
 
+  assert.match(result.orderedTexts[0], /消息来源:合并转发/)
+  assert.match(result.orderedTexts[0], /发送者身份:当前机器人（QQ精确匹配）/)
   assert.match(result.orderedTexts[0], /用户ID:10001 \| 昵称:小助手/)
+  assert.match(result.orderedTexts[1], /发送者身份:第三方发送者（未与当前机器人QQ匹配）/)
   assert.match(result.orderedTexts[1], /用户ID:20002 \| 昵称:小助手/)
   assert.notEqual(result.orderedTexts[0], result.orderedTexts[1])
+})
+
+test('nested anonymous forwards remain scoped as unknown third-party messages', async () => {
+  const service = new MessageService()
+  const result = await service.parseForwardMessage({ self_id: 10001 }, {
+    data: {
+      content: [{
+        sender: { nickname: '匿名' },
+        message: [
+          { type: 'text', data: { text: '外层匿名发言' } },
+          {
+            type: 'forward',
+            data: {
+              content: [{
+                sender: { nickname: '某机器人' },
+                message: [{ type: 'text', data: { text: '内层未知机器人互动' } }]
+              }]
+            }
+          }
+        ]
+      }]
+    }
+  })
+
+  assert.equal(result.orderedTexts.length, 2)
+  assert.match(result.orderedTexts[0], /转发嵌套层级:1/)
+  assert.match(result.orderedTexts[0], /发送者身份:未知第三方发送者（无QQ，禁止视为当前机器人）/)
+  assert.match(result.orderedTexts[0], /昵称:匿名/)
+  assert.match(result.orderedTexts[1], /转发嵌套层级:2/)
+  assert.match(result.orderedTexts[1], /发送者身份:未知第三方发送者（无QQ，禁止视为当前机器人）/)
+  assert.match(result.orderedTexts[1], /昵称:某机器人/)
 })
 
 test('bot profile requires exact sender ID before using first person', () => {

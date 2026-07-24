@@ -3007,7 +3007,7 @@ class BaikeService {
       const promptSections = []
       if (orderedContextTexts.length > 0) {
         promptSections.push('以下内容已尽量按原消息顺序整理；文中的[M1 图片]、[M2 视频]、[M3 语音]、[M4 附件]等编号会与后续媒体分析结果一一对应。若某张长图或某个视频被自动切片，其片段仍属于同一个编号，请结合前后文连续理解，不要打乱对应关系。')
-        promptSections.push('说话人身份规则：合并转发中的每条记录都属于其标注的独立发送者。必须优先依据用户ID区分说话人，不得因昵称、群名片或内容风格相同而合并身份；没有用户ID的记录也不得推断为当前机器人。')
+        promptSections.push('说话人身份规则：带有“消息来源:合并转发”的记录是外部转发档案，不是当前群聊现场发言，也不能继承当前群聊的机器人身份或上下文。每条转发记录都属于其标注的独立发送者，必须优先依据用户ID和发送者身份区分说话人，不得因昵称、群名片、内容风格或互动关系相同而合并身份。标为未知第三方或没有用户ID的记录，无论看起来多像机器人，都禁止推断为当前机器人或使用第一人称“我”。')
         promptSections.push(orderedContextTexts.join('\n'))
       }
       if (extraExtractedTexts.length > 0) {

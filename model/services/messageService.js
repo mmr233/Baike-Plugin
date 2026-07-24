@@ -1208,6 +1208,7 @@ class MessageService {
     try {
       const data = this.getSegmentData(forwardSegment)
       const resId = data.id || forwardSegment?.id || data.res_id || forwardSegment?.res_id
+      const currentBotUserId = this.getBotUserId(e)
       let forwardMessages = []
 
       if (resId && e.bot?.sendApi) {
@@ -1243,15 +1244,26 @@ class MessageService {
           }
 
           const { userId, nickname } = this.getMessageSender(itemData)
+          const normalizedUserId = String(userId || '').trim()
           const time = this.formatContextTime(this.getMessageTime(itemData))
-          const prefixParts = []
+          const isCurrentBot = Boolean(currentBotUserId && normalizedUserId && normalizedUserId === currentBotUserId)
+          const senderIdentity = isCurrentBot
+            ? '当前机器人（QQ精确匹配）'
+            : normalizedUserId
+              ? '第三方发送者（未与当前机器人QQ匹配）'
+              : '未知第三方发送者（无QQ，禁止视为当前机器人）'
+          const prefixParts = [
+            '消息来源:合并转发',
+            `转发嵌套层级:${depth + 1}`,
+            `发送者身份:${senderIdentity}`
+          ]
           if (time) {
             prefixParts.push(time)
           }
-          if (userId) {
-            prefixParts.push(`用户ID:${userId}`)
+          if (normalizedUserId) {
+            prefixParts.push(`用户ID:${normalizedUserId}`)
           }
-          if (nickname && nickname !== userId) {
+          if (nickname && nickname !== normalizedUserId) {
             prefixParts.push(`昵称:${nickname}`)
           }
 
