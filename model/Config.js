@@ -140,6 +140,154 @@ const DEFAULT_GROUP_MEMBER_PROMPT = `请分析以下群聊中指定成员的聊�
 聊天记录：
 {messageTexts}`
 
+const DEFAULT_GROUP_CONTENT_ANALYSIS_PROMPT = `请分析以下群聊记录，一次完成“话题、整体总结、消息精选”三项内容分析。
+
+要求：
+1. 只输出合法 JSON 对象，不要使用 markdown 代码块，不要添加解释文字
+2. topics 最多 {maxTopics} 项，话题名控制在10字以内，contributors 使用昵称，detail 必须说明前因后果、观点和结论
+3. topicSummary 用一段自然中文概括讨论主线、热点和整体氛围，避免流水账
+4. highlights 最多 {maxHighlights} 项，只能选择聊天记录中真实存在的消息
+5. highlight 的 message_index 必须填写聊天记录中的“消息#N”编号；content 忠实保留原意，roast 可以幽默但不能攻击个人
+6. 忽略纯表情、无意义复读和机器人模板消息；没有合适内容时数组可以为空
+7. 图片、文档等补充信息只能融入分析，不能编造对应的聊天原话
+
+返回格式：
+{
+  "topics": [{"topic":"话题名","contributors":["昵称"],"detail":"证据化描述"}],
+  "topicSummary": "整体话题总结",
+  "highlights": [{"message_index":1,"user_id":"123456","time":"20:00","sender":"昵称","content":"原文摘要","roast":"入选点评"}]
+}
+
+发言统计：
+{statsText}
+
+补充信息：
+{extraContext}
+
+机器人账号资料：
+{botProfile}
+
+聊天记录格式：[消息#N] [HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_PEOPLE_ANALYSIS_PROMPT = `请分析以下群聊记录，一次完成“用户画像、群聊质量锐评”两项人物与质量分析。
+
+要求：
+1. 只输出合法 JSON 对象，不要使用 markdown 代码块，不要添加解释文字
+2. userPortraits 最多 {maxPortraits} 项，优先选择话题贡献者、精选消息发送者和高频发言者
+3. 每份画像必须结合真实发言，包含角色定位、兴趣焦点、表达风格、互动方式、优点和可能短板；不要无依据贴标签
+4. keywords 输出5-7个具体关键词，避免“活跃、友好”等空泛词
+5. qualityReview 使用3-5个高层级维度，比例总和不超过100，评价必须对应本轮真实聊天
+6. 如果资料不足，userPortraits 可以为空，qualityReview 可以为 null，不要编造
+
+返回格式：
+{
+  "userPortraits": [{"name":"昵称","user_id":"123456","title":"称号","mbti":"可选","keywords":["关键词"],"summary":"证据化画像"}],
+  "qualityReview": {"title":"标题","subtitle":"副标题","dimensions":[{"name":"维度","percentage":30,"comment":"点评"}],"summary":"总结金句"}
+}
+
+用户统计：
+{userStatsText}
+
+发言统计：
+{statsText}
+
+补充信息：
+{extraContext}
+
+机器人账号资料：
+{botProfile}
+
+聊天记录格式：[消息#N] [HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_MEMBER_CONTENT_ANALYSIS_PROMPT = `请分析以下目标成员聊天记录，一次完成“个人相关话题、个人表现总结、代表消息”三项分析。
+
+要求：
+1. 只输出合法 JSON 对象，不要使用 markdown 代码块，不要添加解释文字
+2. 所有判断围绕目标成员本人，不要写成整群日报
+3. topics 最多 {maxTopics} 项，detail 必须说明目标成员说了什么、回应了谁、表达了什么立场或情绪
+4. topicSummary 概括目标成员的关注点、信息价值、表达方式、互动姿态和情绪状态，评价公正克制
+5. highlights 最多 {maxHighlights} 项，只能选择真实消息，message_index 必须填写“消息#N”编号
+6. 没有足够证据时数组可以为空，不要编造
+
+返回格式：
+{
+  "topics": [{"topic":"个人话题","contributors":["目标成员","互动对象"],"detail":"证据化描述"}],
+  "topicSummary": "目标成员本轮表现总结",
+  "highlights": [{"message_index":1,"user_id":"123456","time":"20:00","sender":"昵称","content":"原文摘要","roast":"公正点评"}]
+}
+
+发言统计：
+{statsText}
+
+目标成员主页资料：
+{memberProfiles}
+
+补充信息：
+{extraContext}
+
+机器人账号资料：
+{botProfile}
+
+聊天记录格式：[消息#N] [HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_MEMBER_PEOPLE_ANALYSIS_PROMPT = `请分析以下目标成员聊天记录，一次完成“个人画像、公正表现锐评”两项分析。
+
+要求：
+1. 只输出合法 JSON 对象，不要使用 markdown 代码块，不要添加解释文字
+2. 原则上只分析被总结的目标成员；多位目标成员时每人输出一条画像
+3. 画像必须结合原话评价角色定位、兴趣焦点、表达风格、互动方式、稳定优点和可能短板
+4. qualityReview 使用3-5个个人表现维度，既指出亮点，也指出局限或风险，不要评价整群质量
+5. 没有足够证据时 userPortraits 可以为空，qualityReview 可以为 null，不要编造
+
+返回格式：
+{
+  "userPortraits": [{"name":"目标成员","user_id":"123456","title":"称号","mbti":"可选","keywords":["关键词"],"summary":"证据化个人画像"}],
+  "qualityReview": {"title":"个人表现标题","subtitle":"副标题","dimensions":[{"name":"表达清晰度","percentage":25,"comment":"基于原话的点评"}],"summary":"个人评语"}
+}
+
+用户统计：
+{userStatsText}
+
+发言统计：
+{statsText}
+
+目标成员主页资料：
+{memberProfiles}
+
+补充信息：
+{extraContext}
+
+机器人账号资料：
+{botProfile}
+
+聊天记录格式：[消息#N] [HH:MM] [用户ID] 昵称: 消息内容
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_TOPIC_SUMMARY_PROMPT = `请基于以下群聊记录补充一个整体话题总结。
+
+要求：只输出合法 JSON 对象 {"topicSummary":"总结内容"}；概括讨论主线、热点、结论和整体氛围，避免流水账，不要编造。
+
+发言统计：{statsText}
+补充信息：{extraContext}
+聊天记录：
+{messageTexts}`
+
+const DEFAULT_GROUP_MEMBER_TOPIC_SUMMARY_PROMPT = `请基于以下目标成员聊天记录补充一个个人表现总结。
+
+要求：只输出合法 JSON 对象 {"topicSummary":"总结内容"}；围绕目标成员概括关注点、观点、信息价值、表达方式、互动姿态和情绪状态，评价公正克制，不要写成整群日报。
+
+发言统计：{statsText}
+目标成员主页资料：{memberProfiles}
+聊天记录：
+{messageTexts}`
+
 const DEFAULT_GROUP_TOPICS_PROMPT = `请分析以下群聊记录，提取最多 {maxTopics} 个最有意义的今日话题。
 
 要求：
@@ -527,6 +675,20 @@ function migrateLegacyConfig(config) {
     nextConfig.prompt = promptConfig
   }
 
+  if (isPlainObject(nextConfig.chatSummary)) {
+    const chatSummary = { ...nextConfig.chatSummary }
+    if (!isPlainObject(chatSummary.structuredAnalysis) && isPlainObject(chatSummary.enhancedMode)) {
+      chatSummary.structuredAnalysis = {
+        maxConcurrent: chatSummary.enhancedMode.maxConcurrent,
+        schemaRepairRetries: chatSummary.enhancedMode.schemaRepairRetries,
+        maxTopics: chatSummary.enhancedMode.maxTopics,
+        maxHighlights: chatSummary.enhancedMode.maxHighlights
+      }
+    }
+    delete chatSummary.enhancedMode
+    nextConfig.chatSummary = chatSummary
+  }
+
   return nextConfig
 }
 
@@ -710,8 +872,12 @@ const DEFAULT_CONFIG = {
 2. 描述视频中的主要内容、场景、人物、动作等
 3. 如果有对话或文字，请提取关键信息
 4. 使用简洁清晰的中文表达`,
-    groupChat: DEFAULT_GROUP_CHAT_PROMPT,
-    groupMember: DEFAULT_GROUP_MEMBER_PROMPT,
+    groupContentAnalysis: DEFAULT_GROUP_CONTENT_ANALYSIS_PROMPT,
+    groupPeopleAnalysis: DEFAULT_GROUP_PEOPLE_ANALYSIS_PROMPT,
+    groupMemberContentAnalysis: DEFAULT_GROUP_MEMBER_CONTENT_ANALYSIS_PROMPT,
+    groupMemberPeopleAnalysis: DEFAULT_GROUP_MEMBER_PEOPLE_ANALYSIS_PROMPT,
+    groupTopicSummary: DEFAULT_GROUP_TOPIC_SUMMARY_PROMPT,
+    groupMemberTopicSummary: DEFAULT_GROUP_MEMBER_TOPIC_SUMMARY_PROMPT,
     groupTopics: DEFAULT_GROUP_TOPICS_PROMPT,
     groupHighlights: DEFAULT_GROUP_HIGHLIGHTS_PROMPT,
     groupUserPortraits: DEFAULT_GROUP_USER_PORTRAITS_PROMPT,
@@ -765,15 +931,9 @@ const DEFAULT_CONFIG = {
     filterBotMessages: true,
     skipBotMemberSummary: true,
     userPortraitMaxCount: 4,
-    enhancedMode: {
-      mode: 'economy',
-      autoMessageThreshold: 220,
+    structuredAnalysis: {
       maxConcurrent: 2,
       schemaRepairRetries: 1,
-      topics: true,
-      highlights: true,
-      userPortraits: true,
-      qualityReview: true,
       maxTopics: 4,
       maxHighlights: 5
     },

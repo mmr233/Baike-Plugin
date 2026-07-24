@@ -33,6 +33,111 @@ class MessageService {
     return segmentItem?.data || segmentItem || {}
   }
 
+  parseJsonCardPayload(raw = '') {
+    if (raw && typeof raw === 'object') {
+      if (typeof raw.data === 'string') {
+        return this.parseJsonCardPayload(raw.data)
+      }
+      return raw
+    }
+
+    const text = String(raw || '').trim()
+    if (!text) {
+      return null
+    }
+
+    try {
+      return JSON.parse(text)
+    } catch {
+      return null
+    }
+  }
+
+  getJsonCardMetaEntries(payload = {}) {
+    const meta = payload?.meta
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
+      return []
+    }
+    return Object.values(meta).filter(item => item && typeof item === 'object' && !Array.isArray(item))
+  }
+
+  getFirstCardText(sources = [], keys = []) {
+    for (const source of sources) {
+      if (!source || typeof source !== 'object') {
+        continue
+      }
+      for (const key of keys) {
+        const value = String(source[key] || '').replace(/\s+/g, ' ').trim()
+        if (value) {
+          return value
+        }
+      }
+    }
+    return ''
+  }
+
+  getJsonCardSummary(raw = '') {
+    const payload = this.parseJsonCardPayload(raw)
+    if (!payload || typeof payload !== 'object') {
+      return '[JSON卡片]'
+    }
+
+    const metaEntries = this.getJsonCardMetaEntries(payload)
+    const sources = [...metaEntries, payload]
+    const app = String(payload.app || '').trim().toLowerCase()
+    const view = String(payload.view || '').trim().toLowerCase()
+    const prompt = String(payload.prompt || '').replace(/\s+/g, ' ').trim()
+    const promptText = prompt.replace(/^\[[^\]]+\]\s*/, '').trim()
+    const description = String(payload.desc || '').replace(/\s+/g, ' ').trim()
+    const isMiniApp = app.includes('miniapp') || view.includes('miniapp') || /小程序/.test(`${prompt}${description}`)
+    const isMusic = app.includes('music') || /音乐/.test(`${prompt}${description}`)
+    const isNews = app.includes('structmsg') || metaEntries.some(item => item === payload?.meta?.news)
+    const hasForwardResource = metaEntries.some(item => String(item.resid || item.res_id || '').trim())
+
+    if (hasForwardResource) {
+      return '[合并转发卡片]'
+    }
+
+    let typeLabel = '分享卡片'
+    if (isMiniApp) typeLabel = 'QQ小程序'
+    else if (isMusic) typeLabel = '音乐分享'
+    else if (isNews) typeLabel = '网页分享'
+    else if (description && description.length <= 16) typeLabel = description
+
+    let appName = ''
+    let title = ''
+    if (isMiniApp) {
+      appName = this.getFirstCardText(sources, ['appName', 'app_name', 'name', 'source', 'tag', 'title'])
+      title = this.getFirstCardText(sources, ['desc', 'description', 'summary']) || promptText
+    } else {
+      appName = this.getFirstCardText(sources, ['appName', 'app_name', 'source', 'tag', 'name'])
+      title = this.getFirstCardText(sources, ['title', 'name']) || promptText
+    }
+
+    appName = this.truncateContextText(appName, 48)
+    title = this.truncateContextText(title, 180)
+    if (title && appName && title === appName) {
+      title = ''
+    }
+
+    const fields = [typeLabel]
+    if (appName) fields.push(`应用: ${appName}`)
+    if (title) fields.push(`标题: ${title}`)
+    return `[${fields.join(' | ')}]`
+  }
+
+  getStructuredCardSummary(raw = '', type = 'json') {
+    if (type === 'json') {
+      return this.getJsonCardSummary(raw)
+    }
+
+    const text = String(raw || '')
+    const title = text.match(/<(?:title|name)>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/(?:title|name)>/i)?.[1]
+    return title
+      ? `[XML卡片 | 标题: ${this.truncateContextText(title, 180)}]`
+      : '[XML卡片]'
+  }
+
   getMediaUrl(data) {
     return data?.url || data?.file || data?.path || ''
   }
@@ -1186,6 +1291,13 @@ class MessageService {
             result.audios.push(...(nested.audios || []))
             result.files.push(...(nested.files || []))
             result.orderedTexts.push(...(nested.orderedTexts || []))
+          } else if (type === 'json' || type === 'xml') {
+            const raw = segmentData.data || segmentItem?.data || ''
+            const summary = this.getStructuredCardSummary(raw, type)
+            if (summary) {
+              result.texts.push(summary)
+              messageParts.push(summary)
+            }
           }
         }
 
@@ -1317,7 +1429,7 @@ class MessageService {
         }
       } else if (type === 'json' || type === 'xml') {
         const raw = data.data || segmentItem?.data || ''
-        const text = this.truncateContextText(typeof raw === 'string' ? raw : JSON.stringify(raw), 160)
+        const text = this.getStructuredCardSummary(raw, type)
         if (text) {
           parts.push(text)
         }
@@ -2308,7 +2420,7 @@ class MessageService {
           texts.push(text)
         } else if (type === 'json' || type === 'xml') {
           const raw = segmentData.data || segmentItem?.data || ''
-          const text = this.normalizeSummaryTextPart(typeof raw === 'string' ? raw : JSON.stringify(raw), 180)
+          const text = this.getStructuredCardSummary(raw, type)
           if (text) {
             result.contents.push({ type, text })
             texts.push(text)

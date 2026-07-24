@@ -3,6 +3,26 @@ import test from 'node:test'
 
 import MessageService from '../model/services/messageService.js'
 
+const BILIBILI_MINI_APP_JSON = JSON.stringify({
+  ver: '1.0.0.19',
+  prompt: '[QQ小程序]炸裂！恋与深空被央视点名多平台账号停更！',
+  config: {
+    type: 'normal',
+    token: 'should-not-be-sent-to-model'
+  },
+  app: 'com.tencent.miniapp_01',
+  view: 'view_8C8E89B49BE609866298ADDFF2DBABA4',
+  meta: {
+    detail_1: {
+      appid: '1109937557',
+      title: '哔哩哔哩',
+      desc: '炸裂！恋与深空被央视点名多平台账号停更！',
+      preview: 'https://qq.ugcimg.cn/very-long-preview-url',
+      qqdocurl: 'https://b23.tv/example'
+    }
+  }
+})
+
 function createMessages(count, startTime = Math.floor(Date.now() / 1000) - count) {
   return Array.from({ length: count }, (_, index) => {
     const seq = index + 1
@@ -24,6 +44,53 @@ function getHistorySlice(messages, anchorIndex, count, cap = 20) {
   const actualCount = Math.min(Math.max(1, Number(count) || 1), cap)
   return messages.slice(Math.max(0, end - actualCount), end)
 }
+
+test('NapCat mini app JSON is reduced to app name and content title', () => {
+  const service = new MessageService()
+  const result = service.getJsonCardSummary(BILIBILI_MINI_APP_JSON)
+
+  assert.equal(result, '[QQ小程序 | 应用: 哔哩哔哩 | 标题: 炸裂！恋与深空被央视点名多平台账号停更！]')
+  assert.equal(result.includes('token'), false)
+  assert.equal(result.includes('preview'), false)
+  assert.equal(result.includes('qqdocurl'), false)
+})
+
+test('group summary and search context both use the reduced mini app text', async () => {
+  const service = new MessageService()
+  const message = {
+    message_id: 'mini-app-message',
+    time: 1784865350,
+    sender: {
+      user_id: 10001,
+      nickname: 'Alice'
+    },
+    message: [{
+      type: 'json',
+      data: BILIBILI_MINI_APP_JSON
+    }]
+  }
+
+  const parsed = await service.parseGroupMessage(message)
+  const contextParts = await service.extractContextPartsFromMessage(null, message)
+
+  assert.equal(parsed.text, '[QQ小程序 | 应用: 哔哩哔哩 | 标题: 炸裂！恋与深空被央视点名多平台账号停更！]')
+  assert.deepEqual(contextParts, [parsed.text])
+})
+
+test('forwarded mini app cards keep the reduced summary instead of raw JSON', async () => {
+  const service = new MessageService()
+  const result = await service.parseForwardMessage({}, {
+    data: {
+      content: [{
+        sender: { user_id: 10001, nickname: 'Alice' },
+        message: [{ type: 'json', data: BILIBILI_MINI_APP_JSON }]
+      }]
+    }
+  })
+
+  assert.deepEqual(result.texts, ['[QQ小程序 | 应用: 哔哩哔哩 | 标题: 炸裂！恋与深空被央视点名多平台账号停更！]'])
+  assert.equal(result.orderedTexts[0].includes('should-not-be-sent-to-model'), false)
+})
 
 test('group history keeps paging when the protocol returns fewer messages than requested', async () => {
   const service = new MessageService()

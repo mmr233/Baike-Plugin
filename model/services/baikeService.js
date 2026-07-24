@@ -13,7 +13,7 @@ import { generateGroupSummaryHTML, generateHutaoHTML, generateSearchHTML } from 
 
 const SEND_MODE_PRIORITY = ['html', 'forward', 'text']
 const DEFAULT_GROUP_SUMMARY_INFLIGHT_WAIT_MS = 120000
-const ENHANCED_SUMMARY_SYSTEM_PROMPT = '你是一个群聊结构化分析助手。请严格按用户要求输出合法 JSON，不要输出 markdown 代码块、解释文字或额外闲聊。'
+const STRUCTURED_SUMMARY_SYSTEM_PROMPT = '你是一个群聊结构化分析助手。请严格按用户要求输出合法 JSON，不要输出 markdown 代码块、解释文字或额外闲聊。'
 
 function normalizeHour(value, fallback = 0) {
   const number = Number(value)
@@ -1376,25 +1376,11 @@ class BaikeService {
     ].join('\n').replace(/\n{3,}/g, '\n\n')
   }
 
-  getEnhancedSummaryConfig(formattedMessages = []) {
-    const config = Config.get('chatSummary.enhancedMode', {}) || {}
-    const mode = String(config.mode || 'economy').trim().toLowerCase()
-    const autoThreshold = clampIntegerValue(config.autoMessageThreshold, 1, 3000, 220)
-    const enabled = mode === 'enhanced'
-      || mode === 'on'
-      || mode === 'true'
-      || (mode === 'auto' && formattedMessages.length <= autoThreshold)
-
+  getStructuredSummaryConfig() {
+    const config = Config.get('chatSummary.structuredAnalysis', {}) || {}
     return {
-      enabled,
-      mode,
-      autoMessageThreshold: autoThreshold,
-      maxConcurrent: clampIntegerValue(config.maxConcurrent, 1, 4, 2),
+      maxConcurrent: clampIntegerValue(config.maxConcurrent, 1, 2, 2),
       schemaRepairRetries: clampIntegerValue(config.schemaRepairRetries, 0, 2, 1),
-      topics: config.topics !== false,
-      highlights: config.highlights !== false,
-      userPortraits: config.userPortraits !== false,
-      qualityReview: config.qualityReview !== false,
       maxTopics: clampIntegerValue(config.maxTopics, 1, 8, 4),
       maxHighlights: clampIntegerValue(config.maxHighlights, 1, 8, 5)
     }
@@ -1403,7 +1389,7 @@ class BaikeService {
   getCompactGroupMessageTexts(formattedMessages = [], options = {}) {
     const botUserId = String(options.botProfile?.userId || '').trim()
     return (formattedMessages || [])
-      .map(item => {
+      .map((item, index) => {
         const time = item.timestamp
           ? new Date(item.timestamp * 1000).toLocaleTimeString('zh-CN', {
               hour: '2-digit',
@@ -1416,7 +1402,7 @@ class BaikeService {
           ? '我(机器人)'
           : String(item.nickname || item.card || userId || '未知成员').trim()
         const text = String(item.text || '').replace(/\s+/g, ' ').trim()
-        return text ? `[${time}] [${userId}] ${nickname}: ${text}` : ''
+        return text ? `[消息#${index + 1}] [${time}] [${userId}] ${nickname}: ${text}` : ''
       })
       .filter(Boolean)
       .join('\n')
@@ -1479,6 +1465,7 @@ class BaikeService {
   normalizeEnhancedHighlights(value = [], maxCount = 5) {
     const list = Array.isArray(value) ? value : []
     return list.map(item => ({
+      messageIndex: clampIntegerValue(item?.message_index ?? item?.messageIndex, 0, Number.MAX_SAFE_INTEGER, 0),
       userId: String(item?.user_id || item?.userId || '').trim(),
       time: String(item?.time || item?.timestamp || '').trim(),
       sender: String(item?.sender || item?.name || item?.nickname || '').trim(),
@@ -1543,9 +1530,8 @@ class BaikeService {
       const actualPrompt = attempt === 0
         ? prompt
         : [
-            prompt,
-            '',
-            '上一次输出不是合法 JSON，或不符合要求。',
+            `请修复下面“${label}”输出的 JSON 语法。`,
+            '只修复结构和转义，不要补充原输出中不存在的事实，不要重新分析聊天记录。',
             `解析错误：${lastError?.message || 'unknown_parse_error'}`,
             '请只返回合法 JSON，不要输出 markdown、解释文字或额外内容。',
             '上一次输出：',
@@ -1555,7 +1541,7 @@ class BaikeService {
       try {
         const response = await this.apiService.callSummaryTextAPI(
           actualPrompt,
-          ENHANCED_SUMMARY_SYSTEM_PROMPT,
+          STRUCTURED_SUMMARY_SYSTEM_PROMPT,
           {
             modelType: attempt === 0 ? 'summary' : 'jsonRepair',
             temperature: attempt === 0 ? 0.2 : 0,
@@ -1581,25 +1567,24 @@ class BaikeService {
     throw lastError || new Error(`${label}分析失败`)
   }
 
-  async runEnhancedGroupSummaryModules(context = {}) {
+
+  async runStructuredGroupSummary(context = {}) {
     const {
       formattedMessages = [],
       sortedMembers = [],
       statsText = '',
       extraContext = '',
       botProfile = {},
+      memberProfilesText = '',
       isMemberMode = false,
       maxPortraits = 4
     } = context
-    const config = this.getEnhancedSummaryConfig(formattedMessages)
-    if (!config.enabled) {
-      return null
-    }
-
+    const config = this.getStructuredSummaryConfig()
     const messageTexts = this.getCompactGroupMessageTexts(formattedMessages, { botProfile })
     const commonValues = {
       statsText,
       extraContext: extraContext || '无',
+      memberProfiles: memberProfilesText || '无',
       botProfile: botProfile?.promptText || '无',
       messageTexts,
       maxTopics: isMemberMode ? Math.min(config.maxTopics, 3) : config.maxTopics,
@@ -1607,144 +1592,220 @@ class BaikeService {
       maxPortraits,
       userStatsText: this.buildEnhancedUserStatsText(formattedMessages, sortedMembers)
     }
-    const tasks = []
-    const pushTask = (key, label, promptKey, normalize) => {
-      const prompt = this.buildEnhancedPrompt(promptKey, commonValues)
-      if (!prompt) {
-        return
-      }
-      tasks.push({
-        key,
-        label,
-        run: async () => {
-          const response = await this.callEnhancedJsonModule(label, prompt, {
-            repairRetries: config.schemaRepairRetries
-          })
-          return {
-            value: normalize(response?.value),
-            usage: response?.usage || null,
-            candidate: response?.candidate || null
-          }
-        }
-      })
-    }
-
     const promptKeys = isMemberMode
       ? {
+          content: 'groupMemberContentAnalysis',
+          people: 'groupMemberPeopleAnalysis',
           topics: 'groupMemberTopics',
+          topicSummary: 'groupMemberTopicSummary',
           highlights: 'groupMemberHighlights',
           userPortraits: 'groupMemberUserPortraits',
           qualityReview: 'groupMemberQualityReview'
         }
       : {
+          content: 'groupContentAnalysis',
+          people: 'groupPeopleAnalysis',
           topics: 'groupTopics',
+          topicSummary: 'groupTopicSummary',
           highlights: 'groupHighlights',
           userPortraits: 'groupUserPortraits',
           qualityReview: 'groupQualityReview'
         }
+    const domainTasks = [
+      { key: 'content', label: isMemberMode ? '成员内容分析' : '群聊内容分析', promptKey: promptKeys.content },
+      { key: 'people', label: isMemberMode ? '成员表现分析' : '群聊人物分析', promptKey: promptKeys.people }
+    ]
 
-    if (config.topics) {
-      pushTask('topics', isMemberMode ? '成员话题' : '今日话题', promptKeys.topics, value => this.normalizeEnhancedTopics(value, commonValues.maxTopics))
-    }
-    if (config.highlights) {
-      pushTask('highlights', isMemberMode ? '成员消息精选' : '消息精选', promptKeys.highlights, value => this.normalizeEnhancedHighlights(value, config.maxHighlights))
-    }
-    if (config.userPortraits && maxPortraits > 0) {
-      pushTask('userPortraits', isMemberMode ? '成员画像' : '用户画像', promptKeys.userPortraits, value => this.normalizeEnhancedUserPortraits(value, maxPortraits))
-    }
-    if (config.qualityReview) {
-      pushTask('qualityReview', isMemberMode ? '个人表现锐评' : '群聊质量锐评', promptKeys.qualityReview, value => this.normalizeEnhancedQualityReview(value))
-    }
-
-    if (tasks.length === 0) {
-      return null
-    }
-
-    debugLog('summary.enhanced', '开始增强总结模块分析', {
-      mode: config.mode,
+    debugLog('summary.structured', '开始双路结构化总结分析', {
       messageCount: formattedMessages.length,
-      taskCount: tasks.length,
       maxConcurrent: config.maxConcurrent
     })
 
-    const settled = await this.mapWithConcurrency(tasks, config.maxConcurrent, async task => {
+    const settled = await this.mapWithConcurrency(domainTasks, config.maxConcurrent, async task => {
       try {
-        const result = await task.run()
+        const prompt = this.buildEnhancedPrompt(task.promptKey, commonValues)
+        if (!prompt) throw new Error(`缺少提示词 ${task.promptKey}`)
+        const response = await this.callEnhancedJsonModule(task.label, prompt, {
+          repairRetries: config.schemaRepairRetries
+        })
         return {
           key: task.key,
-          value: result?.value,
-          usage: result?.usage || null,
-          candidate: result?.candidate || null
+          value: response?.value || null,
+          usage: response?.usage || null,
+          candidate: response?.candidate || null
         }
       } catch (error) {
-        logger.warn(`[${pluginName}] 增强总结${task.label}模块失败，已跳过：${this.apiService.formatErrorWithCause?.(error) || error.message}`)
-        return {
-          key: task.key,
-          error: error.message
-        }
+        logger.warn(`[${pluginName}] ${task.label}失败，将按字段局部补修：${this.apiService.formatErrorWithCause?.(error) || error.message}`)
+        return { key: task.key, error: error.message }
       }
     })
 
-    const enhanced = {
-      topics: [],
-      highlights: [],
-      userPortraits: [],
-      qualityReview: null,
-      usage: null
-    }
+    const rawDomains = {}
     const errors = []
     const usages = []
+    let candidate = null
     for (const item of settled) {
       if (!item || item.error) {
-        if (item?.error) {
-          errors.push(item.error)
-        }
+        if (item?.error) errors.push(item.error)
         continue
       }
-      if (item.usage) {
-        usages.push(item.usage)
-      }
-      if (item.key === 'topics' && Array.isArray(item.value)) {
-        enhanced.topics = item.value
-      } else if (item.key === 'highlights' && Array.isArray(item.value)) {
-        enhanced.highlights = item.value
-      } else if (item.key === 'userPortraits' && Array.isArray(item.value)) {
-        enhanced.userPortraits = item.value
-      } else if (item.key === 'qualityReview' && item.value) {
-        enhanced.qualityReview = item.value
-      }
+      rawDomains[item.key] = item.value
+      if (item.usage) usages.push(item.usage)
+      candidate ||= item.candidate || null
     }
-    enhanced.errors = errors
-    enhanced.usage = this.mergeUsageInfo(...usages)
 
-    const hasAny = enhanced.topics.length > 0
-      || enhanced.highlights.length > 0
-      || enhanced.userPortraits.length > 0
-      || Boolean(enhanced.qualityReview)
+    const content = rawDomains.content && typeof rawDomains.content === 'object' && !Array.isArray(rawDomains.content)
+      ? rawDomains.content
+      : {}
+    const people = rawDomains.people && typeof rawDomains.people === 'object' && !Array.isArray(rawDomains.people)
+      ? rawDomains.people
+      : {}
+    const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key)
+    const parsed = {
+      topics: [],
+      topicSummary: '',
+      highlights: [],
+      userPortraits: [],
+      qualityReview: null
+    }
+    const fieldSpecs = [
+      {
+        key: 'topics',
+        valid: hasOwn(content, 'topics') && Array.isArray(content.topics),
+        initial: () => this.normalizeEnhancedTopics(content.topics, commonValues.maxTopics),
+        label: isMemberMode ? '成员话题' : '今日话题',
+        promptKey: promptKeys.topics,
+        normalize: value => this.normalizeEnhancedTopics(value, commonValues.maxTopics)
+      },
+      {
+        key: 'topicSummary',
+        valid: hasOwn(content, 'topicSummary') && typeof content.topicSummary === 'string' && Boolean(content.topicSummary.trim()),
+        initial: () => String(content.topicSummary || '').trim(),
+        label: isMemberMode ? '成员话题总结' : '话题总结',
+        promptKey: promptKeys.topicSummary,
+        normalize: value => String(value?.topicSummary ?? value?.summary ?? value ?? '').trim()
+      },
+      {
+        key: 'highlights',
+        valid: hasOwn(content, 'highlights') && Array.isArray(content.highlights),
+        initial: () => this.normalizeEnhancedHighlights(content.highlights, config.maxHighlights),
+        label: isMemberMode ? '成员消息精选' : '消息精选',
+        promptKey: promptKeys.highlights,
+        normalize: value => this.normalizeEnhancedHighlights(value, config.maxHighlights)
+      },
+      {
+        key: 'userPortraits',
+        valid: hasOwn(people, 'userPortraits') && Array.isArray(people.userPortraits),
+        initial: () => this.normalizeEnhancedUserPortraits(people.userPortraits, maxPortraits),
+        label: isMemberMode ? '成员画像' : '用户画像',
+        promptKey: promptKeys.userPortraits,
+        normalize: value => this.normalizeEnhancedUserPortraits(value, maxPortraits)
+      },
+      {
+        key: 'qualityReview',
+        valid: hasOwn(people, 'qualityReview') && (people.qualityReview === null || (typeof people.qualityReview === 'object' && !Array.isArray(people.qualityReview))),
+        initial: () => this.normalizeEnhancedQualityReview(people.qualityReview),
+        label: isMemberMode ? '个人表现锐评' : '群聊质量锐评',
+        promptKey: promptKeys.qualityReview,
+        normalize: value => this.normalizeEnhancedQualityReview(value)
+      }
+    ]
+    const repairTasks = []
+    for (const spec of fieldSpecs) {
+      if (spec.valid) parsed[spec.key] = spec.initial()
+      else repairTasks.push(spec)
+    }
 
-    debugLog('summary.enhanced', '增强总结模块分析完成', {
-      topics: enhanced.topics.length,
-      highlights: enhanced.highlights.length,
-      userPortraits: enhanced.userPortraits.length,
-      qualityReview: Boolean(enhanced.qualityReview),
+    const repaired = await this.mapWithConcurrency(repairTasks, config.maxConcurrent, async spec => {
+      try {
+        const prompt = this.buildEnhancedPrompt(spec.promptKey, commonValues)
+        if (!prompt) throw new Error(`缺少提示词 ${spec.promptKey}`)
+        const response = await this.callEnhancedJsonModule(spec.label, prompt, {
+          repairRetries: config.schemaRepairRetries
+        })
+        return {
+          key: spec.key,
+          value: spec.normalize(response?.value),
+          usage: response?.usage || null,
+          candidate: response?.candidate || null
+        }
+      } catch (error) {
+        logger.warn(`[${pluginName}] ${spec.label}局部补修失败，使用规则兜底：${this.apiService.formatErrorWithCause?.(error) || error.message}`)
+        return { key: spec.key, error: error.message }
+      }
+    })
+    for (const item of repaired) {
+      if (!item || item.error) {
+        if (item?.error) errors.push(item.error)
+        continue
+      }
+      parsed[item.key] = item.value
+      if (item.usage) usages.push(item.usage)
+      candidate ||= item.candidate || null
+    }
+
+    debugLog('summary.structured', '双路结构化总结分析完成', {
+      topics: parsed.topics.length,
+      highlights: parsed.highlights.length,
+      userPortraits: parsed.userPortraits.length,
+      qualityReview: Boolean(parsed.qualityReview),
+      repairedFields: repairTasks.length,
       errors: errors.length
     })
 
-    return hasAny ? enhanced : null
+    return {
+      parsed,
+      usage: this.mergeUsageInfo(...usages),
+      candidate,
+      errors
+    }
   }
 
-  mergeEnhancedSummaryParsed(parsed = {}, enhanced = null) {
-    if (!enhanced) {
-      return parsed
-    }
 
-    return {
-      ...parsed,
-      topics: enhanced.topics?.length ? enhanced.topics : (parsed.topics || []),
-      highlights: enhanced.highlights?.length ? enhanced.highlights : (parsed.highlights || []),
-      userPortraits: enhanced.userPortraits?.length ? enhanced.userPortraits : (parsed.userPortraits || []),
-      qualityReview: enhanced.qualityReview || parsed.qualityReview || null
-    }
+  formatStructuredGroupSummary(parsed = {}) {
+    const topicBlocks = (parsed.topics || []).map(item => [
+      `【话题】${item.topic || '未命名话题'}`,
+      `【参与者】${(item.contributors || []).join('、') || '未标注'}`,
+      `【详情】${item.detail || '无'}`
+    ].join('\n')).join('\n---\n')
+    const highlightBlocks = (parsed.highlights || []).map(item => [
+      item.time ? `【时间】${item.time}` : '',
+      `【发送者】${item.sender || item.userId || '未知成员'}`,
+      `【内容】${item.content || ''}`,
+      item.roast ? `【吐槽】${item.roast}` : ''
+    ].filter(Boolean).join('\n')).join('\n---\n')
+    const portraitBlocks = (parsed.userPortraits || []).map(item => [
+      `【用户】${item.nickname || item.userId || '未知成员'}`,
+      item.title ? `【称号】${item.title}` : '',
+      item.tags?.length ? `【关键词】${item.tags.join('、')}` : '',
+      `【画像】${item.summary || '暂无足够信息'}`
+    ].filter(Boolean).join('\n')).join('\n---\n')
+    const review = parsed.qualityReview
+    const reviewLines = review
+      ? [
+          review.title ? `【标题】${review.title}` : '',
+          review.subtitle ? `【副标题】${review.subtitle}` : '',
+          ...(review.dimensions || []).map(item => `【维度】${item.name}|${item.percentage}|${item.comment || ''}`),
+          review.summary ? `【总结】${review.summary}` : ''
+        ].filter(Boolean).join('\n')
+      : ''
+
+    return [
+      '===今日话题===',
+      topicBlocks,
+      '',
+      '===话题总结===',
+      parsed.topicSummary || '本轮聊天缺少足够信息，未形成明确话题总结。',
+      '',
+      '===消息精选===',
+      highlightBlocks,
+      '',
+      '===用户画像===',
+      portraitBlocks,
+      '',
+      '===群聊质量锐评===',
+      reviewLines
+    ].join('\n').replace(/\n{3,}/g, '\n\n').trim()
   }
 
   scoreHighlightMatch(highlight = {}, message = {}) {
@@ -1797,6 +1858,11 @@ class BaikeService {
   }
 
   findBestHighlightMessage(highlight = {}, formattedMessages = []) {
+    const messageIndex = Number(highlight.messageIndex || highlight.message_index)
+    if (Number.isInteger(messageIndex) && messageIndex > 0 && messageIndex <= formattedMessages.length) {
+      return formattedMessages[messageIndex - 1]
+    }
+
     let best = null
     let bestScore = 0
 
@@ -3140,29 +3206,10 @@ class BaikeService {
       const memberStats = this.buildMemberStats(formattedMessages)
       const statsText = sortedMembers.slice(0, 10).map(([name, count]) => `${name}: ${count}条`).join('、')
       const botProfile = await this.messageService.getBotProfileForPrompt(e)
-      const messageTexts = this.getCompactGroupMessageTexts(formattedMessages, { botProfile })
       const memberProfilesText = actualMembers.length > 0
         ? await this.messageService.getGroupMemberProfiles(e, actualMembers)
         : ''
-      const promptTemplate = actualMembers.length > 0
-        ? Config.get('prompt.groupMember', '')
-        : Config.get('prompt.groupChat', '')
-      let extraContext = `${imageSummary}${docTexts}`
-
-      if (memberProfilesText && !promptTemplate.includes('{memberProfiles}')) {
-        extraContext += `\n\n【目标成员主页资料】\n${memberProfilesText}`
-      }
-
-      if (botProfile.promptText && !promptTemplate.includes('{botProfile}')) {
-        extraContext += `\n\n【机器人身份】\n${botProfile.promptText}`
-      }
-
-      const prompt = promptTemplate
-        .replace('{statsText}', statsText)
-        .replace('{extraContext}', extraContext)
-        .replace('{memberProfiles}', memberProfilesText || '无')
-        .replace('{botProfile}', botProfile.promptText || '无')
-        .replace('{messageTexts}', messageTexts)
+      const extraContext = `${imageSummary}${docTexts}`
 
       const title = actualMembers.length > 0 ? '成员发言总结' : '群聊总结'
       const isMemberMode = actualMembers.length > 0
@@ -3177,16 +3224,36 @@ class BaikeService {
       let result = ''
       let degraded = false
       let generationInfo = this.buildGenerationInfo()
+      let parsed = null
 
       try {
-        const summaryResponse = await this.apiService.callSummaryTextAPI(prompt, null, {
-          returnMeta: true
+        const structured = await this.runStructuredGroupSummary({
+          formattedMessages,
+          sortedMembers,
+          statsText,
+          extraContext,
+          botProfile,
+          memberProfilesText,
+          isMemberMode,
+          maxPortraits: chatConfig.userPortraitMaxCount ?? 4
         })
-        result = summaryResponse?.text || ''
-        generationInfo = this.buildGenerationInfo(summaryResponse || {})
+        parsed = structured?.parsed || null
+        const hasCoreContent = Boolean(
+          parsed?.topicSummary
+          || parsed?.topics?.length
+          || parsed?.highlights?.length
+        )
+        if (!hasCoreContent) {
+          throw new Error('结构化内容分析未返回有效结果')
+        }
+        result = this.formatStructuredGroupSummary(parsed)
+        generationInfo = this.buildGenerationInfo({
+          usage: structured?.usage || null,
+          candidate: structured?.candidate || null
+        })
       } catch (error) {
         degraded = true
-        logger.warn(`[${pluginName}] ${title}模型总结失败，已降级为规则摘要：${this.apiService.formatErrorWithCause?.(error) || error.message}`)
+        logger.warn(`[${pluginName}] ${title}结构化总结失败，已降级为规则摘要：${this.apiService.formatErrorWithCause?.(error) || error.message}`)
         result = this.buildRuleBasedGroupSummary({
           formattedMessages,
           sortedMembers,
@@ -3196,6 +3263,7 @@ class BaikeService {
           error,
           isMemberMode
         })
+        parsed = parseSummaryContent(result)
       }
 
       if (!result) {
@@ -3208,23 +3276,8 @@ class BaikeService {
           docTexts,
           isMemberMode
         })
+        parsed = parseSummaryContent(result)
       }
-
-      const enhanced = !degraded
-        ? await this.runEnhancedGroupSummaryModules({
-            formattedMessages,
-            sortedMembers,
-            statsText,
-            extraContext,
-            botProfile,
-            isMemberMode,
-            maxPortraits: chatConfig.userPortraitMaxCount ?? 4
-          })
-        : null
-      if (enhanced?.usage) {
-        generationInfo = this.mergeGenerationUsage(generationInfo, enhanced.usage)
-      }
-      const parsed = this.mergeEnhancedSummaryParsed(parseSummaryContent(result), enhanced)
       const parsedForHtml = this.enrichGroupSummaryParsed(parsed, formattedMessages)
       const userPortraits = this.buildSelectedUserPortraits(parsedForHtml, formattedMessages, sortedMembers, {
         maxCount: chatConfig.userPortraitMaxCount ?? 4

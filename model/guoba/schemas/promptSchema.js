@@ -71,29 +71,57 @@ const promptSchemaRaw = [
     }
   },
   {
-    field: 'prompt.groupChat',
-    label: '群聊总结提示词',
-    bottomHelpMessage: '支持 {statsText}、{extraContext}、{botProfile}、{messageTexts} 占位符；默认模板会解析 今日话题/话题总结/消息精选/用户画像/群聊质量锐评',
+    field: 'prompt.groupContentAnalysis',
+    label: '群聊内容分析提示词',
+    bottomHelpMessage: '双路结构化总结的内容请求；一次生成话题、整体总结和消息精选',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
-      placeholder: '请输入群聊总结提示词'
+      placeholder: '请输入群聊内容分析提示词'
     }
   },
   {
-    field: 'prompt.groupMember',
-    label: '@成员总结提示词',
-    bottomHelpMessage: '支持 {statsText}、{extraContext}、{memberProfiles}、{botProfile}、{messageTexts} 占位符；默认模板偏个人画像与公正评判，会解析 今日话题/话题总结/消息精选/用户画像/互动质量锐评',
+    field: 'prompt.groupPeopleAnalysis',
+    label: '群聊人物分析提示词',
+    bottomHelpMessage: '双路结构化总结的人物请求；一次生成用户画像和群聊质量锐评',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
-      placeholder: '请输入成员总结提示词'
+      placeholder: '请输入群聊人物分析提示词'
     }
+  },
+  {
+    field: 'prompt.groupMemberContentAnalysis',
+    label: '成员内容分析提示词',
+    bottomHelpMessage: '@成员总结的内容请求；一次生成个人相关话题、表现总结和代表消息',
+    component: 'InputTextArea',
+    componentProps: { ...textAreaProps, placeholder: '请输入成员内容分析提示词' }
+  },
+  {
+    field: 'prompt.groupMemberPeopleAnalysis',
+    label: '成员人物分析提示词',
+    bottomHelpMessage: '@成员总结的人物请求；一次生成个人画像和个人表现锐评',
+    component: 'InputTextArea',
+    componentProps: { ...textAreaProps, placeholder: '请输入成员人物分析提示词' }
+  },
+  {
+    field: 'prompt.groupTopicSummary',
+    label: '话题总结局部补修提示词',
+    bottomHelpMessage: '内容请求缺少 topicSummary 字段时才会调用',
+    component: 'InputTextArea',
+    componentProps: { ...textAreaProps, placeholder: '请输入话题总结补修提示词' }
+  },
+  {
+    field: 'prompt.groupMemberTopicSummary',
+    label: '成员总结局部补修提示词',
+    bottomHelpMessage: '成员内容请求缺少 topicSummary 字段时才会调用',
+    component: 'InputTextArea',
+    componentProps: { ...textAreaProps, placeholder: '请输入成员总结补修提示词' }
   },
   {
     field: 'prompt.groupTopics',
-    label: '增强今日话题提示词',
-    bottomHelpMessage: '增强总结模块使用；支持 {maxTopics}、{statsText}、{extraContext}、{botProfile}、{messageTexts} 占位符，要求返回 JSON 数组',
+    label: '话题局部补修提示词',
+    bottomHelpMessage: '内容请求缺少 topics 字段时才会调用，要求返回 JSON 数组',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -102,8 +130,8 @@ const promptSchemaRaw = [
   },
   {
     field: 'prompt.groupHighlights',
-    label: '增强消息精选提示词',
-    bottomHelpMessage: '增强总结模块使用；支持 {maxHighlights}、{extraContext}、{messageTexts} 占位符，要求返回 JSON 数组',
+    label: '精选局部补修提示词',
+    bottomHelpMessage: '内容请求缺少 highlights 字段时才会调用，要求返回 JSON 数组',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -112,8 +140,8 @@ const promptSchemaRaw = [
   },
   {
     field: 'prompt.groupUserPortraits',
-    label: '增强用户画像提示词',
-    bottomHelpMessage: '增强总结模块使用；支持 {maxPortraits}、{userStatsText}、{extraContext}、{messageTexts} 占位符，要求返回 JSON 数组',
+    label: '画像局部补修提示词',
+    bottomHelpMessage: '人物请求缺少 userPortraits 字段时才会调用，要求返回 JSON 数组',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -122,8 +150,8 @@ const promptSchemaRaw = [
   },
   {
     field: 'prompt.groupQualityReview',
-    label: '增强质量锐评提示词',
-    bottomHelpMessage: '增强总结模块使用；支持 {statsText}、{extraContext}、{messageTexts} 占位符，要求返回 JSON 对象',
+    label: '锐评局部补修提示词',
+    bottomHelpMessage: '人物请求缺少 qualityReview 字段时才会调用，要求返回 JSON 对象',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -132,8 +160,8 @@ const promptSchemaRaw = [
   },
   {
     field: 'prompt.groupMemberTopics',
-    label: '成员增强话题提示词',
-    bottomHelpMessage: '成员总结增强模块使用；支持 {maxTopics}、{statsText}、{extraContext}、{botProfile}、{messageTexts} 占位符，要求返回 JSON 数组',
+    label: '成员话题局部补修提示词',
+    bottomHelpMessage: '成员内容请求缺少 topics 字段时才会调用，要求返回 JSON 数组',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -142,8 +170,8 @@ const promptSchemaRaw = [
   },
   {
     field: 'prompt.groupMemberHighlights',
-    label: '成员增强精选提示词',
-    bottomHelpMessage: '成员总结增强模块使用；支持 {maxHighlights}、{extraContext}、{messageTexts} 占位符，要求返回 JSON 数组',
+    label: '成员精选局部补修提示词',
+    bottomHelpMessage: '成员内容请求缺少 highlights 字段时才会调用，要求返回 JSON 数组',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -152,8 +180,8 @@ const promptSchemaRaw = [
   },
   {
     field: 'prompt.groupMemberUserPortraits',
-    label: '成员增强画像提示词',
-    bottomHelpMessage: '成员总结增强模块使用；支持 {maxPortraits}、{userStatsText}、{extraContext}、{messageTexts} 占位符，要求返回 JSON 数组',
+    label: '成员画像局部补修提示词',
+    bottomHelpMessage: '成员人物请求缺少 userPortraits 字段时才会调用，要求返回 JSON 数组',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -162,8 +190,8 @@ const promptSchemaRaw = [
   },
   {
     field: 'prompt.groupMemberQualityReview',
-    label: '成员增强锐评提示词',
-    bottomHelpMessage: '成员总结增强模块使用；支持 {statsText}、{extraContext}、{messageTexts} 占位符，要求返回 JSON 对象',
+    label: '成员锐评局部补修提示词',
+    bottomHelpMessage: '成员人物请求缺少 qualityReview 字段时才会调用，要求返回 JSON 对象',
     component: 'InputTextArea',
     componentProps: {
       ...textAreaProps,
@@ -177,8 +205,12 @@ const promptRecommendationMap = {
   'prompt.summaryDefault': '保持默认模板',
   'prompt.summaryImageAppend': '保持默认模板',
   'prompt.video': '保持默认模板',
-  'prompt.groupChat': '保持默认模板',
-  'prompt.groupMember': '保持默认模板',
+  'prompt.groupContentAnalysis': '保持默认模板',
+  'prompt.groupPeopleAnalysis': '保持默认模板',
+  'prompt.groupMemberContentAnalysis': '保持默认模板',
+  'prompt.groupMemberPeopleAnalysis': '保持默认模板',
+  'prompt.groupTopicSummary': '保持默认模板',
+  'prompt.groupMemberTopicSummary': '保持默认模板',
   'prompt.groupTopics': '保持默认模板',
   'prompt.groupHighlights': '保持默认模板',
   'prompt.groupUserPortraits': '保持默认模板',

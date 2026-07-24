@@ -881,13 +881,13 @@ function buildApiSchemaRaw() {
   createSingleConfigForm(
     '_apiJsonRepairConfig',
     'JSON修复模型配置',
-    '点击行内编辑按钮打开弹窗，单独编辑增强总结 JSON 修复使用的模型、地址、密钥、请求方式、超时和重试',
+    '点击行内编辑按钮打开弹窗，单独编辑结构化总结 JSON 修复使用的模型、地址、密钥、请求方式、超时和重试',
     createModelConfigSchemas({
       modelType: 'jsonRepair',
       modelLabel: 'JSON修复模型名',
       modelPlaceholder: 'gemini-flash-latest',
       timeoutLabel: 'JSON修复请求超时（毫秒）',
-      timeoutHelp: '增强总结模块输出不是合法 JSON 时，修复请求默认使用此超时',
+      timeoutHelp: '结构化总结输出不是合法 JSON 时，修复请求默认使用此超时',
       timeoutDefault: 60000,
       retryLabel: 'JSON修复重试次数',
       retryHelp: '单次 JSON 修复请求失败后的额外重试次数；结构修复轮数仍由“JSON修复重试次数”控制',
