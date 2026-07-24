@@ -853,10 +853,17 @@ class MessageService {
     const title = this.normalizeProfileTextValue(this.pickProfileValue(profile, ['title', 'special_title']))
     const aliases = [...new Set([card, nickname, actualUserId].filter(Boolean))]
 
-    const lines = [
-      '这是当前正在执行总结的机器人账号本人；如果聊天记录里出现该账号，请把它视为机器人发言，不要当作普通群友。',
-      '涉及机器人发言的分析、点评和吐槽，请使用第一人称“我”来表述，不要用“机器人/它/该账号”等第三人称代称。'
-    ]
+    const lines = actualUserId
+      ? [
+          '只有发送者用户ID与下方机器人QQ完全一致时，才属于当前正在执行总结的机器人本人。',
+          '昵称、群名片、头衔和显示名称仅用于展示，不能单独作为机器人本人身份的判断依据。',
+          '合并转发中出现的其他机器人均为独立第三方；即使昵称或群名片与当前机器人相同或相似，也不得当作当前机器人。',
+          '仅对发送者用户ID与机器人QQ完全一致的发言使用第一人称“我”；发送者ID不同或缺失时，一律按第三方发言处理。'
+        ]
+      : [
+          '当前机器人QQ未知，无法可靠确认聊天记录中的机器人本人发言。',
+          '不要仅凭昵称、群名片、头衔或显示名称使用第一人称“我”；所有发送者均按独立第三方处理。'
+        ]
 
     if (actualUserId) {
       lines.push(`机器人QQ：${actualUserId}`)
@@ -874,10 +881,10 @@ class MessageService {
       lines.push(`群头衔：${title}`)
     }
     if (aliases.length > 0) {
-      lines.push(`识别名称：${aliases.join(' / ')}`)
+      lines.push(`显示名称（仅辅助展示，不作为身份判定）：${aliases.join(' / ')}`)
     }
     if (aliases.length === 0 && !actualUserId) {
-      lines.push('机器人名称未知，但聊天记录中属于机器人账号的消息都应视为机器人本人发言。')
+      lines.push('机器人显示名称未知。')
     }
 
     return {
@@ -1241,8 +1248,11 @@ class MessageService {
           if (time) {
             prefixParts.push(time)
           }
-          if (nickname || userId) {
-            prefixParts.push(nickname || userId)
+          if (userId) {
+            prefixParts.push(`用户ID:${userId}`)
+          }
+          if (nickname && nickname !== userId) {
+            prefixParts.push(`昵称:${nickname}`)
           }
 
           const text = messageParts.join(' ')

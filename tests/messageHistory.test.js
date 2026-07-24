@@ -92,6 +92,53 @@ test('forwarded mini app cards keep the reduced summary instead of raw JSON', as
   assert.equal(result.orderedTexts[0].includes('should-not-be-sent-to-model'), false)
 })
 
+test('forwarded messages preserve sender IDs when different bots share a nickname', async () => {
+  const service = new MessageService()
+  const result = await service.parseForwardMessage({}, {
+    data: {
+      content: [
+        {
+          time: 1784865350,
+          sender: { user_id: 10001, nickname: '小助手' },
+          message: [{ type: 'text', data: { text: '当前机器人的发言' } }]
+        },
+        {
+          time: 1784865351,
+          sender: { user_id: 20002, nickname: '小助手' },
+          message: [{ type: 'text', data: { text: '其他机器人的发言' } }]
+        }
+      ]
+    }
+  })
+
+  assert.match(result.orderedTexts[0], /用户ID:10001 \| 昵称:小助手/)
+  assert.match(result.orderedTexts[1], /用户ID:20002 \| 昵称:小助手/)
+  assert.notEqual(result.orderedTexts[0], result.orderedTexts[1])
+})
+
+test('bot profile requires exact sender ID before using first person', () => {
+  const service = new MessageService()
+  const profile = service.formatBotProfile({
+    user_id: 10001,
+    card: '小助手',
+    nickname: '小助手'
+  })
+
+  assert.match(profile.promptText, /用户ID与下方机器人QQ完全一致/)
+  assert.match(profile.promptText, /其他机器人均为独立第三方/)
+  assert.match(profile.promptText, /发送者ID不同或缺失时，一律按第三方发言处理/)
+  assert.match(profile.promptText, /显示名称（仅辅助展示，不作为身份判定）/)
+})
+
+test('bot profile disables first-person inference when bot ID is unavailable', () => {
+  const service = new MessageService()
+  const profile = service.formatBotProfile({ nickname: '小助手' })
+
+  assert.match(profile.promptText, /当前机器人QQ未知/)
+  assert.match(profile.promptText, /所有发送者均按独立第三方处理/)
+  assert.equal(profile.promptText.includes('机器人QQ：'), false)
+})
+
 test('group history keeps paging when the protocol returns fewer messages than requested', async () => {
   const service = new MessageService()
   const messages = createMessages(250)

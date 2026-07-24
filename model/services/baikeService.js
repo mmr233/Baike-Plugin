@@ -3007,6 +3007,7 @@ class BaikeService {
       const promptSections = []
       if (orderedContextTexts.length > 0) {
         promptSections.push('以下内容已尽量按原消息顺序整理；文中的[M1 图片]、[M2 视频]、[M3 语音]、[M4 附件]等编号会与后续媒体分析结果一一对应。若某张长图或某个视频被自动切片，其片段仍属于同一个编号，请结合前后文连续理解，不要打乱对应关系。')
+        promptSections.push('说话人身份规则：合并转发中的每条记录都属于其标注的独立发送者。必须优先依据用户ID区分说话人，不得因昵称、群名片或内容风格相同而合并身份；没有用户ID的记录也不得推断为当前机器人。')
         promptSections.push(orderedContextTexts.join('\n'))
       }
       if (extraExtractedTexts.length > 0) {
