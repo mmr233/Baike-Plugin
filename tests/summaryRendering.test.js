@@ -67,6 +67,106 @@ test('content summary promotes the first real section when the summary is only a
   assert.equal(html.includes('>核心结论<'), false)
 })
 
+test('content summary title follows the detected input type', () => {
+  assert.equal(baikeService.getContentSummaryTitle({ hasForwardContent: true, videoCount: 1 }), '合并转发内容总结')
+  assert.equal(baikeService.getContentSummaryTitle({ imageCount: 2 }), '图片内容总结')
+  assert.equal(baikeService.getContentSummaryTitle({ videoCount: 1 }), '视频内容总结')
+  assert.equal(baikeService.getContentSummaryTitle({ documentCount: 1 }), '文档内容总结')
+  assert.equal(baikeService.getContentSummaryTitle({ audioCount: 1 }), '音频内容总结')
+  assert.equal(baikeService.getContentSummaryTitle({ imageCount: 1, audioCount: 1 }), '多媒体内容总结')
+  assert.equal(baikeService.getContentSummaryTitle({}), '内容总结')
+})
+
+test('video frame understanding only requires a configured image model', () => {
+  const originalConfigured = baikeService.apiService.isModelConfigured
+  const originalVideoImageConfig = baikeService.apiService.getVideoImageModelConfig
+  baikeService.apiService.isModelConfigured = type => ['summary', 'image'].includes(type)
+  baikeService.apiService.getVideoImageModelConfig = () => ({ enabled: true })
+
+  try {
+    const readiness = baikeService.getContentSummaryModelReadiness({ videoCount: 1 })
+    assert.equal(readiness.ready, true)
+    assert.equal(readiness.videoUsesImageModel, true)
+    assert.deepEqual(readiness.missing, [])
+  } finally {
+    baikeService.apiService.isModelConfigured = originalConfigured
+    baikeService.apiService.getVideoImageModelConfig = originalVideoImageConfig
+  }
+})
+
+test('content summary skips before charging when a required model is missing', async () => {
+  const originalMethods = {
+    extractImages: baikeService.messageService.extractImages,
+    extractVideos: baikeService.messageService.extractVideos,
+    extractVoices: baikeService.messageService.extractVoices,
+    extractFiles: baikeService.messageService.extractFiles,
+    extractAtMembers: baikeService.messageService.extractAtMembers,
+    isModelConfigured: baikeService.apiService.isModelConfigured,
+    getVideoImageModelConfig: baikeService.apiService.getVideoImageModelConfig,
+    chargeSummaryUsage: baikeService.chargeSummaryUsage,
+    tryGetCache: baikeService.tryGetCache
+  }
+  let chargeCount = 0
+  const replies = []
+  baikeService.messageService.extractImages = async () => [{ type: 'image', url: 'https://example.com/test.jpg' }]
+  baikeService.messageService.extractVideos = async () => []
+  baikeService.messageService.extractVoices = async () => []
+  baikeService.messageService.extractFiles = async () => []
+  baikeService.messageService.extractAtMembers = () => []
+  baikeService.apiService.isModelConfigured = type => type === 'summary'
+  baikeService.apiService.getVideoImageModelConfig = () => ({ enabled: false })
+  baikeService.chargeSummaryUsage = async () => {
+    chargeCount += 1
+    return {}
+  }
+  baikeService.tryGetCache = () => null
+
+  try {
+    await baikeService.summarize({
+      message_id: 'missing-image-model-test',
+      message: [{ type: 'image', data: { url: 'https://example.com/test.jpg' } }],
+      async reply(text) {
+        replies.push(String(text || ''))
+      }
+    })
+
+    assert.equal(chargeCount, 0)
+    assert.equal(replies.length, 1)
+    assert.match(replies[0], /无法进行图片内容总结/)
+    assert.match(replies[0], /未配置图片理解模型/)
+    assert.match(replies[0], /已自动跳过/)
+  } finally {
+    Object.assign(baikeService.messageService, {
+      extractImages: originalMethods.extractImages,
+      extractVideos: originalMethods.extractVideos,
+      extractVoices: originalMethods.extractVoices,
+      extractFiles: originalMethods.extractFiles,
+      extractAtMembers: originalMethods.extractAtMembers
+    })
+    baikeService.apiService.isModelConfigured = originalMethods.isModelConfigured
+    baikeService.apiService.getVideoImageModelConfig = originalMethods.getVideoImageModelConfig
+    baikeService.chargeSummaryUsage = originalMethods.chargeSummaryUsage
+    baikeService.tryGetCache = originalMethods.tryGetCache
+  }
+})
+
+test('model configuration ignores untouched placeholder credentials', () => {
+  const service = new ApiService()
+  service.getModelConfigCandidates = () => [{
+    valid: true,
+    baseUrl: 'https://your-api.example.com/v1',
+    apiKey: 'your-primary-api-key'
+  }]
+  assert.equal(service.isModelConfigured('summary'), false)
+
+  service.getModelConfigCandidates = () => [{
+    valid: true,
+    baseUrl: 'https://api.example.net/v1',
+    apiKey: 'configured-key'
+  }]
+  assert.equal(service.isModelConfigured('summary'), true)
+})
+
 test('content summary keeps private rules out of the user source prompt', () => {
   const systemPrompt = baikeService.buildContentSummarySystemPrompt({
     promptText: '只有QQ完全一致才属于当前机器人。'

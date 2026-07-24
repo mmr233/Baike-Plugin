@@ -1831,6 +1831,17 @@ class ApiService {
     })
   }
 
+  isModelConfigured(modelType = '') {
+    return this.getModelConfigCandidates(String(modelType || '').trim()).some(candidate => {
+      if (!candidate.valid) {
+        return false
+      }
+      const baseUrl = String(candidate.baseUrl || '').toLowerCase()
+      const apiKey = String(candidate.apiKey || '').toLowerCase()
+      return !baseUrl.includes('your-api.example.com') && apiKey !== 'your-primary-api-key'
+    })
+  }
+
   async fetchModelList(sourceConfig = {}, options = {}) {
     const apiConfig = options.apiConfig || Config.get('api', {})
     const inherited = options.inherited || {}

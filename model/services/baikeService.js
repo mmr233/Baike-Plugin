@@ -754,6 +754,62 @@ class BaikeService {
     }
   }
 
+  getContentSummaryTitle(input = {}) {
+    if (input.hasForwardContent) {
+      return '合并转发内容总结'
+    }
+
+    const types = [
+      Number(input.videoCount) > 0 ? 'video' : '',
+      Number(input.imageCount) > 0 ? 'image' : '',
+      Number(input.documentCount) > 0 ? 'document' : '',
+      Number(input.audioCount) > 0 ? 'audio' : ''
+    ].filter(Boolean)
+
+    if (types.length > 1) {
+      return '多媒体内容总结'
+    }
+
+    const titleMap = {
+      video: '视频内容总结',
+      image: '图片内容总结',
+      document: '文档内容总结',
+      audio: '音频内容总结'
+    }
+    return titleMap[types[0]] || '内容总结'
+  }
+
+  getContentSummaryModelReadiness(input = {}) {
+    const missing = []
+    const summaryConfigured = this.apiService.isModelConfigured('summary')
+    const imageConfigured = this.apiService.isModelConfigured('image')
+    const videoConfigured = this.apiService.isModelConfigured('video')
+    const audioConfigured = this.apiService.isModelConfigured('audio')
+    const videoImageConfig = this.apiService.getVideoImageModelConfig()
+
+    if (!summaryConfigured) {
+      missing.push('总结模型')
+    }
+    if (Number(input.imageCount) > 0 && !imageConfigured) {
+      missing.push('图片理解模型')
+    }
+    if (Number(input.audioCount) > 0 && !audioConfigured) {
+      missing.push('音频理解模型')
+    }
+    if (Number(input.videoCount) > 0) {
+      const canUseImageModel = videoImageConfig.enabled && imageConfigured
+      if (!canUseImageModel && !videoConfigured) {
+        missing.push(videoImageConfig.enabled ? '图片理解模型或视频理解模型' : '视频理解模型')
+      }
+    }
+
+    return {
+      ready: missing.length === 0,
+      missing: [...new Set(missing)],
+      videoUsesImageModel: Number(input.videoCount) > 0 && videoImageConfig.enabled && imageConfigured
+    }
+  }
+
   sanitizeFilename(name = 'file') {
     const safeName = String(name).replace(/[^\w.-]+/g, '_').slice(-60)
     return safeName || 'file'
@@ -859,15 +915,19 @@ class BaikeService {
       }
 
       if (Array.isArray(extracted?.images) && extracted.images.length > 0) {
-        const imageSummary = await this.summarizeAttachmentImages(name, extracted.images, {
-          kind: extracted.kind,
-          batchLimit: options.imageBatchLimit
-        })
-
-        if (imageSummary) {
-          sections.push(`【附件配图:${name}】\n${imageSummary}`)
+        if (!this.apiService.isModelConfigured('image')) {
+          sections.push(`【附件处理说明:${name}】未配置图片理解模型，已跳过文档配图识别`)
         } else {
-          sections.push(`【附件处理说明:${name}】已提取到文档图片，但当前图片分析上限为 0`)
+          const imageSummary = await this.summarizeAttachmentImages(name, extracted.images, {
+            kind: extracted.kind,
+            batchLimit: options.imageBatchLimit
+          })
+
+          if (imageSummary) {
+            sections.push(`【附件配图:${name}】\n${imageSummary}`)
+          } else {
+            sections.push(`【附件处理说明:${name}】已提取到文档图片，但当前图片分析上限为 0`)
+          }
         }
       }
 
@@ -2775,8 +2835,8 @@ class BaikeService {
     }
 
     const cacheKey = replySegment?.id
-      ? this.getCacheKey('summary-highlight-v2', `msg:${replySegment.id}`)
-      : this.getCacheKey('summary-highlight-v2', `media:${e.message_id || Date.now()}`)
+      ? this.getCacheKey('summary-highlight-v3', `msg:${replySegment.id}`)
+      : this.getCacheKey('summary-highlight-v3', `media:${e.message_id || Date.now()}`)
     const cached = this.tryGetCache(cacheKey, '内容总结')
 
     if (cached?.result) {
@@ -2790,16 +2850,17 @@ class BaikeService {
 
       const result = cached.result
       const notices = Array.isArray(cached.notices) ? cached.notices : []
+      const summaryTitle = String(cached.title || '内容总结').trim() || '内容总结'
       const displayText = this.buildSummaryDisplayText(result, notices)
       const billingText = this.buildSummaryBillingText(chargeResult, e)
       const finalDisplayText = this.appendSummaryBillingText(displayText, billingText)
-      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, notices, this.getCardRenderOptions({ billingText }))
+      const html = generateHutaoHTML(summaryTitle, this.buildSummaryHtmlContent(result), null, notices, this.getCardRenderOptions({ billingText }))
       const userInfo = this.messageService.getUserInfo(e)
       try {
         await this.sendResult(
           e,
-          [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${finalDisplayText}` }] }],
-          `内容总结：\n\n${finalDisplayText}`,
+          [{ ...userInfo, message: [{ type: 'text', text: `═══ ${summaryTitle} ═══\n\n${finalDisplayText}` }] }],
+          `${summaryTitle}：\n\n${finalDisplayText}`,
           html,
           'contentSummary'
         )
@@ -2820,6 +2881,7 @@ class BaikeService {
       const allAudios = []
       const allOtherFiles = []
       const directOtherFiles = []
+      let hasForwardContent = false
 
       this.appendExtractedFiles(directFiles, {
         images: directImages,
@@ -2842,6 +2904,14 @@ class BaikeService {
           const resId = replyMessage.res_id || replyMessage.id || replySegment.id
           if (resId) {
             const forwardContent = await this.messageService.parseForwardMessage(e, { id: resId, res_id: resId })
+            hasForwardContent = Boolean(
+              forwardContent.orderedTexts?.length
+              || forwardContent.texts?.length
+              || forwardContent.images?.length
+              || forwardContent.videos?.length
+              || forwardContent.audios?.length
+              || forwardContent.files?.length
+            )
             orderedContextTexts.push(...(forwardContent.orderedTexts?.length ? forwardContent.orderedTexts : forwardContent.texts))
             allImages.push(...forwardContent.images)
             allVideos.push(...forwardContent.videos)
@@ -2893,6 +2963,7 @@ class BaikeService {
             })
             replyOrderedParts.push(...this.messageService.getSummaryPlaceholdersFromFiles(files))
           } else if (type === 'forward') {
+            hasForwardContent = true
             this.flushOrderedSummaryParts(replyOrderedParts, orderedContextTexts)
             const forwardContent = await this.messageService.parseForwardMessage(e, segmentItem)
             orderedContextTexts.push(...(forwardContent.orderedTexts?.length ? forwardContent.orderedTexts : forwardContent.texts))
@@ -2911,6 +2982,7 @@ class BaikeService {
               const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
               const resId = parsed?.meta?.detail?.resid
               if (resId) {
+                hasForwardContent = true
                 this.flushOrderedSummaryParts(replyOrderedParts, orderedContextTexts)
                 const forwardContent = await this.messageService.parseForwardMessage(e, { id: resId, res_id: resId })
                 orderedContextTexts.push(...(forwardContent.orderedTexts?.length ? forwardContent.orderedTexts : forwardContent.texts))
@@ -2940,6 +3012,26 @@ class BaikeService {
         await e.reply('未能从消息中提取到可分析内容')
         return true
       }
+
+      const summaryInput = {
+        hasForwardContent,
+        imageCount: allImages.length,
+        videoCount: allVideos.length,
+        audioCount: allAudios.length,
+        documentCount: allOtherFiles.length
+      }
+      const summaryTitle = this.getContentSummaryTitle(summaryInput)
+      const modelReadiness = this.getContentSummaryModelReadiness(summaryInput)
+      if (!modelReadiness.ready) {
+        await e.reply(`无法进行${summaryTitle}：未配置${modelReadiness.missing.join('、')}，已自动跳过。请在锅巴面板中完成相关模型配置。`)
+        return true
+      }
+
+      debugLog('summary.modelReadiness', '内容总结模型预检通过', {
+        summaryTitle,
+        ...summaryInput,
+        videoUsesImageModel: modelReadiness.videoUsesImageModel
+      })
 
       chargeResult = await this.chargeSummaryUsage(e, {
         feature: 'contentSummary'
@@ -3072,16 +3164,16 @@ class BaikeService {
         return true
       }
 
-      this.setCache(cacheKey, { result, notices: summaryNotices })
+      this.setCache(cacheKey, { result, notices: summaryNotices, title: summaryTitle })
       const displayText = this.buildSummaryDisplayText(result, summaryNotices)
       const billingText = this.buildSummaryBillingText(chargeResult, e)
       const finalDisplayText = this.appendSummaryBillingText(displayText, billingText)
-      const html = generateHutaoHTML('内容总结', this.buildSummaryHtmlContent(result), null, summaryNotices, this.getCardRenderOptions({ billingText }))
+      const html = generateHutaoHTML(summaryTitle, this.buildSummaryHtmlContent(result), null, summaryNotices, this.getCardRenderOptions({ billingText }))
       const userInfo = this.messageService.getUserInfo(e)
       await this.sendResult(
         e,
-        [{ ...userInfo, message: [{ type: 'text', text: `═══ 内容总结 ═══\n\n${finalDisplayText}` }] }],
-        `内容总结：\n\n${finalDisplayText}`,
+        [{ ...userInfo, message: [{ type: 'text', text: `═══ ${summaryTitle} ═══\n\n${finalDisplayText}` }] }],
+        `${summaryTitle}：\n\n${finalDisplayText}`,
         html,
         'contentSummary'
       )
