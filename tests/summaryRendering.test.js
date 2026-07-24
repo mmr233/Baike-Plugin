@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
+import IdentityService from '../model/services/identityService.js'
 
 globalThis.logger = globalThis.logger || {
   debug() {},
@@ -335,6 +339,47 @@ test('master and sponsor descriptions remain differentiated and evidence-aware',
   assert.deepEqual(portraits[1].tags, ['#赞助用户'])
   assert.deepEqual(portraits[2].tags, ['#Bot主人', '#赞助用户'])
   assert.match(portraits[1].summary, /应与机器人主人身份明确区分/)
+})
+
+test('Yunzai owner config keeps numeric QQ values and current bot mappings only', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baike-owner-config-'))
+  const configDir = path.join(root, 'config', 'config')
+  fs.mkdirSync(configDir, { recursive: true })
+  fs.writeFileSync(path.join(configDir, 'other.yaml'), [
+    'masterQQ:',
+    '  - stdin',
+    '  - 12345678',
+    '  - abc123456',
+    'master:',
+    '  - stdin:stdin',
+    '  - 2701177370:3080477533',
+    '  - 2701177370:not-a-number',
+    '  - 1234567890:87654321'
+  ].join('\n'))
+  const service = new IdentityService({ yunzaiRoot: root })
+  service.providerPromise = Promise.resolve({
+    getUserIdentities() {
+      return {
+        87654321: { isSponsor: true, sponsorAmount: 30 }
+      }
+    }
+  })
+
+  try {
+    const result = await service.getUserIdentities(
+      ['12345678', '3080477533', '87654321', 'stdin', 'abc123456'],
+      { event: { self_id: '2701177370' } }
+    )
+
+    assert.equal(result['12345678'].isMaster, true)
+    assert.equal(result['3080477533'].isMaster, true)
+    assert.equal(result['87654321'].isMaster, false)
+    assert.equal(result['87654321'].isSponsor, true)
+    assert.equal(result.stdin.isMaster, false)
+    assert.equal(result.abc123456.isMaster, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('explicit numeric mentions retain an at sign before the user chip', () => {
