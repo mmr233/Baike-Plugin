@@ -2823,8 +2823,9 @@ class ApiService {
     return finalResult
   }
 
-  async callSummaryAPI(content, mediaFiles = []) {
+  async callSummaryAPI(content, mediaFiles = [], options = {}) {
     const fileConfig = Config.get('fileRequest', {})
+    const systemPromptOverride = String(options.systemPromptOverride || '').trim() || null
     const imageFiles = mediaFiles.filter(item => item.type === 'image')
     const videoFiles = mediaFiles.filter(item => item.type === 'video')
     const mediaSections = []
@@ -2904,7 +2905,7 @@ class ApiService {
     }
 
     if (mediaSections.length === 0) {
-      return this.callSummaryTextAPI(normalizedContent)
+      return this.callSummaryTextAPI(normalizedContent, systemPromptOverride)
     }
 
     const finalPrompt = [
@@ -2915,7 +2916,7 @@ class ApiService {
       mediaSections.join('\n\n')
     ].filter(Boolean).join('\n\n')
 
-    return this.callSummaryTextAPI(finalPrompt)
+    return this.callSummaryTextAPI(finalPrompt, systemPromptOverride)
   }
 
   async searchKeyword(keyword) {

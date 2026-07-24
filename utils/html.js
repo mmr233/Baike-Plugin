@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pluginName, pluginRoot, packageInfo } from '../model/constant.js'
-import { escapeHtml, getVisibleName } from './text.js'
+import { escapeHtml, getVisibleName, stripSummaryHighlightMarkers } from './text.js'
 
 let footerTextCache = null
 
@@ -268,6 +268,17 @@ function getNightJournalCSS() {
     }
     body.theme-night .summary-card-title {
       color: #f4ead8;
+    }
+    body.theme-night .pdf-highlight.keyword {
+      background-image: linear-gradient(transparent 48%, rgba(242,197,119,0.62) 48%, rgba(242,197,119,0.62) 90%, transparent 90%);
+    }
+    body.theme-night .pdf-highlight.sentence {
+      background-image: linear-gradient(transparent 18%, rgba(232,140,114,0.3) 18%, rgba(232,140,114,0.3) 92%, transparent 92%);
+      box-shadow: inset 0 -1px 0 rgba(232,140,114,0.7);
+    }
+    body.theme-night .pdf-highlight.paragraph {
+      background: rgba(143,214,210,0.16);
+      box-shadow: inset 3px 0 0 rgba(143,214,210,0.72);
     }
     body.theme-night .hero-kicker,
     body.theme-night .hero-text,
@@ -814,6 +825,27 @@ function getJournalCSS(theme = 'light') {
       font-family: var(--font-hand);
       font-size: 11px;
       letter-spacing: 1px;
+    }
+    .pdf-highlight {
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
+    }
+    .pdf-highlight.keyword {
+      padding: 0 2px;
+      background-image: linear-gradient(transparent 48%, rgba(255,220,73,0.7) 48%, rgba(255,220,73,0.7) 90%, transparent 90%);
+      font-weight: 700;
+    }
+    .pdf-highlight.sentence {
+      padding: 1px 3px;
+      border-radius: 2px;
+      background-image: linear-gradient(transparent 18%, rgba(255,170,122,0.28) 18%, rgba(255,170,122,0.28) 92%, transparent 92%);
+      box-shadow: inset 0 -1px 0 rgba(217,109,82,0.52);
+    }
+    .pdf-highlight.paragraph {
+      padding: 2px 5px 2px 8px;
+      border-radius: 3px;
+      background: rgba(113,184,204,0.13);
+      box-shadow: inset 3px 0 0 rgba(71,145,166,0.58);
     }
     .card-stack {
       display: flex;
@@ -1686,7 +1718,7 @@ function renderUserStatChip(item = {}, fallbackLabel = '', options = {}) {
   return escapeHtml(getVisibleName(item?.nickname, item?.name, fallbackLabel, '未知成员'))
 }
 
-function renderInlineRichText(text = '', options = {}) {
+function renderInlineBaseText(text = '', options = {}) {
   const source = String(text || '')
   const pattern = /(\[(\d{5,12})\]|@(\d{5,12}))/g
   let html = ''
@@ -1730,6 +1762,31 @@ function renderInlineRichText(text = '', options = {}) {
   }
 
   html += renderPlainText(source.slice(lastIndex))
+  return html
+}
+
+function renderInlineRichText(text = '', options = {}) {
+  const source = String(text || '')
+  const pattern = /\[\[(K|S|P)\]\]([\s\S]*?)\[\[\/\1\]\]/gi
+  const classMap = {
+    K: 'keyword',
+    S: 'sentence',
+    P: 'paragraph'
+  }
+  let html = ''
+  let lastIndex = 0
+  let match = pattern.exec(source)
+
+  while (match) {
+    html += renderInlineBaseText(stripSummaryHighlightMarkers(source.slice(lastIndex, match.index)), options)
+    const type = String(match[1] || '').toUpperCase()
+    const content = stripSummaryHighlightMarkers(match[2] || '')
+    html += `<span class="pdf-highlight ${classMap[type] || 'sentence'}">${renderInlineBaseText(content, options)}</span>`
+    lastIndex = match.index + match[0].length
+    match = pattern.exec(source)
+  }
+
+  html += renderInlineBaseText(stripSummaryHighlightMarkers(source.slice(lastIndex)), options)
   return html
 }
 

@@ -12,17 +12,18 @@ globalThis.logger = globalThis.logger || {
   error() {}
 }
 
-const [{ default: baikeService }, { default: MediaService }, { generateGroupSummaryHTML, generateHutaoHTML }, { default: Config }] = await Promise.all([
+const [{ default: baikeService }, { default: MediaService }, { generateGroupSummaryHTML, generateHutaoHTML }, { default: Config }, { default: ApiService }] = await Promise.all([
   import('../model/services/baikeService.js'),
   import('../model/services/mediaService.js'),
   import('../utils/html.js'),
-  import('../model/Config.js')
+  import('../model/Config.js'),
+  import('../model/services/apiService.js')
 ])
 
 test('content summary card emphasizes conclusions without duplicating a snapshot', () => {
   const html = generateHutaoHTML('内容总结', [
-    '【核心结论】\n这是一段直接展示的核心结论。',
-    '【关键要点】\n• 第一项重点\n• 第二项重点',
+    '【核心结论】\n[[P]]这是一段直接展示的核心结论。[[/P]]',
+    '【关键要点】\n• [[S]]第一项是最重要的完整句子。[[/S]]\n• 第二项包含[[K]]关键词[[/K]]',
     '【风险与注意】\n需要核实匿名来源。',
     '【补充说明】\n这是背景信息。'
   ].join('\n\n'))
@@ -32,7 +33,13 @@ test('content summary card emphasizes conclusions without duplicating a snapshot
   assert.match(html, /class="summary-card key"/)
   assert.match(html, /class="summary-card warning"/)
   assert.match(html, /class="summary-card supplement"/)
+  assert.match(html, /class="pdf-highlight paragraph"/)
+  assert.match(html, /class="pdf-highlight sentence"/)
+  assert.match(html, /class="pdf-highlight keyword"/)
   assert.equal(html.includes('摘要快照'), false)
+  assert.equal(html.includes('[[K]]'), false)
+  assert.equal(html.includes('[[S]]'), false)
+  assert.equal(html.includes('[[P]]'), false)
   assert.equal((html.match(/这是一段直接展示的核心结论。/g) || []).length, 1)
 })
 
@@ -43,6 +50,57 @@ test('content summary card keeps unstructured legacy text readable', () => {
   assert.match(html, /内容解读/)
   assert.match(html, /没有章节标记的旧版总结正文。/)
   assert.match(html, /body class="theme-night"/)
+})
+
+test('content summary keeps private rules out of the user source prompt', () => {
+  const systemPrompt = baikeService.buildContentSummarySystemPrompt({
+    promptText: '只有QQ完全一致才属于当前机器人。'
+  })
+  const sourcePrompt = baikeService.buildContentSummarySourcePrompt(
+    ['群友发送的原始内容。'],
+    ['【附件内容】附件正文。']
+  )
+
+  assert.match(systemPrompt, /内部指令，不属于待总结内容/)
+  assert.match(systemPrompt, /\[\[K\]\]/)
+  assert.match(systemPrompt, /只有QQ完全一致才属于当前机器人/)
+  assert.match(sourcePrompt, /群友发送的原始内容/)
+  assert.match(sourcePrompt, /附件正文/)
+  assert.equal(sourcePrompt.includes('机器人身份'), false)
+  assert.equal(sourcePrompt.includes('高亮协议'), false)
+})
+
+test('summary API passes the private system prompt separately', async () => {
+  const service = new ApiService()
+  let capturedContent = ''
+  let capturedSystemPrompt = ''
+  service.callSummaryTextAPI = async (content, systemPrompt) => {
+    capturedContent = content
+    capturedSystemPrompt = systemPrompt
+    return '完成'
+  }
+
+  const result = await service.callSummaryAPI('仅包含待总结素材', [], {
+    systemPromptOverride: '私有总结规则'
+  })
+
+  assert.equal(result, '完成')
+  assert.equal(capturedContent, '仅包含待总结素材')
+  assert.equal(capturedSystemPrompt, '私有总结规则')
+})
+
+test('text summary output strips all highlight control markers', () => {
+  const displayText = baikeService.buildSummaryDisplayText(
+    '内容分析总结：\n<<<SOURCE_CONTENT>>>\n【核心结论】\n[[P]]重点段落包含[[K]]关键词[[/K]]。[[/P]]\n[[S]]重点句。[[/S]]\n<<<END_SOURCE_CONTENT>>>'
+  )
+
+  assert.match(displayText, /重点段落包含关键词/)
+  assert.match(displayText, /重点句/)
+  assert.equal(displayText.includes('内容分析总结'), false)
+  assert.equal(displayText.includes('SOURCE_CONTENT'), false)
+  assert.equal(displayText.includes('[[K]]'), false)
+  assert.equal(displayText.includes('[[S]]'), false)
+  assert.equal(displayText.includes('[[P]]'), false)
 })
 
 async function withMockedStructuredSummaryConfig(callback) {

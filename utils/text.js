@@ -33,6 +33,10 @@ export function beautifyText(text = '') {
     .trim()
 }
 
+export function stripSummaryHighlightMarkers(text = '') {
+  return String(text || '').replace(/\[\[\/?(?:K|S|P)\]\]/gi, '')
+}
+
 export function stripInvisibleNameChars(value = '') {
   return String(value || '')
     .replace(/[\u00A0\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u2000-\u200F\u202A-\u202E\u205F\u2060-\u206F\u2800\u3000\u3164\uFEFF\uFFA0]/g, '')
