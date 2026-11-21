@@ -134,6 +134,28 @@ function truncateDebugText(value, limit = 160) {
   return text.length > limit ? `${text.slice(0, limit)}...` : text
 }
 
+function isReasoningPart(value) {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const type = String(value.type || '').toLowerCase()
+  return value.thought === true || /(^|[._-])(reasoning|thinking|thought|analysis)([._-]|$)/.test(type)
+}
+
+function stripReasoningText(value = '') {
+  let text = String(value || '')
+    .replace(/<(think|thinking|thought|reasoning|analysis)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<(?:think|thinking|thought|reasoning|analysis)\b[^>]*>[\s\S]*$/gi, '')
+
+  const closingTag = /<\/(?:think|thinking)\s*>/i.exec(text)
+  if (closingTag) {
+    text = text.slice(closingTag.index + closingTag[0].length)
+  }
+
+  return text.trim()
+}
+
 function pushTextParts(value, parts, depth = 0) {
   if (depth > 8 || value === undefined || value === null) {
     return
@@ -154,7 +176,7 @@ function pushTextParts(value, parts, depth = 0) {
     return
   }
 
-  if (typeof value !== 'object') {
+  if (typeof value !== 'object' || isReasoningPart(value)) {
     return
   }
 
@@ -203,7 +225,7 @@ function pushSequentialTextParts(value, parts, depth = 0) {
     return
   }
 
-  if (typeof value !== 'object') {
+  if (typeof value !== 'object' || isReasoningPart(value)) {
     return
   }
 
@@ -232,15 +254,22 @@ function pushSequentialTextParts(value, parts, depth = 0) {
 }
 
 function extractResponseText(json = {}) {
+  if (isReasoningPart(json)) {
+    return ''
+  }
+
   const parts = []
+  const choice = json?.choices?.[0]
+  const message = isReasoningPart(choice?.message) ? null : choice?.message
+  const delta = isReasoningPart(choice?.delta) ? null : choice?.delta
   const candidates = [
-    json?.choices?.[0]?.message?.content,
-    json?.choices?.[0]?.message,
-    json?.choices?.[0]?.delta?.content,
+    message?.content,
+    message,
+    delta?.content,
     json?.output_text,
     json?.output,
     json?.content,
-    json?.delta?.text,
+    json?.delta,
     json?.candidates
   ]
 
@@ -248,7 +277,7 @@ function extractResponseText(json = {}) {
     pushTextParts(candidate, parts)
   }
 
-  return dedupeStrings(parts).join('\n').trim()
+  return stripReasoningText(dedupeStrings(parts).join('\n'))
 }
 
 function normalizeUsageObject(usage = null) {
@@ -786,7 +815,7 @@ function pushCitationUrls(value, urls, depth = 0) {
   }
 
   if (typeof value === 'string') {
-    const matches = value.match(/https?:\/\/[^\s)>\]]+/gi) || []
+    const matches = stripReasoningText(value).match(/https?:\/\/[^\s)>\]]+/gi) || []
     for (const match of matches) {
       urls.push(match.replace(/[.,;]+$/, ''))
     }
@@ -800,7 +829,7 @@ function pushCitationUrls(value, urls, depth = 0) {
     return
   }
 
-  if (typeof value !== 'object') {
+  if (typeof value !== 'object' || isReasoningPart(value)) {
     return
   }
 
@@ -810,7 +839,7 @@ function pushCitationUrls(value, urls, depth = 0) {
     }
   }
 
-  for (const field of ['citations', 'annotations', 'source', 'content', 'message', 'output', 'items']) {
+  for (const field of ['citations', 'annotation', 'annotations', 'source', 'content', 'message', 'output', 'items', 'response']) {
     if (value[field] !== undefined) {
       pushCitationUrls(value[field], urls, depth + 1)
     }
@@ -853,17 +882,24 @@ function extractSseEventPayload(rawEvent = '') {
 }
 
 function extractStreamDeltaText(chunk = {}) {
+  if (isReasoningPart(chunk) || isReasoningPart(chunk?.delta)) {
+    return ''
+  }
+
   const parts = []
   const choices = Array.isArray(chunk?.choices) ? chunk.choices : []
 
   for (const choice of choices) {
+    if (isReasoningPart(choice?.delta)) {
+      continue
+    }
     pushSequentialTextParts(choice?.delta?.content, parts)
     pushSequentialTextParts(choice?.delta?.text, parts)
   }
 
   if (parts.length === 0 && Array.isArray(chunk?.output)) {
     for (const item of chunk.output) {
-      if (!/delta/i.test(String(item?.type || ''))) {
+      if (isReasoningPart(item) || !/delta/i.test(String(item?.type || ''))) {
         continue
       }
 
@@ -892,10 +928,17 @@ function extractStreamDeltaText(chunk = {}) {
 }
 
 function extractStreamSnapshotText(chunk = {}) {
+  if (isReasoningPart(chunk) || isReasoningPart(chunk?.delta)) {
+    return ''
+  }
+
   const parts = []
   const choices = Array.isArray(chunk?.choices) ? chunk.choices : []
 
   for (const choice of choices) {
+    if (isReasoningPart(choice?.message)) {
+      continue
+    }
     pushSequentialTextParts(choice?.message?.content, parts)
     pushSequentialTextParts(choice?.message, parts)
   }
@@ -906,16 +949,22 @@ function extractStreamSnapshotText(chunk = {}) {
     pushSequentialTextParts(chunk?.message?.content, parts)
   }
 
+  if (parts.length === 0 && chunk?.type === 'response.completed') {
+    pushSequentialTextParts(chunk?.response?.output_text, parts)
+    if (parts.length === 0) {
+      pushSequentialTextParts(chunk?.response?.output, parts)
+    }
+  }
+
   return parts.join('')
 }
 
 function buildStreamResponseJson(state = {}) {
-  const content = state.contentParts?.join('')
-    || state.snapshotText
-    || dedupeStrings(state.rawTextParts || []).join('\n')
+  const content = stripReasoningText(state.contentParts?.join(''))
+    || stripReasoningText(state.snapshotText)
+    || stripReasoningText(dedupeStrings(state.rawTextParts || []).join('\n'))
   const citations = dedupeStrings(state.citations || [])
-  const usage = extractResponseUsage(state.lastChunk || {})
-    || (state.events || []).map(item => extractResponseUsage(item)).find(Boolean)
+  const usage = extractResponseUsage(state.lastChunk || {}) || state.usage
   const message = {
     role: 'assistant',
     content
@@ -937,7 +986,6 @@ function buildStreamResponseJson(state = {}) {
         finish_reason: state.lastChunk?.choices?.[0]?.finish_reason || (state.done ? 'stop' : null)
       }
     ],
-    output: state.events || [],
     ...(usage ? { usage } : {})
   }
 }
@@ -2293,7 +2341,7 @@ class ApiService {
       snapshotText: '',
       rawTextParts: [],
       citations: [],
-      events: [],
+      usage: null,
       lastChunk: null,
       done: false
     }
@@ -2323,8 +2371,8 @@ class ApiService {
         )
       }
 
-      state.events.push(chunk)
       state.lastChunk = chunk
+      state.usage = state.usage || extractResponseUsage(chunk)
       pushCitationUrls(chunk, state.citations)
 
       const deltaText = extractStreamDeltaText(chunk)
@@ -2372,7 +2420,7 @@ class ApiService {
 
     const json = buildStreamResponseJson(state)
     return {
-      text: extractResponseText(json) || dedupeStrings(state.rawTextParts || []).join('\n'),
+      text: extractResponseText(json),
       json
     }
   }
@@ -2482,7 +2530,7 @@ class ApiService {
             candidateIndex: candidateIndex + 1,
             candidateCount: validCandidates.length,
             candidateLabel: candidate.label,
-            preview: String(result.text || '').slice(0, 200)
+            preview: extractResponseText(result.json).slice(0, 200)
           })
 
           return {
