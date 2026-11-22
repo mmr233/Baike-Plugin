@@ -653,3 +653,57 @@ test('explicit numeric mentions retain an at sign before the user chip', () => {
 
   assert.match(html, /<span class="mention-prefix">@<\/span>\s*<span class="user-chip/)
 })
+
+test('inline user chips do not add line breaks to topic summaries', () => {
+  const html = generateGroupSummaryHTML('群聊总结', {
+    topicSummary: '大家讨论：Alice与Bob共同总结。\n接着@10001回复[10002]。',
+    topics: [{ topic: '讨论', detail: 'Alice与Bob交流。' }]
+  }, {
+    userMap: {
+      10001: { userId: '10001', nickname: 'Alice' },
+      10002: { userId: '10002', nickname: 'Bob' }
+    }
+  })
+
+  const paragraph = html.match(/<div class="topic-summary">\s*<div class="rich-paragraph">([\s\S]*?)<\/div>/)?.[1]
+  assert.ok(paragraph)
+  assert.doesNotMatch(paragraph, /[\r\n]/)
+  assert.match(paragraph, /大家讨论：<span class="user-chip mini"/)
+  assert.match(paragraph, /<\/span><\/span>与<span class="user-chip mini"/)
+  assert.match(paragraph, /<\/span><\/span>共同总结。<br>接着<span class="mention-prefix">@<\/span><span class="user-chip mini"/)
+  assert.match(paragraph, /<\/span><\/span>回复<span class="user-chip mini"/)
+})
+
+test('highlight mentions stay inline while preserving message line breaks', () => {
+  const html = generateGroupSummaryHTML('群聊总结', {
+    highlights: [{ sender: 'Alice', content: '你好@10002，看看[10001]。\n下一行。' }]
+  }, {
+    userMap: {
+      10001: { userId: '10001', nickname: 'Alice' },
+      10002: { userId: '10002', nickname: 'Bob' }
+    }
+  })
+
+  const paragraph = html.match(/<div class="quote-content">\s*<div class="rich-paragraph">([\s\S]*?)<\/div>/)?.[1]
+  assert.ok(paragraph)
+  assert.doesNotMatch(paragraph, /[\r\n]/)
+  assert.match(paragraph, /你好<span class="mention-prefix">@<\/span><span class="user-chip"/)
+  assert.match(paragraph, /<\/span><\/span>，看看<span class="user-chip"/)
+  assert.match(paragraph, /<\/span><\/span>。<br>下一行。/)
+})
+
+test('topic contributor chips have no template whitespace', () => {
+  const html = generateGroupSummaryHTML('群聊总结', {
+    topics: [{ topic: '讨论', contributors: ['Alice', 'Bob'] }]
+  }, {
+    userMap: {
+      10001: { userId: '10001', nickname: 'Alice' },
+      10002: { userId: '10002', nickname: 'Bob' }
+    }
+  })
+
+  const contributors = html.match(/<div class="topic-contributors">([\s\S]*?)<\/div>/)?.[1]
+  assert.ok(contributors)
+  assert.doesNotMatch(contributors, /[\r\n]/)
+  assert.match(contributors, /<\/span><\/span><span class="topic-contributor user-chip"/)
+})

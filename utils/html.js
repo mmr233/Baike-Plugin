@@ -1635,12 +1635,12 @@ function renderUserChip(userId = '', options = {}) {
 
   const miniClass = options.mini ? ' mini' : ''
   const displayName = getUserChipDisplayName(user.name, options)
-  return `
-    <span class="user-chip${miniClass}" title="${escapeHtml(`${user.name} (${user.userId})`)}">
-      ${user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : ''}
-      <span class="user-chip-name">${escapeHtml(displayName)}</span>
-    </span>
-  `
+  return [
+    `<span class="user-chip${miniClass}" title="${escapeHtml(`${user.name} (${user.userId})`)}">`,
+    user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : '',
+    `<span class="user-chip-name">${escapeHtml(displayName)}</span>`,
+    '</span>'
+  ].join('')
 }
 
 function renderUserChipByName(name = '', options = {}) {
@@ -1652,12 +1652,12 @@ function renderUserChipByName(name = '', options = {}) {
 
   const miniClass = options.mini ? ' mini' : ''
   const displayName = getUserChipDisplayName(user.name, options)
-  return `
-    <span class="topic-contributor user-chip${miniClass}" title="${escapeHtml(`${user.name} (${user.userId})`)}">
-      ${user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : ''}
-      <span class="user-chip-name">${escapeHtml(displayName)}</span>
-    </span>
-  `
+  return [
+    `<span class="topic-contributor user-chip${miniClass}" title="${escapeHtml(`${user.name} (${user.userId})`)}">`,
+    user.avatar ? `<img class="user-chip-avatar" src="${escapeHtml(user.avatar)}" alt="">` : '',
+    `<span class="user-chip-name">${escapeHtml(displayName)}</span>`,
+    '</span>'
+  ].join('')
 }
 
 function getUserAliasEntries(options = {}) {
