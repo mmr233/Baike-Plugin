@@ -183,19 +183,24 @@ class DocumentService {
           const entry = entries[index]
           const ext = path.extname(entry.entryName).toLowerCase() || '.png'
           const imagePath = this.createTempFilePath('docx_img', `${path.basename(fileName, path.extname(fileName))}_${index + 1}`, ext)
-          fs.writeFileSync(imagePath, entry.getData())
+          try {
+            fs.writeFileSync(imagePath, entry.getData())
 
-          const prepared = await this.prepareImageForAnalysis(
-            imagePath,
-            {
-              name: `${fileName}#图片${index + 1}`
-            },
-            imageLimit - images.length
-          )
+            const prepared = await this.prepareImageForAnalysis(
+              imagePath,
+              {
+                name: `${fileName}#图片${index + 1}`
+              },
+              imageLimit - images.length
+            )
 
-          images.push(...prepared.images)
-          if (prepared.truncated) {
-            skippedImages += prepared.skippedCount
+            images.push(...prepared.images)
+            if (prepared.truncated) {
+              skippedImages += prepared.skippedCount
+            }
+          } catch (error) {
+            this.mediaService.cleanupFile(imagePath)
+            throw error
           }
         }
 
@@ -295,18 +300,23 @@ class DocumentService {
               `${path.basename(fileName, path.extname(fileName))}_${pageNumber}`,
               '.png'
             )
-            fs.writeFileSync(imagePath, canvas.toBuffer('image/png'))
+            try {
+              fs.writeFileSync(imagePath, canvas.toBuffer('image/png'))
 
-            const prepared = await this.prepareImageForAnalysis(
-              imagePath,
-              {
-                name: `${fileName}#第${pageNumber}页`
-              },
-              imageLimit - images.length
-            )
+              const prepared = await this.prepareImageForAnalysis(
+                imagePath,
+                {
+                  name: `${fileName}#第${pageNumber}页`
+                },
+                imageLimit - images.length
+              )
 
-            images.push(...prepared.images)
-            renderedPages = pageNumber
+              images.push(...prepared.images)
+              renderedPages = pageNumber
+            } catch (error) {
+              this.mediaService.cleanupFile(imagePath)
+              throw error
+            }
           }
         } finally {
           page.cleanup()

@@ -35,6 +35,7 @@ function readUInt24LE(buffer, offset) {
 class MediaService {
   constructor() {
     this.tempDir = path.join(process.cwd(), 'temp', pluginName)
+    this.cleanupStaleTempFiles()
   }
 
   createTempMediaPath(prefix = 'media', ext = '.tmp') {
@@ -49,12 +50,42 @@ class MediaService {
     fs.mkdirSync(this.tempDir, { recursive: true })
   }
 
+  cleanupStaleTempFiles(maxAgeMs = 60 * 60 * 1000) {
+    if (!fs.existsSync(this.tempDir)) {
+      return 0
+    }
+
+    const cutoff = Date.now() - Math.max(1000, Number(maxAgeMs) || 0)
+    let removedCount = 0
+
+    try {
+      for (const entry of fs.readdirSync(this.tempDir, { withFileTypes: true })) {
+        if (!entry.isFile()) {
+          continue
+        }
+
+        const filePath = path.join(this.tempDir, entry.name)
+        const stat = fs.statSync(filePath)
+        if (stat.mtimeMs >= cutoff) {
+          continue
+        }
+
+        this.cleanupFile(filePath)
+        removedCount += 1
+      }
+    } catch (error) {
+      globalThis.logger?.warn?.(`[${pluginName}] 清理过期临时文件失败：${error.message}`)
+    }
+
+    return removedCount
+  }
+
   cleanupFile(filePath, delay = 0) {
     if (!filePath) {
       return
     }
 
-    setTimeout(() => {
+    const remove = () => {
       try {
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath)
@@ -62,11 +93,20 @@ class MediaService {
       } catch (error) {
         logger.warn(`[${pluginName}] 清理临时文件失败：${error.message}`)
       }
-    }, delay)
+    }
+
+    if (Number(delay) > 0) {
+      const timer = setTimeout(remove, Number(delay))
+      timer.unref?.()
+      return timer
+    }
+
+    remove()
   }
 
   cleanupFiles(files, delay = 0) {
-    for (const file of files) {
+    const items = Array.isArray(files) ? files : [files]
+    for (const file of items) {
       const filePath = typeof file === 'string' ? file : file?.localPath
       this.cleanupFile(filePath, delay)
     }
@@ -883,6 +923,7 @@ class MediaService {
       fs.writeFileSync(filePath, buffer)
       return filePath
     } catch (error) {
+      this.cleanupFile(filePath)
       const resourceLabel = this.getSafeResourceLabel(url, filename)
       if (timedOut || error?.name === 'AbortError') {
         logger.warn(`[${pluginName}] 下载文件超时（${timeoutMs}ms）：${resourceLabel}`)
@@ -1198,59 +1239,74 @@ class MediaService {
       return files
     }
 
-    for (let index = 0; index < targets.length && files.length < totalLimit; index += 1) {
-      const image = targets[index]
-      meta.processedSourceCount = index + 1
-      let ext = this.isGifUrl(image.url) ? 'gif' : 'jpg'
-      let localPath = await this.downloadFile(image.url, `${prefix}_${Date.now()}_${index}.${ext}`)
-      let isGif = ext === 'gif'
+    let inFlightPath = ''
+    try {
+      for (let index = 0; index < targets.length && files.length < totalLimit; index += 1) {
+        const image = targets[index]
+        meta.processedSourceCount = index + 1
+        let ext = this.isGifUrl(image.url) ? 'gif' : 'jpg'
+        const fileName = `${prefix}_${Date.now()}_${index}.${ext}`
+        inFlightPath = path.join(this.tempDir, fileName)
+        let localPath = await this.downloadFile(image.url, fileName)
+        inFlightPath = localPath || inFlightPath
+        let isGif = ext === 'gif'
 
-      if (!localPath) {
-        continue
-      }
-
-      try {
-        const buffer = fs.readFileSync(localPath)
-        isGif = this.looksLikeGif(buffer)
-
-        if (isGif && !localPath.endsWith('.gif')) {
-          const newPath = localPath.replace(/\.[^.]+$/, '.gif')
-          fs.renameSync(localPath, newPath)
-          localPath = newPath
-        }
-      } catch (error) {
-        logger.warn(`[${pluginName}] 识别图片类型失败：${error.message}`)
-      }
-
-      if (isGif) {
-        const staticPath = await this.convertGifToStaticImage(localPath)
-        if (!staticPath) {
-          logger.warn(`[${pluginName}] GIF 无法转为静态图，已跳过：${image.url}`)
-          this.cleanupFile(localPath)
+        if (!localPath) {
+          inFlightPath = ''
           continue
         }
 
-        this.cleanupFile(localPath)
-        localPath = staticPath
+        try {
+          const buffer = fs.readFileSync(localPath)
+          isGif = this.looksLikeGif(buffer)
+
+          if (isGif && !localPath.endsWith('.gif')) {
+            const newPath = localPath.replace(/\.[^.]+$/, '.gif')
+            fs.renameSync(localPath, newPath)
+            localPath = newPath
+            inFlightPath = newPath
+          }
+        } catch (error) {
+          logger.warn(`[${pluginName}] 识别图片类型失败：${error.message}`)
+        }
+
+        if (isGif) {
+          const staticPath = await this.convertGifToStaticImage(localPath)
+          if (!staticPath) {
+            logger.warn(`[${pluginName}] GIF 无法转为静态图，已跳过：${image.url}`)
+            this.cleanupFile(localPath)
+            inFlightPath = ''
+            continue
+          }
+
+          this.cleanupFile(localPath)
+          localPath = staticPath
+          inFlightPath = staticPath
+        }
+
+        const remainingSlots = totalLimit - files.length
+        const preparedFiles = await this.splitLongImage(localPath, {
+          type: 'image',
+          url: image.url,
+          name: image.name || ''
+        })
+
+        if (preparedFiles.length > remainingSlots) {
+          this.cleanupFiles(preparedFiles.slice(remainingSlots))
+          meta.skippedSegmentCount += preparedFiles.length - remainingSlots
+          meta.limited = true
+          logger.warn(
+            `[${pluginName}] 长图拆分后图片数量超过上限，已截断剩余 ${preparedFiles.length - remainingSlots} 张：${image.url}`
+          )
+        }
+
+        files.push(...preparedFiles.slice(0, remainingSlots))
+        inFlightPath = ''
       }
-
-      const remainingSlots = totalLimit - files.length
-      const preparedFiles = await this.splitLongImage(localPath, {
-        type: 'image',
-        url: image.url,
-        name: image.name || ''
-      })
-
-      if (preparedFiles.length > remainingSlots) {
-        this.cleanupFiles(preparedFiles.slice(remainingSlots))
-        meta.skippedSegmentCount += preparedFiles.length - remainingSlots
-        meta.limited = true
-        logger.warn(
-          `[${pluginName}] 长图拆分后图片数量超过上限，已截断剩余 ${preparedFiles.length - remainingSlots} 张：${image.url}`
-        )
-      }
-
-      files.push(...preparedFiles.slice(0, remainingSlots))
+    } catch (error) {
+      this.cleanupFile(inFlightPath)
+      this.cleanupFiles(files)
+      throw error
     }
 
     if (meta.processedSourceCount < targets.length) {
@@ -1284,46 +1340,62 @@ class MediaService {
       limited: false
     }
 
-    for (let index = 0; index < targets.length; index += 1) {
-      if (files.length >= maxPreparedCount) {
-        meta.skippedSourceCount += targets.length - index
-        meta.limited = true
-        break
+    let inFlightPaths = []
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        if (files.length >= maxPreparedCount) {
+          meta.skippedSourceCount += targets.length - index
+          meta.limited = true
+          break
+        }
+
+        const video = targets[index]
+        meta.processedSourceCount = index + 1
+        const fileName = `${prefix}_${Date.now()}_${index}.mp4`
+        const expectedPath = path.join(this.tempDir, fileName)
+        const localPath = await this.downloadFile(video.url, fileName, {
+          timeoutMs
+        })
+        inFlightPaths = [localPath || expectedPath].filter(Boolean)
+        if (!localPath) {
+          inFlightPaths = []
+          continue
+        }
+
+        const preparedFiles = await this.prepareVideoForLLM(localPath, {
+          type: 'video',
+          url: video.url,
+          name: video.name || ''
+        }, {
+          prefix
+        })
+        inFlightPaths = [
+          ...inFlightPaths,
+          ...preparedFiles.map(item => item?.localPath).filter(Boolean)
+        ]
+
+        if (preparedFiles.some(item => item?.videoProcessMeta?.totalSegments > 1)) {
+          meta.splitSourceCount += 1
+        }
+        meta.compressedSegmentCount += preparedFiles.filter(item => item?.videoProcessMeta?.wasCompressed).length
+
+        const remainingSlots = maxPreparedCount - files.length
+        if (preparedFiles.length > remainingSlots) {
+          this.cleanupFiles(preparedFiles.slice(remainingSlots))
+          meta.skippedSegmentCount += preparedFiles.length - remainingSlots
+          meta.limited = true
+          logger.warn(
+            `[${pluginName}] 视频预处理后片段数量超过上限，已截断剩余 ${preparedFiles.length - remainingSlots} 段：${video.url}`
+          )
+        }
+
+        files.push(...preparedFiles.slice(0, remainingSlots))
+        inFlightPaths = []
       }
-
-      const video = targets[index]
-      meta.processedSourceCount = index + 1
-      const localPath = await this.downloadFile(video.url, `${prefix}_${Date.now()}_${index}.mp4`, {
-        timeoutMs
-      })
-      if (!localPath) {
-        continue
-      }
-
-      const preparedFiles = await this.prepareVideoForLLM(localPath, {
-        type: 'video',
-        url: video.url,
-        name: video.name || ''
-      }, {
-        prefix
-      })
-
-      if (preparedFiles.some(item => item?.videoProcessMeta?.totalSegments > 1)) {
-        meta.splitSourceCount += 1
-      }
-      meta.compressedSegmentCount += preparedFiles.filter(item => item?.videoProcessMeta?.wasCompressed).length
-
-      const remainingSlots = maxPreparedCount - files.length
-      if (preparedFiles.length > remainingSlots) {
-        this.cleanupFiles(preparedFiles.slice(remainingSlots))
-        meta.skippedSegmentCount += preparedFiles.length - remainingSlots
-        meta.limited = true
-        logger.warn(
-          `[${pluginName}] 视频预处理后片段数量超过上限，已截断剩余 ${preparedFiles.length - remainingSlots} 段：${video.url}`
-        )
-      }
-
-      files.push(...preparedFiles.slice(0, remainingSlots))
+    } catch (error) {
+      this.cleanupFiles(inFlightPaths)
+      this.cleanupFiles(files)
+      throw error
     }
 
     Object.defineProperty(files, 'summaryMeta', {
@@ -1339,12 +1411,18 @@ class MediaService {
     const files = []
     const targets = (audios || []).slice(0, maxCount)
 
-    for (let index = 0; index < targets.length; index += 1) {
-      const audio = targets[index]
-      const localPath = await this.downloadFile(audio.url, `${prefix}_${Date.now()}_${index}.mp3`)
-      if (localPath) {
-        files.push({ ...audio, type: 'audio', localPath, url: audio.url })
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        const audio = targets[index]
+        const fileName = `${prefix}_${Date.now()}_${index}.mp3`
+        const localPath = await this.downloadFile(audio.url, fileName)
+        if (localPath) {
+          files.push({ ...audio, type: 'audio', localPath, url: audio.url })
+        }
       }
+    } catch (error) {
+      this.cleanupFiles(files)
+      throw error
     }
 
     return files
@@ -1360,6 +1438,7 @@ class MediaService {
       return targetPath
     } catch (error) {
       logger.warn(`[${pluginName}] 音频转 MP3 失败：${error.message}`)
+      this.cleanupFile(targetPath)
       return null
     }
   }

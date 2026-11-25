@@ -2873,6 +2873,9 @@ class BaikeService {
     }
 
     let chargeResult = null
+    let imageFiles = []
+    let videoFiles = []
+    let audioFiles = []
     try {
       let orderedContextTexts = []
       const extraExtractedTexts = []
@@ -3078,8 +3081,8 @@ class BaikeService {
       }, mediaLabelAssigner)
 
       const fileLimits = this.getSummaryFileLimits()
-      const imageFiles = await this.mediaService.downloadImages(allImages, 'sum_img', fileLimits.totalImageLimit)
-      const videoFiles = await this.mediaService.downloadVideos(
+      imageFiles = await this.mediaService.downloadImages(allImages, 'sum_img', fileLimits.totalImageLimit)
+      videoFiles = await this.mediaService.downloadVideos(
         allVideos,
         'sum_vid',
         allVideos.length,
@@ -3087,7 +3090,7 @@ class BaikeService {
           maxPreparedCount: fileLimits.totalVideoLimit
         }
       )
-      const audioFiles = await this.mediaService.downloadAudios(allAudios, 'sum_audio', fileLimits.totalAudioLimit)
+      audioFiles = await this.mediaService.downloadAudios(allAudios, 'sum_audio', fileLimits.totalAudioLimit)
       const mediaFiles = [...imageFiles, ...videoFiles]
 
       debugLog('summary.media', '内容总结媒体批次配置', {
@@ -3182,6 +3185,10 @@ class BaikeService {
       await this.refundSummaryUsage(chargeResult, 'content_summary_failed')
       logger.error(`[${pluginName}] 内容总结失败`, error)
       await e.reply('总结失败，请稍后重试')
+    } finally {
+      this.mediaService.cleanupFiles(imageFiles)
+      this.mediaService.cleanupFiles(videoFiles)
+      this.mediaService.cleanupFiles(audioFiles)
     }
 
     return true
@@ -3267,6 +3274,7 @@ class BaikeService {
     )
 
     let chargeResult = null
+    let imageFiles = []
     try {
       const historyFetchConfig = chatConfig.historyFetch || {}
       const historyResult = await this.messageService.getGroupHistoryMessages(
@@ -3382,7 +3390,7 @@ class BaikeService {
       let imageSummary = ''
       if (allImageUrls.length > 0) {
         const fileLimits = this.getSummaryFileLimits()
-        const imageFiles = await this.mediaService.downloadImages(
+        imageFiles = await this.mediaService.downloadImages(
           allImageUrls.map(url => ({ type: 'image', url })),
           'group_img',
           fileLimits.totalImageLimit
@@ -3557,6 +3565,8 @@ class BaikeService {
         ok: false,
         error
       })
+    } finally {
+      this.mediaService.cleanupFiles(imageFiles)
     }
 
     return true

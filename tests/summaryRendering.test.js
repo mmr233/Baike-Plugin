@@ -363,6 +363,40 @@ test('download resource labels omit signed query parameters', () => {
   assert.equal(label, 'image.png <- example.com/media/image.png')
 })
 
+test('zero-delay media cleanup is completed before returning', () => {
+  const service = new MediaService()
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baike-media-cleanup-'))
+  const filePath = path.join(root, 'download.bin')
+  fs.writeFileSync(filePath, 'temporary')
+
+  try {
+    service.cleanupFile(filePath)
+    assert.equal(fs.existsSync(filePath), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('startup cleanup removes stale temp files without touching recent files', () => {
+  const service = new MediaService()
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baike-stale-cleanup-'))
+  service.tempDir = root
+  const stalePath = path.join(root, 'stale.bin')
+  const recentPath = path.join(root, 'recent.bin')
+  fs.writeFileSync(stalePath, 'old')
+  fs.writeFileSync(recentPath, 'new')
+  const oldTime = new Date(Date.now() - 60_000)
+  fs.utimesSync(stalePath, oldTime, oldTime)
+
+  try {
+    assert.equal(service.cleanupStaleTempFiles(10_000), 1)
+    assert.equal(fs.existsSync(stalePath), false)
+    assert.equal(fs.existsSync(recentPath), true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('highlight identity keeps the matched QQ, nickname and avatar together', () => {
   const parsed = {
     highlights: [{
